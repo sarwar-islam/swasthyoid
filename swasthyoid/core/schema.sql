@@ -86,3 +86,50 @@ CREATE TRIGGER events_no_change BEFORE UPDATE OR DELETE ON events
 DROP TRIGGER IF EXISTS events_no_truncate ON events;
 CREATE TRIGGER events_no_truncate BEFORE TRUNCATE ON events
     FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
+-- C1 consents (FRD 4.1, ERD A). The row holds the current state; every change is
+-- also written to consent_events (append-only) and to audit_logs.
+CREATE TABLE IF NOT EXISTS consents (
+    id                 uuid PRIMARY KEY,
+    patient_id         uuid NOT NULL,
+    grantee_id         uuid NOT NULL,
+    grantee_role       text NOT NULL CHECK (grantee_role <> ''),
+    purpose            text NOT NULL CHECK (purpose IN (
+                           'TIMELINE', 'APPOINTMENT', 'REFERRAL', 'DISPENSING', 'EMERGENCY', 'CLOUD_AI')),
+    resource_type      text,
+    resource_id        uuid,
+    allowed_categories text[] NOT NULL CHECK (cardinality(allowed_categories) > 0),
+    method             text,                    -- OTP / QR / in-app, set on activation
+    status             text NOT NULL CHECK (status IN ('pending', 'active', 'suspended', 'expired', 'revoked')),
+    activated_at       timestamptz,
+    expires_at         timestamptz,
+    max_window_ends_at timestamptz,
+    revoked_at         timestamptz,
+    revoked_by         uuid,
+    -- LEGAL-PENDING (FRD open question 8): versions of the consent wording and policy shown to the patient.
+    consent_version    int NOT NULL,
+    policy_version     text NOT NULL,
+    created_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT binding_is_whole CHECK ((resource_type IS NULL) = (resource_id IS NULL)),
+    CONSTRAINT active_has_expiry CHECK (status <> 'active' OR expires_at IS NOT NULL)
+);
+-- Foreign keys to patients and users are added with those tables (slice 6).
+
+CREATE INDEX IF NOT EXISTS consents_lookup ON consents (grantee_id, patient_id, purpose, status);
+
+CREATE TABLE IF NOT EXISTS consent_events (
+    id         uuid PRIMARY KEY,
+    consent_id uuid NOT NULL REFERENCES consents (id),
+    action     text NOT NULL,
+    actor_id   uuid,                            -- null when the system acts (expiry)
+    at         timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+DROP TRIGGER IF EXISTS consent_events_no_change ON consent_events;
+CREATE TRIGGER consent_events_no_change BEFORE UPDATE OR DELETE ON consent_events
+    FOR EACH ROW EXECUTE FUNCTION append_only();
+
+DROP TRIGGER IF EXISTS consent_events_no_truncate ON consent_events;
+CREATE TRIGGER consent_events_no_truncate BEFORE TRUNCATE ON consent_events
+    FOR EACH STATEMENT EXECUTE FUNCTION append_only();
