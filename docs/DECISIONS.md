@@ -13,11 +13,11 @@ Questions are copied from FRD section 12. Options are listed only where the FRD 
 
 ## Q2 — MongoDB + Qdrant, or one PostgreSQL with pgvector and pg_trgm?
 
-- **Status:** OPEN
+- **Status:** DECIDED
 - **Options:** (a) MongoDB + Qdrant; (b) one PostgreSQL with pgvector and pg_trgm
-- **Decision:**
-- **Owner:**
-- **Date:**
+- **Decision:** (b) one PostgreSQL. pgvector and pg_trgm are added when P3 needs them.
+- **Owner:** Sarwar Islam
+- **Date:** 2026-11-11
 
 ## Q4 — Where is the system hosted, and must health data stay in Bangladesh?
 

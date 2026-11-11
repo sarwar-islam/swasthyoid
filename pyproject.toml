@@ -2,13 +2,16 @@
 name = "swasthyoid"
 version = "0.0.0"
 requires-python = ">=3.11"
-dependencies = ["fastapi", "uvicorn"]
+dependencies = ["fastapi", "uvicorn", "psycopg[binary]"]
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]
 
 [tool.setuptools.packages.find]
 include = ["swasthyoid*"]
+
+[tool.setuptools.package-data]
+swasthyoid = ["**/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["swasthyoid/tests"]
