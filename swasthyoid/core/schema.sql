@@ -159,3 +159,16 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
     error           text,
     at              timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+
+-- Platform: Idempotency-Key replay for authenticated writes (FRD 7, ERD D).
+-- The ERD keys this table by `key` alone; it is scoped per caller and endpoint here so
+-- two callers can never collide on, or read back, each other's keys.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    actor_id     uuid NOT NULL,
+    endpoint     text NOT NULL,                 -- method and path
+    key          text NOT NULL,
+    request_hash text NOT NULL,
+    response     jsonb,                         -- null while the first request is still running
+    expires_at   timestamptz NOT NULL,
+    PRIMARY KEY (actor_id, endpoint, key)
+);

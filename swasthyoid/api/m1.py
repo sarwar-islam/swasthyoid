@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
 from swasthyoid import pii
-from swasthyoid.api.deps import Actor, ApiError, client_info, get_code_sender, get_conn, require
+from swasthyoid.api.deps import (
+    Actor, ApiError, client_info, get_code_sender, get_conn, idempotent, require,
+)
 from swasthyoid.core import audit, consent_authz, notification
 from swasthyoid.identity import accounts, otp, sessions
 
@@ -123,22 +125,29 @@ class CredentialBody(BaseModel):
 
 
 @router.post("/credentials", status_code=201)
-def submit_credential(body: CredentialBody, conn=Depends(get_conn),
+def submit_credential(body: CredentialBody, request: Request, conn=Depends(get_conn),
                       a: Actor = Depends(require("doctor", "pharmacist", verified=False))):
-    try:
-        row = accounts.submit_credential(conn, user_id=a.id, **body.model_dump())
-    except psycopg.errors.UniqueViolation:
-        raise ApiError(409, "credential_exists", "This credential number is already registered.")
-    return {"id": row["id"], "status": row["status"]}
+    def work():
+        try:
+            row = accounts.submit_credential(conn, user_id=a.id, **body.model_dump())
+        except psycopg.errors.UniqueViolation:
+            raise ApiError(409, "credential_exists", "This credential number is already registered.")
+        return {"id": row["id"], "status": row["status"]}
+
+    return idempotent(conn, request, a, body, work)
 
 
 @router.post("/credentials/{credential_id}/approve")
-def approve_credential(credential_id: UUID, conn=Depends(get_conn), a: Actor = Depends(require("admin"))):
-    try:
-        user_id = accounts.approve_credential(conn, credential_id, admin_id=a.id)
-    except ValueError:
-        raise ApiError(404, "not_found", "No pending credential with this id.")
-    return {"user_id": user_id, "status": "verified"}
+def approve_credential(credential_id: UUID, request: Request, conn=Depends(get_conn),
+                       a: Actor = Depends(require("admin"))):
+    def work():
+        try:
+            user_id = accounts.approve_credential(conn, credential_id, admin_id=a.id)
+        except ValueError:
+            raise ApiError(404, "not_found", "No pending credential with this id.")
+        return {"user_id": user_id, "status": "verified"}
+
+    return idempotent(conn, request, a, None, work)
 
 
 # ---- Consent Center
@@ -159,42 +168,52 @@ def _view(row):
 
 
 @router.post("/consents/requests", status_code=201)
-def request_consent(body: ConsentRequestBody, conn=Depends(get_conn), send=Depends(get_code_sender),
-                    a: Actor = Depends(require("doctor"))):
+def request_consent(body: ConsentRequestBody, request: Request, conn=Depends(get_conn),
+                    send=Depends(get_code_sender), a: Actor = Depends(require("doctor"))):
     """A verified doctor asks for TIMELINE access by Health ID. The patient gets a one-time code."""
-    _consent_hours()
-    patient = conn.execute("SELECT id, phone_enc FROM patients WHERE health_id = %s", [body.health_id]).fetchone()
-    if patient is None:
-        raise ApiError(404, "patient_not_found", "No patient has this Health ID.")
-    row = consent_authz.create(
-        conn, patient_id=patient[0], grantee_id=a.id, grantee_role=a.role, purpose="TIMELINE",
-        allowed_categories=set(body.categories), consent_version=CONSENT_VERSION,
-        policy_version=POLICY_VERSION, actor_id=a.id,
-    )
-    try:
-        otp.request_code(conn, pii.decrypt(patient[1]), send, kind="consent", ref=str(row["id"]))
-    except otp.TooManyRequests:
-        raise ApiError(429, "too_many_requests", "Too many codes sent to this patient. Try again later.")
-    return _view(row)
+
+    def work():
+        _consent_hours()
+        patient = conn.execute("SELECT id, phone_enc FROM patients WHERE health_id = %s", [body.health_id]).fetchone()
+        if patient is None:
+            raise ApiError(404, "patient_not_found", "No patient has this Health ID.")
+        row = consent_authz.create(
+            conn, patient_id=patient[0], grantee_id=a.id, grantee_role=a.role, purpose="TIMELINE",
+            allowed_categories=set(body.categories), consent_version=CONSENT_VERSION,
+            policy_version=POLICY_VERSION, actor_id=a.id,
+        )
+        try:
+            otp.request_code(conn, pii.decrypt(patient[1]), send, kind="consent", ref=str(row["id"]))
+        except otp.TooManyRequests:
+            raise ApiError(429, "too_many_requests", "Too many codes sent to this patient. Try again later.")
+        return _view(row)
+
+    return idempotent(conn, request, a, body, work)
 
 
 @router.post("/consents/requests/{consent_id}/confirm")
-def confirm_consent(consent_id: UUID, body: CodeBody, conn=Depends(get_conn), a: Actor = Depends(require("doctor"))):
+def confirm_consent(consent_id: UUID, body: CodeBody, request: Request, conn=Depends(get_conn),
+                    a: Actor = Depends(require("doctor"))):
     """The doctor enters the code the patient told them; only then does the consent become active."""
-    lifetime = _consent_hours()
-    row = consent_authz.get(conn, consent_id)
-    if row is None or row["grantee_id"] != a.id or row["status"] != "pending":
-        raise ApiError(404, "not_found", "No pending consent request with this id.")
-    phone = pii.decrypt(conn.execute("SELECT phone_enc FROM patients WHERE id = %s", [row["patient_id"]]).fetchone()[0])
-    if not otp.verify_code(conn, phone, body.code, kind="consent", ref=str(consent_id)):
-        raise ApiError(403, "invalid_code", "The code is wrong or has expired.")
-    with conn.transaction():
-        now = conn.execute("SELECT clock_timestamp()").fetchone()[0]
-        row = consent_authz.activate(conn, consent_id, method="OTP", expires_at=now + lifetime,
-                                     actor_id=row["patient_id"])
-        notification.enqueue(conn, recipient_id=row["patient_id"], template_id="CONSENT_GRANTED_PLACEHOLDER",
-                             payload={"consent_id": str(consent_id)})
-    return _view(row)
+
+    def work():
+        lifetime = _consent_hours()
+        row = consent_authz.get(conn, consent_id)
+        if row is None or row["grantee_id"] != a.id or row["status"] != "pending":
+            raise ApiError(404, "not_found", "No pending consent request with this id.")
+        phone = pii.decrypt(
+            conn.execute("SELECT phone_enc FROM patients WHERE id = %s", [row["patient_id"]]).fetchone()[0])
+        if not otp.verify_code(conn, phone, body.code, kind="consent", ref=str(consent_id)):
+            raise ApiError(403, "invalid_code", "The code is wrong or has expired.")
+        with conn.transaction():
+            now = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+            row = consent_authz.activate(conn, consent_id, method="OTP", expires_at=now + lifetime,
+                                         actor_id=row["patient_id"])
+            notification.enqueue(conn, recipient_id=row["patient_id"], template_id="CONSENT_GRANTED_PLACEHOLDER",
+                                 payload={"consent_id": str(consent_id)})
+        return _view(row)
+
+    return idempotent(conn, request, a, body, work)
 
 
 def _names(conn, ids):
@@ -209,13 +228,17 @@ def list_consents(conn=Depends(get_conn), a: Actor = Depends(require("patient"))
 
 
 @router.post("/consents/{consent_id}/revoke")
-def revoke_consent(consent_id: UUID, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
-    try:
-        return _view(consent_authz.revoke(conn, consent_id, actor_id=a.id))
-    except (LookupError, PermissionError):
-        raise ApiError(404, "not_found", "No consent with this id.")  # never reveal another patient's consent
-    except ValueError:
-        raise ApiError(409, "not_revocable", "This consent is not active.")
+def revoke_consent(consent_id: UUID, request: Request, conn=Depends(get_conn),
+                   a: Actor = Depends(require("patient"))):
+    def work():
+        try:
+            return _view(consent_authz.revoke(conn, consent_id, actor_id=a.id))
+        except (LookupError, PermissionError):
+            raise ApiError(404, "not_found", "No consent with this id.")  # never reveal another patient's consent
+        except ValueError:
+            raise ApiError(409, "not_revocable", "This consent is not active.")
+
+    return idempotent(conn, request, a, None, work)
 
 
 @router.get("/me/access-history")

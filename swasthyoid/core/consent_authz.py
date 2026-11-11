@@ -5,6 +5,7 @@ with find(), calls authorize_access, and MUST write the C2 audit entry for every
 decision, allow or deny.
 """
 from dataclasses import dataclass
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from psycopg.rows import dict_row
@@ -247,3 +248,23 @@ def list_for_patient(conn, patient_id):
     """Every consent the patient has been asked for or given, newest first (Consent Center)."""
     return conn.cursor(row_factory=dict_row).execute(
         "SELECT * FROM consents WHERE patient_id = %s ORDER BY created_at DESC, id", [patient_id]).fetchall()
+
+
+def check_access(conn, *, user, patient_id, purpose, categories, action, resource=None, **client):
+    """C1 then C2 for one non-patient read: decide, write the audit entry, return the Decision.
+
+    The entry is written for allow and deny alike, before any data is read. If the consent
+    lookup or the audit write fails this raises, and the caller must not return data.
+    `client` is the audit context: device_id, ip, user_agent.
+    """
+    consent = find(conn, grantee_id=user.id, patient_id=patient_id, purpose=purpose, resource=resource)
+    decision = authorize_access(
+        AccessRequest(purpose, frozenset(categories), resource), user, SimpleNamespace(id=patient_id),
+        consent, _now(conn),
+    )
+    audit.append(
+        conn, action=action, result="allow" if decision.allowed else "deny", reason=decision.reason,
+        actor_id=user.id, actor_role=user.role, patient_id=patient_id, consent_id=consent and consent.id,
+        purpose=purpose, resource_type=resource and resource.type, resource_id=resource and resource.id, **client,
+    )
+    return decision
