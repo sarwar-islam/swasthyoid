@@ -133,3 +133,29 @@ CREATE TRIGGER consent_events_no_change BEFORE UPDATE OR DELETE ON consent_event
 DROP TRIGGER IF EXISTS consent_events_no_truncate ON consent_events;
 CREATE TRIGGER consent_events_no_truncate BEFORE TRUNCATE ON consent_events
     FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
+-- C3 notifications (FRD 4.3, ERD D). The table is the queue: a row is written in the
+-- source module's transaction, then a worker delivers it.
+CREATE TABLE IF NOT EXISTS notifications (
+    id              uuid PRIMARY KEY,
+    recipient_id    uuid NOT NULL,
+    template_id     text NOT NULL CHECK (template_id <> ''),
+    payload         jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+    status          text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'delivered', 'fallback_in_app')),
+    attempts        int NOT NULL DEFAULT 0,
+    next_attempt_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    created_at      timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE INDEX IF NOT EXISTS notifications_due ON notifications (next_attempt_at) WHERE status = 'queued';
+CREATE INDEX IF NOT EXISTS notifications_recipient ON notifications (recipient_id, created_at);
+
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id              uuid PRIMARY KEY,
+    notification_id uuid NOT NULL REFERENCES notifications (id),
+    channel         text NOT NULL,
+    attempt         int NOT NULL,
+    status          text NOT NULL CHECK (status IN ('sent', 'failed')),
+    error           text,
+    at              timestamptz NOT NULL DEFAULT clock_timestamp()
+);
