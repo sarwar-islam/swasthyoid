@@ -2,7 +2,7 @@
 name = "swasthyoid"
 version = "0.0.0"
 requires-python = ">=3.11"
-dependencies = ["fastapi", "uvicorn", "psycopg[binary]"]
+dependencies = ["fastapi", "uvicorn", "psycopg[binary]", "PyJWT", "cryptography"]
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]

@@ -2,6 +2,12 @@ import os
 import uuid
 
 import pytest
+from cryptography.fernet import Fernet
+
+# Throwaway keys for the test run only.
+os.environ.setdefault("PII_KEY", Fernet.generate_key().decode())
+os.environ.setdefault("HMAC_KEY", uuid.uuid4().hex * 2)
+os.environ.setdefault("JWT_SECRET", uuid.uuid4().hex * 2)
 
 
 @pytest.fixture

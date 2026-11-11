@@ -236,3 +236,14 @@ def find(conn, *, grantee_id, patient_id, purpose, resource=None):
         expires_at=row["expires_at"], max_window_ends_at=row["max_window_ends_at"],
         resource_type=row["resource_type"], resource_id=row["resource_id"],
     )
+
+
+def get(conn, consent_id):
+    """One consent row, or None."""
+    return conn.cursor(row_factory=dict_row).execute("SELECT * FROM consents WHERE id = %s", [consent_id]).fetchone()
+
+
+def list_for_patient(conn, patient_id):
+    """Every consent the patient has been asked for or given, newest first (Consent Center)."""
+    return conn.cursor(row_factory=dict_row).execute(
+        "SELECT * FROM consents WHERE patient_id = %s ORDER BY created_at DESC, id", [patient_id]).fetchall()

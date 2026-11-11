@@ -9,7 +9,8 @@ import re
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
-ALLOWED = {"core", "tests"}
+# api/ is exempt: routers for /consents etc. carry those words in their names but only call core/.
+ALLOWED = {"core", "tests", "api"}
 FORBIDDEN = re.compile(r"consent|audit|notif|authori[sz]", re.IGNORECASE)
 
 

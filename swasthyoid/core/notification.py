@@ -14,6 +14,7 @@ PLACEHOLDER: quiet hours (Asia/Dhaka) are not implemented; the FRD gives no hour
 shortcut: no Celery yet, deliver_due is a plain function; wrap it in a task when
 Redis and hosting exist.
 """
+import logging
 from datetime import timedelta
 from uuid import uuid4
 
@@ -21,6 +22,15 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from swasthyoid.core import audit
+
+
+def send_code_dev(phone, code):
+    """DEV ONLY one-time-code sender: writes the code to the log instead of sending an SMS.
+
+    PLACEHOLDER: the real SMS gateway is not chosen. Codes do not go through the queue
+    below, because a queued row would store the code and a new phone has no recipient id yet.
+    """
+    logging.getLogger(__name__).warning("DEV one-time code for %s: %s", phone, code)
 
 
 def enqueue(conn, *, recipient_id, template_id, payload):

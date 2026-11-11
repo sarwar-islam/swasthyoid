@@ -3,7 +3,8 @@ from pathlib import Path
 
 import psycopg
 
-SCHEMA_FILES = [Path(__file__).parent / "core" / "schema.sql"]
+_ROOT = Path(__file__).parent
+SCHEMA_FILES = [_ROOT / "core" / "schema.sql", _ROOT / "identity" / "schema.sql"]
 
 
 def connect(**kwargs):

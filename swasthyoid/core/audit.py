@@ -84,3 +84,10 @@ def verify_stored(conn, head=GENESIS):
     entries = [{**_hashable(r), "prev_hash": r["prev_hash"], "entry_hash": r["entry_hash"]} for r in rows]
     bad = verify_chain(entries, head)
     return None if bad is None else rows[bad]["seq"]
+
+
+def history_for_patient(conn, patient_id):
+    """Patient transparency: who did what with this patient's data and when, newest first."""
+    cols = ("at", "actor_id", "actor_role", "action", "purpose", "result", "reason", "consent_id")
+    cur = conn.execute(f"SELECT {', '.join(cols)} FROM audit_logs WHERE patient_id = %s ORDER BY seq DESC", [patient_id])
+    return [dict(zip(cols, r)) for r in cur]
