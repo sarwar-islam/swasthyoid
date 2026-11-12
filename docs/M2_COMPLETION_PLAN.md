@@ -1,4 +1,4 @@
-# M2 completion plan (P2) — revised baseline, pending owner approval
+# M2 completion plan (P2) — revised baseline, committed in `2b626aa`, owner approval pending
 
 Status on 2026-11-12.
 
@@ -6,7 +6,7 @@ Status on 2026-11-12.
 
 - Slices 1 and 2 are built and pushed (`e18bf48`, `63df1f9`, `6021085`): upload, encrypted immutable originals, the extraction pipeline on a fake OCR engine, and the recovery tests.
 - **Step 1 (worker reliability) is implemented in `1ebdb15`, with the S1 fix `cc836f5` accepted by the owner. Linux CI passed. The fix is on local `main` as `6b11e65` (cherry-pick of `cc836f5`). It is NOT marked complete** until `main` is pushed (owner approval) and the owner marks it.
-- An earlier version of this plan is committed in `2389991`. **This revision is uncommitted, pending owner approval.**
+- An earlier version of this plan is in `2389991`. **This revision is committed in `2b626aa` (local `main`, not pushed). Committing it records it; owner approval of its content is still pending.**
 - `1ebdb15` and `2389991` are **local and not pushed**.
 - **Linux CI verified for Step 1** on branch `verify/step1-1ebdb15` (ubuntu-26.04, Python 3.12.16, PostgreSQL 16.15): `1ebdb15` run #13, 258 passed, 0 failed, 0 skipped, 0 errors; `cc836f5` (S1 fix, accepted) run #14, 259 passed, 0 failed, 0 skipped, 0 errors. `cc836f5` was cherry-picked onto local `main` as `6b11e65`; its code is identical to what run #14 tested. Local `main` (`1ebdb15`, `2389991`, `6b11e65`) is **not pushed**, so `main` itself has not run in CI. CI for `63df1f9` and `6021085` was never checked separately; `2389991` is docs only.
 - **Decided 2026-11-12 (Option A):** a document with no OCR adapter available stays due (`uploaded`) and can go straight to manual entry; it is never marked `extraction_failed` for that reason. Design proposed in `docs/DECISIONS.md`; not implemented.

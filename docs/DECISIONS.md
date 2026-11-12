@@ -90,6 +90,9 @@ helped by a caregiver. This is not in the FRD yet; the FRD changes it needs are 
 
 ## FRD changes required
 
+*Status 2026-11-12:* all six changes below are applied in the FRD v3 revision (sections 2, 4.1,
+6.2, 6.5 and 7); that revision awaits owner approval. The list is kept as originally recorded.
+
 - **4.1 consent purposes:** add `CAREGIVER` (grantee: caregiver; bound to patient and caregiver;
   scope: the three permissions above; activates on patient approval; ends on expiry, revoke or
   replacement).
@@ -510,7 +513,7 @@ a contract.** Under this decision its items are split:
 | Adapter named by a stable reference in configuration and imported where OCR runs (no pickled objects) | Lifecycle detail beyond "identify, prepare, read, release": load once or per attempt, long-lived process (4A-1), batching (4A-21) |
 | Adapter availability checked before any claim (Option A); unavailable means no claim, no attempt, documents stay due | What the adapter receives: encoded image, decoded pixels, page or whole document, document-type hint (4A-2, 4A-3, 4A-10) |
 | Whether an integrity or load failure before any claim means "unavailable" (D13) | What it returns: granularity, confidence and its meaning, position format, reading order, size limits, strictness on one bad item (4A-4 to 4A-9) |
-| Identity recorded with every extraction: engine id, model version, model checksum, contract version, optionally adapter version (4A-20); field names provisional | How the checksum is defined for the artifact (single file or manifest) (4A-11); how deep the pre-claim check goes, including a probe load (4A-12) |
+| Identity recorded with every extraction: engine id, model version, model checksum, interface version, optionally adapter version (4A-20); field names provisional | How the checksum is defined for the artifact (single file or manifest) (4A-11); how deep the pre-claim check goes, including a probe load (4A-12) |
 | Typed failure codes, attempts and retries as in step 1; no fallback; nothing stored from a failed attempt. (Model-specific retry semantics, including whether malformed output is retried (4A-17), wait for the contract: D17 revision 6) | Timeout values: load, per page, per attempt, and whether a per-page limit exists at all (4A-14) |
 | Fake adapters refused outside `APP_ENV=test` before any claim; approved-adapter list in configuration (4A-18) | Resource limits (4A-22); whether the runtime needs its own process or a separate executable |
 | Killing the whole OCR process group (4A-15); no-network enforcement in tests (production: 4A-16, FRD Q4) | Whether the provisional per-page output becomes the real contract at all |
