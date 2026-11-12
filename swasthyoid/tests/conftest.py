@@ -11,13 +11,17 @@ os.environ.setdefault("HMAC_KEY", uuid.uuid4().hex * 2)
 os.environ.setdefault("JWT_SECRET", uuid.uuid4().hex * 2)
 
 
-@pytest.fixture
-def connect():
-    """Factory for connections into a fresh, throwaway schema with the core tables."""
+def require_database():
     if "DATABASE_URL" not in os.environ:
         if os.environ.get("CI"):
             pytest.fail("DATABASE_URL must be set in CI: database tests may not be skipped")
         pytest.skip("DATABASE_URL not set")
+
+
+@pytest.fixture
+def connect():
+    """Factory for connections into a fresh, throwaway schema with the core tables."""
+    require_database()
     from swasthyoid import db
 
     schema = f"test_{uuid.uuid4().hex}"

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 from swasthyoid.api.deps import Actor, ApiError, actor, authorize_patient_access, get_conn, idempotent, patient_read, require
-from swasthyoid.capture import documents
+from swasthyoid.capture import documents, extraction
 
 router = APIRouter()
 
@@ -91,6 +91,17 @@ def _document(request, conn, a, document_id):
 @router.get("/documents/{document_id}")
 def get_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(actor)):
     return _view(_document(request, conn, a, document_id))
+
+
+@router.get("/documents/{document_id}/extraction")
+def get_extraction(document_id: UUID, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+    """Unverified extracted fields, for review. The patient only: caregivers do not verify, and
+    nobody else may see data that has not been verified. PENDING (FRD question 3): verifiers."""
+    doc = documents.get(conn, document_id)
+    if doc is None or doc["patient_id"] != a.id:
+        raise ApiError(404, "not_found", "No document with this id.")
+    return {"document_id": doc["id"], "status": doc["status"], "threshold": extraction.CONFIDENCE_THRESHOLD,
+            "extraction": extraction.latest(conn, document_id)}
 
 
 @router.get("/documents/{document_id}/images/{n}")

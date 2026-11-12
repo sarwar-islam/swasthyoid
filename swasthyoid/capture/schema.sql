@@ -53,3 +53,31 @@ CREATE TRIGGER document_images_no_change BEFORE UPDATE OR DELETE ON document_ima
 DROP TRIGGER IF EXISTS document_images_no_truncate ON document_images;
 CREATE TRIGGER document_images_no_truncate BEFORE TRUNCATE ON document_images
     FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
+-- Extraction job state. The documents table is the queue: `uploaded` rows and `extracting`
+-- rows whose retry time has come are due.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_attempts int NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS next_extraction_at timestamptz;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_error text;  -- error type only, never document text
+
+-- What was read from a document, for human review. Never the timeline: only M3's confirm
+-- step writes events. One row per (document, version); a repeat of the same job is a no-op.
+CREATE TABLE IF NOT EXISTS extractions (
+    id          uuid PRIMARY KEY,
+    document_id uuid NOT NULL REFERENCES documents (id),
+    version     int NOT NULL CHECK (version >= 1),
+    engine      text NOT NULL CHECK (engine <> ''),
+    fields      jsonb NOT NULL CHECK (jsonb_typeof(fields) = 'object'),
+    -- PRIVACY RISK (docs/DECISIONS.md): raw_text and fields hold unverified document text in
+    -- plain form. Do not deploy with real patient data before the mitigation there is done.
+    raw_text    text NOT NULL DEFAULT '',
+    created_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE (document_id, version)
+);
+
+DROP TRIGGER IF EXISTS extractions_no_change ON extractions;
+CREATE TRIGGER extractions_no_change BEFORE UPDATE OR DELETE ON extractions
+    FOR EACH ROW EXECUTE FUNCTION append_only();
+DROP TRIGGER IF EXISTS extractions_no_truncate ON extractions;
+CREATE TRIGGER extractions_no_truncate BEFORE TRUNCATE ON extractions
+    FOR EACH STATEMENT EXECUTE FUNCTION append_only();
