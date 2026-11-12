@@ -12,7 +12,7 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
    end), `docs/M2_COMPLETION_PLAN.md`, then FRD sections 1.3, M2 and 8.
 2. Run `git status` and `git log origin/main..HEAD --oneline`.
 3. **Do not write code.** Step 4A is approved in scope (D17) but its implementation waits for
-   the owner's go-ahead, and Step 1 is not yet marked complete.
+   the owner's go-ahead. Step 1 is complete.
 
 ## OCR model: facts and rules
 
@@ -34,43 +34,38 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
   implemented and approved.
 - The old plan to choose RapidOCR or Tesseract is obsolete.
 
-## Git state (verified 2026-11-12 with `git status` and `git log origin/main..HEAD`)
+## Git state (verified 2026-11-12 with `git status`, `git log` and `git ls-remote`)
 
 | Item | State |
 |---|---|
-| Local branch | `main` (`282bd44`), 5 commits ahead of `origin/main` (`6021085`) |
-| `1ebdb15` | P2 step 1: worker reliability. In local `main`, **not pushed to `main`**; also on the verification branch |
-| `2389991` | Docs: first version of the M2 plan. Local `main` only, not pushed |
-| `6b11e65` | S1 fix on local `main`: cherry-pick (`-x`) of `cc836f5`, **accepted by the owner**. Code identical to the CI-tested `cc836f5`. Not pushed |
-| `2b626aa` | Docs commit: `docs/DECISIONS.md`, `docs/M2_COMPLETION_PLAN.md`, `docs/SESSION_HANDOFF.md`. Local `main` only, not pushed. Owner approval of the plan content still pending |
-| `cc836f5` | The same S1 fix on `verify/step1-1ebdb15`, tested by CI run #14 |
-| Remote `origin` | `main` = `6021085`; `verify/step1-1ebdb15` = `cc836f5` (`1ebdb15` + `cc836f5`) |
-| Worktree | Verification branch checked out in the session scratchpad (`.../scratchpad/verify-step1`); `main` checkout unaffected |
-| `282bd44` | Docs commit: FRD v3 revision (pending owner approval), reconciliation fixes in `DECISIONS.md`, the plan and this file, and `.gitattributes` (LF line endings). Local `main` only, not pushed |
-| Working tree | Clean apart from untracked `.claude/` and any later edits to this file |
+| `main` | Pushed: `origin/main` = local `main` = `3f348d3` at the time of the push. Later edits to this file are uncommitted until the owner asks |
+| Commits pushed on 2026-11-12 | `1ebdb15` (Step 1), `2389991` (M2 plan, first version), `6b11e65` (S1 fix, cherry-pick of `cc836f5`), `2b626aa` (docs), `282bd44` (FRD v3, doc fixes, `.gitattributes`), `3f348d3` (handoff Git state) |
+| `verify/step1-1ebdb15` | On `origin` at `cc836f5` (`1ebdb15` + `cc836f5`); kept until the owner decides |
+| Worktree | Verification branch checked out in the session scratchpad (`.../scratchpad/verify-step1`); kept until the owner decides |
 | `.claude/` | Untracked; never commit it |
-| Application code, schema, `pyproject.toml` in `main` | Same as the verification branch (`git diff main verify/step1-1ebdb15 -- swasthyoid pyproject.toml .github` is empty). Local tests without a database: 38 passed, 221 skipped. `main` itself has not run in CI |
+| Line endings | `.gitattributes` keeps every text file LF |
 
 Never commit or push without the owner's explicit instruction; "commit" and "push" are separate.
 
-## Step 1 status: Linux CI passed, S1 fix accepted, NOT marked complete
+## Step 1 status: COMPLETE (marked by the owner, 2026-11-12)
 
 - **Code review (2026-11-12):** claim fencing, lease handling, retries and recovery are correct
   as designed. Findings S1–S8 are recorded in `docs/DECISIONS.md`, "Verification and the S1 fix".
-- **Linux CI** on `verify/step1-1ebdb15` (ubuntu-26.04, Python 3.12.16, PostgreSQL 16.15):
-  - run #13, `1ebdb15`: **258 passed, 0 failed, 0 skipped, 0 errors**;
-  - run #14, `cc836f5`: **259 passed, 0 failed, 0 skipped, 0 errors**.
+- **Linux CI** (ubuntu-26.04, Python 3.12.16, PostgreSQL 16.15), all with 0 failed, 0 skipped,
+  0 errors:
+  - run #13, `1ebdb15` on `verify/step1-1ebdb15`: 258 passed;
+  - run #14, `cc836f5` on `verify/step1-1ebdb15`: 259 passed;
+  - run #15, `3f348d3` on `main`: **259 passed**.
   All database tests ran, including every recovery test, the Linux spawn and kill tests and the
   timing-sensitive tests. `pytest -q` prints no test names; the counts show it.
-- **S1 fixed and accepted** (`cc836f5`): a lost database connection now raises
-  `WorkerConnectionLost` with no further write; new `pg_terminate_backend` recovery test.
-- **Open:** S2–S8 (not approved for fixing); the raw error still escapes if the connection drops
-  during the failure write itself; one green run per commit does not rule out timing flakiness;
-  CI warns that `actions/checkout@v4` and `actions/setup-python@v5` target Node 20 (workflow
-  unchanged).
-- **Tests on this machine:** without a database, 38 passed and 220 skipped on `main` (221 skipped
-  on the verification branch). No PostgreSQL, Docker or WSL here; do not install `pgserver`,
-  Docker or WSL without the owner's OK.
+- **S1 fixed and accepted:** a lost database connection now raises `WorkerConnectionLost` with no
+  further write; new `pg_terminate_backend` recovery test. On `main` as `6b11e65`.
+- **Open, not part of Step 1:** S2–S8 (not approved for fixing); the raw error still escapes if the
+  connection drops during the failure write itself; one green run per commit does not rule out
+  timing flakiness; CI warns that `actions/checkout@v4` and `actions/setup-python@v5` target
+  Node 20, and `ubuntu-latest` is now Ubuntu 26 (workflow unchanged).
+- **Tests on this machine:** without a database, 38 passed and 221 skipped. No PostgreSQL, Docker
+  or WSL here; do not install `pgserver`, Docker or WSL without the owner's OK.
 - **Reading CI:** `gh` is not installed. Read runs in the browser pane (the owner signed in to
   GitHub there on 2026-11-12) or ask the owner.
 
@@ -78,9 +73,9 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
 
 **Gates, in order:**
 
-1. Step 1: Linux CI checked (done), S1 fix accepted (done), S1 fix cherry-picked onto local
-   `main` as `6b11e65` (done) → push of `main` approved → owner marks Step 1 complete. Also the owner's call: what to do with the verification branch and the
-   scratchpad worktree, and whether any of S2–S8 are fixed.
+1. Step 1: **complete** (Linux CI, S1 fix, push of `main`, CI on `main` and the owner's sign-off
+   all done on 2026-11-12). Still the owner's call: what to do with the verification branch and
+   the scratchpad worktree, and whether any of S2–S8 are fixed.
 2. Approval of the revised docs: `DECISIONS.md`, the M2 plan, FRD v3 and this file are
    committed in `2b626aa` and `282bd44`; owner approval of the FRD and plan content is pending.
 3. Go-ahead to implement 4A, plus its open sub-choices: C1, C2, D13, 4A-15, 4A-16, 4A-20, 4A-23,

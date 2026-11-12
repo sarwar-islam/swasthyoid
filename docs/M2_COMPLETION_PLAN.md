@@ -5,10 +5,10 @@ Status on 2026-11-12.
 ## Current status (facts only)
 
 - Slices 1 and 2 are built and pushed (`e18bf48`, `63df1f9`, `6021085`): upload, encrypted immutable originals, the extraction pipeline on a fake OCR engine, and the recovery tests.
-- **Step 1 (worker reliability) is implemented in `1ebdb15`, with the S1 fix `cc836f5` accepted by the owner. Linux CI passed. The fix is on local `main` as `6b11e65` (cherry-pick of `cc836f5`). It is NOT marked complete** until `main` is pushed (owner approval) and the owner marks it.
-- An earlier version of this plan is in `2389991`. **This revision is committed in `2b626aa` (local `main`, not pushed). Committing it records it; owner approval of its content is still pending.**
-- `1ebdb15` and `2389991` are **local and not pushed**.
-- **Linux CI verified for Step 1** on branch `verify/step1-1ebdb15` (ubuntu-26.04, Python 3.12.16, PostgreSQL 16.15): `1ebdb15` run #13, 258 passed, 0 failed, 0 skipped, 0 errors; `cc836f5` (S1 fix, accepted) run #14, 259 passed, 0 failed, 0 skipped, 0 errors. `cc836f5` was cherry-picked onto local `main` as `6b11e65`; its code is identical to what run #14 tested. Local `main` (`1ebdb15`, `2389991`, `6b11e65`) is **not pushed**, so `main` itself has not run in CI. CI for `63df1f9` and `6021085` was never checked separately; `2389991` is docs only.
+- **Step 1 (worker reliability) is COMPLETE, marked by the owner on 2026-11-12.** It consists of `1ebdb15` and the S1 fix `6b11e65` (cherry-pick of `cc836f5`), both on `origin/main`. CI run #15 on `main` (`3f348d3`) passed: 259 passed, 0 failed, 0 skipped, 0 errors.
+- An earlier version of this plan is in `2389991`. **This revision is committed in `2b626aa` and pushed to `origin/main`. Committing and pushing it records it; owner approval of its content is still pending.**
+- `main` was pushed on 2026-11-12: `origin/main` = `3f348d3` (`1ebdb15`, `2389991`, `6b11e65`, `2b626aa`, `282bd44`, `3f348d3`). Later edits to this file are uncommitted until the owner asks.
+- **Linux CI verified for Step 1** on branch `verify/step1-1ebdb15` (ubuntu-26.04, Python 3.12.16, PostgreSQL 16.15): `1ebdb15` run #13, 258 passed, 0 failed, 0 skipped, 0 errors; `cc836f5` (S1 fix, accepted) run #14, 259 passed, 0 failed, 0 skipped, 0 errors. `cc836f5` was cherry-picked onto local `main` as `6b11e65`; its code is identical to what run #14 tested. `main` itself then passed CI run #15 (`3f348d3`, `43265164599`): 259 passed, 0 failed, 0 skipped, 0 errors, same environment. CI for `63df1f9` and `6021085` was never checked separately; `2389991` is docs only.
 - **Decided 2026-11-12 (Option A):** a document with no OCR adapter available stays due (`uploaded`) and can go straight to manual entry; it is never marked `extraction_failed` for that reason. Design proposed in `docs/DECISIONS.md`; not implemented.
 - **Steps 2–9 are plans only. None of them is implemented.**
 - **No real OCR model has been selected, installed or integrated.** OCR model development **has not started**: the owner has not yet selected an architecture, framework, dataset or trained model, and will select, train, own and supply it independently.
@@ -47,12 +47,12 @@ The FRD P2 gate is infrastructure-complete. Production readiness is checked at P
 
 | Step | Task                                                       | Track     | Depends on                         | Blocked by a decision or input?      | Can start before the model is supplied?                                            |
 | ---- | ---------------------------------------------------------- | --------- | ---------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| 1    | Worker reliability                                         | A         | —                                  | No: D1 decided, 5 minutes            | Built in `1ebdb15` + S1 fix (`6b11e65` on local `main`); Linux CI passed; `main` not pushed, not marked complete |
+| 1    | Worker reliability                                         | A         | —                                  | No: D1 decided, 5 minutes            | **Complete** (owner, 2026-11-12): `1ebdb15` + S1 fix `6b11e65`; CI run #15 on `main` passed |
 | 2    | Extraction data privacy                                    | A         | —                                  | D2 (and FRD Q8)                      | Yes, once D2 is decided                                                            |
 | 3A-data | Synthetic set generator, degraded copies, splits        | A         | —                                  | None                                 | Yes                                                                                |
 | 3A-harness | Harness plumbing                                     | A         | 3A-data; 4A infrastructure (D17) | None for plumbing; production input waits for D18 | Plumbing only, exercised with version 0 fakes in synthetic tests; production input per the approved contract |
 | 3B   | Handwritten set                                            | A         | 3A-data                            | D3                                   | Yes (the data does not depend on the model)                                        |
-| 4A   | OCR infrastructure and infrastructure-test interface       | A         | Step 1 (`main` pushed, Step 1 marked complete) | Scope approved (D17); owner's go-ahead; sub-choices C1, C2, D13, 4A-15, 4A-16, 4A-20, 4A-23, 4A-24 | Yes (model-dependent items stay OPEN)                     |
+| 4A   | OCR infrastructure and infrastructure-test interface       | A         | Step 1 (complete)              | Scope approved (D17); owner's go-ahead; sub-choices C1, C2, D13, 4A-15, 4A-16, 4A-20, 4A-23, 4A-24 | Yes (model-dependent items stay OPEN)                     |
 | 4B   | Compatibility review and owner-model integration           | B         | 4A                                 | D4: model and specification supplied; explicit approval | **No**                                                    |
 | 5A   | Upload validation and quality checks                       | A         | 3A-data                            | D5, D6                               | Yes                                                                                |
 | 5B   | Pre-processing for the model                               | B         | 5A, 4B                             | Model specification                  | **No** (mechanism can exist; configuration waits)                                  |
@@ -63,7 +63,7 @@ The FRD P2 gate is infrastructure-complete. Production readiness is checked at P
 | 9A   | Evaluation framework (model-independent)                   | A         | 3A-harness, 4A; 5A and 6 for their metrics | None                                 | Yes                                                                                |
 | 9B   | Real-model evaluation and sign-off                         | B         | 4B, 5, 6, 7, 9A                    | D11; clinical reviewer               | **No**                                                                             |
 
-Step 1 is built, Linux CI passed and the S1 fix is accepted; the fix is on local `main` (`6b11e65`); it waits for `main` to be pushed and for the owner to mark it complete. Steps 3A-data, 4A, 6A and 9A can start when the owner says so; 3A-harness plumbing after 4A (scope approved by D17, implementation awaits the owner's go-ahead); 2 after D2. Steps 6B, 7 and 9B cannot finish without the clinical reviewer.
+Step 1 is complete (marked by the owner on 2026-11-12). Steps 3A-data, 4A, 6A and 9A can start when the owner says so; 3A-harness plumbing after 4A (scope approved by D17, implementation awaits the owner's go-ahead); 2 after D2. Steps 6B, 7 and 9B cannot finish without the clinical reviewer.
 
 **Proposed working sequence (PROPOSED, for owner approval):** D17 approved with revisions (done) → 3A-data alongside 4A implementation → 3A-harness plumbing → 6A → 5A → 9A → 2 → 8 → 7 → 3B and 6B as their decisions arrive → **model and specification supplied** → 4B compatibility review and interface revision, approved by the owner → **integration explicitly approved** → rest of 4B → 5B → rework of version-0-based work as needed → 6B tuning → 9B.
 
@@ -79,7 +79,7 @@ Step 1 is built, Linux CI passed and the S1 fix is accepted; the fix is on local
 
 ---
 
-## Step 1 — Worker reliability — IMPLEMENTED IN `1ebdb15` + S1 FIX `cc836f5`, LINUX CI PASSED, NOT MARKED COMPLETE
+## Step 1 — Worker reliability — COMPLETE (marked by the owner, 2026-11-12)
 
 The record of what was built is `docs/DECISIONS.md`, "Worker reliability (M2 step 1)".
 
@@ -92,10 +92,10 @@ The record of what was built is `docs/DECISIONS.md`, "Worker reliability (M2 ste
 - A database constraint (`extracting_has_time`) stops an `extracting` document having no due time.
 - Worst case to a terminal state with these settings: about 33 minutes plus polling (`docs/DECISIONS.md`).
 - Also touched: `capture/documents.py`, `capture/schema.sql`, `tests/fake_engines.py`.
-- Verification: Linux CI on `verify/step1-1ebdb15` — run #13 (`1ebdb15`) 258 passed; run #14 (`cc836f5`) 259 passed; 0 failed, 0 skipped, 0 errors in both. Details in `docs/DECISIONS.md`, "Verification and the S1 fix".
-- **S1 fix (`cc836f5`, accepted 2026-11-12):** a lost database connection during an attempt now raises `WorkerConnectionLost` without a further write, instead of a second error from recording the failure. One new recovery test (`pg_terminate_backend`). Cherry-picked onto local `main` as `6b11e65` (not pushed).
+- Verification: Linux CI on `verify/step1-1ebdb15` — run #13 (`1ebdb15`) 258 passed; run #14 (`cc836f5`) 259 passed; 0 failed, 0 skipped, 0 errors in both. On `main`: run #15 (`3f348d3`) 259 passed, 0 failed, 0 skipped, 0 errors. Details in `docs/DECISIONS.md`, "Verification and the S1 fix".
+- **S1 fix (`cc836f5`, accepted 2026-11-12):** a lost database connection during an attempt now raises `WorkerConnectionLost` without a further write, instead of a second error from recording the failure. One new recovery test (`pg_terminate_backend`). Cherry-picked onto `main` as `6b11e65`; pushed.
 
-**Remaining before Step 1 can be marked complete** (PROPOSED): `main` pushed (needs owner approval; the S1 fix is already on local `main` as `6b11e65`); the owner marks Step 1 complete. Review findings S2–S8 stay open and are not part of Step 1 unless the owner decides otherwise.
+**Completion (2026-11-12):** `main` pushed with the owner's approval (`origin/main` = `3f348d3`), CI run #15 on `main` passed (259 passed, 0 failed, 0 skipped, 0 errors), and the owner marked Step 1 complete. Review findings S2–S8 stay open and are not part of Step 1 unless the owner decides otherwise.
 
 **Interaction with Option A (decided 2026-11-12, not implemented).** Step 1's claim counts an attempt before the work, so a run with no adapter would use up attempts. 4A adds the availability check before any claim (a change to `run_due` and `extract`), and step 8 adds direct manual entry (a change to `manual_entry()` and the transitions). Neither changes the claim, fence, lease, heartbeat or retry logic of step 1.
 

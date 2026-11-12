@@ -209,8 +209,8 @@ Owner decision needed on 1 and 2, and a lawyer's view on retention (FRD open que
 # Extraction worker recovery (P2 slice 2) — limitation and proposed fix
 
 **Status: record of the state at commit `6021085`. Limitations 1 to 3 were then addressed by
-"Worker reliability (M2 step 1)" at the end of this file, which is implemented and awaiting
-owner review. The labels below are kept as written at the time of the proposal.**
+"Worker reliability (M2 step 1)" later in this file, which the owner marked complete on
+2026-11-12. The labels below are kept as written at the time of the proposal.**
 
 Tests: `swasthyoid/tests/test_extraction_recovery.py`.
 
@@ -266,9 +266,15 @@ Celery and Redis are not needed for any of this; they only decide what calls the
 
 ---
 
-# Worker reliability (M2 step 1) — IMPLEMENTED, LINUX CI PASSED, S1 FIX ACCEPTED, NOT MARKED COMPLETE
+# Worker reliability (M2 step 1) — COMPLETE (marked by the owner, 2026-11-12)
 
-Not marked complete. Approved requirements from the owner on 2026-11-12; code in
+**Marked complete by the owner on 2026-11-12** after `main` was pushed (`origin/main` =
+`3f348d3`) and GitHub Actions run #15 (`43265164599`) on `main` passed: ubuntu-26.04, Python
+3.12.16, PostgreSQL 16.15, 259 passed, 0 failed, 0 skipped, 0 errors. Step 1 consists of
+`1ebdb15` and the S1 fix `6b11e65` (cherry-pick of `cc836f5`). Review findings S2–S8 below stay
+open and are not part of Step 1.
+
+Approved requirements from the owner on 2026-11-12; code in
 `swasthyoid/capture/extraction.py`, tests in `swasthyoid/tests/test_extraction_recovery.py`.
 
 ## Verification and the S1 fix (2026-11-12)
@@ -282,7 +288,7 @@ Not marked complete. Approved requirements from the owner on 2026-11-12; code in
   and `extract`. Nothing was written and lease expiry still recovered the document, but the
   docstrings promised no error.
 - **S1 fix, accepted by the owner 2026-11-12** (`cc836f5` on `verify/step1-1ebdb15`;
-  cherry-picked onto local `main` as `6b11e65`, code identical, `main` not pushed): new
+  cherry-picked onto `main` as `6b11e65`, code identical; `main` pushed and passed run #15): new
   `WorkerConnectionLost`. Before each failure write the worker checks
   `conn.closed`; if the connection is gone it raises `WorkerConnectionLost` from the original
   error and writes nothing more. The check looks at the connection, not the error type, because
