@@ -200,3 +200,61 @@ other reading, and never replaces an accepted reading with a rejected one.
 4. Add extraction data to the patient export-and-delete flow the FRD requires.
 
 Owner decision needed on 1 and 2, and a lawyer's view on retention (FRD open question 8).
+
+---
+
+# Extraction worker recovery (P2 slice 2) — limitation and proposed fix
+
+**Status: the limitations below are present in the code. None of the fixes is implemented.**
+
+Tests: `swasthyoid/tests/test_extraction_recovery.py`.
+
+## How it works today
+
+- **The table is the queue.** No job is handed to a worker. A document is due when its status
+  is `uploaded`, or `extracting` with its retry time reached. Every run looks for the oldest
+  due document.
+- **One transaction per attempt.** A worker locks the document row, reads it, stores the
+  result and changes the status, all in one transaction. Nothing is visible to anyone else
+  until it commits.
+- **A worker that loses a race waits** for the winner's lock, then finds the document no longer
+  waiting, does nothing, and ends its run. Whatever it did not do is still due, so the winner
+  (which carries on) or the next run takes it.
+- **A worker that crashes or loses its connection** has its whole transaction rolled back by
+  the database. The document is exactly as it was and the next run extracts it.
+- **No duplicates in any of these cases.** A result is stored only by a worker holding the row
+  lock, and `(document_id, version)` is unique.
+
+## Limitations
+
+1. **One hung worker blocks every worker.** All workers pick the same oldest document and wait
+   for its lock, so they never reach documents nobody is working on. Workers also do not run
+   in parallel for the same reason.
+2. **A hung worker is never timed out.** A worker stuck in OCR without crashing keeps the lock
+   until its connection dies.
+3. **A crash is not counted as an attempt.** The attempt counter is rolled back with everything
+   else, so a document that always crashes its worker is retried for ever and never becomes
+   `extraction_failed`.
+4. **A cloud AI send would be audited inside the same transaction.** A crash after sending
+   would lose the audit entry and send the data again on retry. Not reachable today: no
+   provider exists and the cloud AI threshold is unset.
+
+## Proposed smallest safe fix — PROPOSED, NOT IMPLEMENTED
+
+Each item below is a proposal awaiting approval. No product code has been changed for any of them.
+
+1. **PROPOSED, NOT IMPLEMENTED — Skip locked documents.** Pick and lock the next document in one statement with
+   `FOR UPDATE SKIP LOCKED`. A busy document is passed over, so workers run in parallel and a
+   hung worker holds up only its own document. About five lines; fixes limitation 1.
+2. **PROPOSED, NOT IMPLEMENTED — Time out hung workers in the database.** Open worker connections with
+   `idle_in_transaction_session_timeout` set to the longest extraction allowed. PostgreSQL
+   then ends a stuck session and rolls it back, which is the already-tested crash path. One
+   line; fixes limitation 2. The value needs a decision (FRD target: 60 seconds per page).
+3. **PROPOSED, NOT IMPLEMENTED — Count the attempt before the work.** Commit `extraction_attempts + 1` in a short first
+   transaction, then do the work in a second one that stores a result only if the attempt
+   number is still its own. A crash or timeout then counts, and a poison document stops after
+   three attempts. About fifteen lines; fixes limitation 3 and stays duplicate-free.
+4. **PROPOSED, NOT IMPLEMENTED — Audit a cloud AI send before sending**, in its own committed transaction. To be done
+   with the provider (question 5).
+
+Celery and Redis are not needed for any of this; they only decide what calls the worker.
