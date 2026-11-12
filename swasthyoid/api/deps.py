@@ -4,8 +4,8 @@ Order for every protected request: token -> account still valid -> role (RBAC).
 Reads of patient data by anyone but the patient then go through C1 (consent) and
 C2 (audit): use patient_read() on those routes.
 """
-import hashlib
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from uuid import UUID
 
@@ -13,7 +13,7 @@ from fastapi import Depends, Request
 from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 
-from swasthyoid import db
+from swasthyoid import db, pii
 from swasthyoid.core import audit, consent_authz, notification
 from swasthyoid.identity import sessions
 
@@ -34,8 +34,32 @@ def get_conn():
         yield conn
 
 
+def dev_codes_enabled():
+    return os.environ.get("DEV_LOG_CODES", "0") == "1"
+
+
+def check_config():
+    """Refuse to start if codes would be logged anywhere but an explicit development setup."""
+    if dev_codes_enabled() and os.environ.get("APP_ENV") != "development":
+        raise RuntimeError("DEV_LOG_CODES=1 is only allowed with APP_ENV=development")
+
+
+def no_code_delivery(*args, **kwargs):
+    raise ApiError(503, "code_delivery_unavailable", "No SMS gateway is configured.")
+
+
 def get_code_sender():
-    return notification.send_code_dev  # PLACEHOLDER until an SMS gateway is chosen
+    """send(phone, code, context=None). PLACEHOLDER: no SMS gateway is chosen, so by default
+    codes cannot be delivered. Logging them is an explicit local-development opt-in."""
+    if dev_codes_enabled() and os.environ.get("APP_ENV") == "development":
+        return notification.send_code_dev
+    return no_code_delivery
+
+
+def person_labels(conn, ids):
+    """Name and phone ending of person accounts, for showing a patient who is asking."""
+    rows = conn.execute("SELECT id, name_enc, phone_enc FROM patients WHERE id = ANY(%s)", [list(ids)]).fetchall()
+    return {r[0]: {"name": pii.decrypt(r[1]), "phone_tail": pii.decrypt(r[2])[-3:]} for r in rows}
 
 
 def client_info(request: Request):
@@ -104,10 +128,12 @@ def _rbac(request, conn, a, roles, verified=True, patient_id=None):
         raise ApiError(403, reason, "You are not allowed to do this.")
 
 
-def patient_read(purpose, *categories, roles=("doctor",)):
-    """Gateway chain for routes that read one patient's data, with a {patient_id} path parameter.
+def patient_read(purpose, *categories, roles=("doctor",), caregiver=None):
+    """Gateway chain for routes that act on one patient's data, with a {patient_id} path parameter.
 
-    A patient reading their own data passes. Everyone else: RBAC -> C1 consent -> C2 audit.
+    A patient acting on their own data passes. Staff: RBAC -> C1 consent -> C2 audit.
+    Another person passes only on a route that names a `caregiver` scope, and only with an
+    active CAREGIVER consent holding that scope: C1 -> C2, no role involved.
     The audit entry is written before the handler runs; if C1 or C2 fails the request fails
     and the handler never runs (fail closed).
     """
@@ -115,9 +141,13 @@ def patient_read(purpose, *categories, roles=("doctor",)):
     def check(patient_id: UUID, request: Request, a: Actor = Depends(actor), conn=Depends(get_conn)) -> Actor:
         if a.role == "patient" and a.id == patient_id:
             return a
-        _rbac(request, conn, a, roles, patient_id=patient_id)
+        if a.role == "patient" and caregiver:
+            user, want, scopes = replace(a, role="caregiver"), "CAREGIVER", (caregiver,)
+        else:
+            _rbac(request, conn, a, roles, patient_id=patient_id)
+            user, want, scopes = a, purpose, categories
         decision = consent_authz.check_access(
-            conn, user=a, patient_id=patient_id, purpose=purpose, categories=categories,
+            conn, user=user, patient_id=patient_id, purpose=want, categories=scopes,
             action=_endpoint(request), device_id=a.device_id, **client_info(request),
         )
         if not decision.allowed:
@@ -141,7 +171,8 @@ def idempotent(conn, request: Request, a: Actor, body, work):
         raise ApiError(422, "invalid_idempotency_key", "Idempotency-Key must be 1 to 255 characters.")
     scope = [a.id, f"{request.method} {request.url.path}", key]
     where = "actor_id = %s AND endpoint = %s AND key = %s"
-    digest = hashlib.sha256((body.model_dump_json() if body is not None else "").encode()).hexdigest()
+    # keyed: a plain hash of a body that holds a 6-digit code could be guessed offline
+    digest = pii.secret_hash("idempotency:" + (body.model_dump_json() if body is not None else ""))
 
     conn.execute(f"DELETE FROM idempotency_keys WHERE {where} AND expires_at <= clock_timestamp()", scope)
     claimed = conn.execute(

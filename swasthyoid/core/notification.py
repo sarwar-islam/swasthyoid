@@ -24,13 +24,14 @@ from psycopg.types.json import Jsonb
 from swasthyoid.core import audit
 
 
-def send_code_dev(phone, code):
+def send_code_dev(phone, code, context=None):
     """DEV ONLY one-time-code sender: writes the code to the log instead of sending an SMS.
+    Reachable only with DEV_LOG_CODES=1 and APP_ENV=development (see api/deps.py).
 
     PLACEHOLDER: the real SMS gateway is not chosen. Codes do not go through the queue
     below, because a queued row would store the code and a new phone has no recipient id yet.
     """
-    logging.getLogger(__name__).warning("DEV one-time code for %s: %s", phone, code)
+    logging.getLogger(__name__).warning("DEV one-time code for ...%s: %s", phone[-3:], code)
 
 
 def enqueue(conn, *, recipient_id, template_id, payload):

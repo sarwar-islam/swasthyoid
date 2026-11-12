@@ -5,6 +5,7 @@ with find(), calls authorize_access, and MUST write the C2 audit entry for every
 decision, allow or deny.
 """
 from dataclasses import dataclass
+from datetime import timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -12,11 +13,13 @@ from psycopg.rows import dict_row
 
 from swasthyoid.core import audit
 
-PURPOSES = {"TIMELINE", "APPOINTMENT", "REFERRAL", "DISPENSING", "EMERGENCY", "CLOUD_AI"}
+PURPOSES = {"TIMELINE", "APPOINTMENT", "REFERRAL", "DISPENSING", "EMERGENCY", "CLOUD_AI", "CAREGIVER"}
 
-# Consent state machine, FRD section 4.1. expired and revoked are terminal.
+# Consent state machine, FRD section 4.1, plus pending -> declined (the patient says no;
+# FRD change recorded in docs/DECISIONS.md). expired, revoked and declined are terminal.
 TRANSITIONS = {
-    "pending": {"active", "expired"},
+    "pending": {"active", "expired", "declined"},
+    "declined": set(),
     "active": {"expired", "revoked", "suspended"},
     "suspended": {"active", "revoked"},
     "expired": set(),
@@ -160,15 +163,17 @@ def _change(conn, consent_id, target, action, actor_id, patient_only=False, **co
 
 
 def create(conn, *, patient_id, grantee_id, grantee_role, purpose, allowed_categories, consent_version,
-           policy_version, actor_id, resource_type=None, resource_id=None, max_window_ends_at=None):
+           policy_version, actor_id, resource_type=None, resource_id=None, max_window_ends_at=None,
+           requested_ttl=None):
     """Record a consent request as `pending`. It grants nothing until activated."""
     with conn.transaction():
         row = conn.cursor(row_factory=dict_row).execute(
             """INSERT INTO consents (id, patient_id, grantee_id, grantee_role, purpose, resource_type,
-                   resource_id, allowed_categories, status, max_window_ends_at, consent_version, policy_version)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s) RETURNING *""",
+                   resource_id, allowed_categories, status, max_window_ends_at, consent_version, policy_version,
+                   requested_ttl)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s) RETURNING *""",
             [uuid4(), patient_id, grantee_id, grantee_role, purpose, resource_type, resource_id,
-             sorted(allowed_categories), max_window_ends_at, consent_version, policy_version],
+             sorted(allowed_categories), max_window_ends_at, consent_version, policy_version, requested_ttl],
         ).fetchone()
         _log(conn, row, "create", actor_id)
         return row
@@ -268,3 +273,113 @@ def check_access(conn, *, user, patient_id, purpose, categories, action, resourc
         purpose=purpose, resource_type=resource and resource.type, resource_id=resource and resource.id, **client,
     )
     return decision
+
+
+# ---- Caregiver authorization (purpose CAREGIVER). A caregiver is an ordinary person account
+# acting for a patient under scopes the patient explicitly approved. Scopes never change on a
+# row: more scopes or more time is a new request that the patient approves again.
+
+CAREGIVER_SCOPES = frozenset({"upload_documents", "view_documents", "view_timeline"})  # no verify scope
+# PROVISIONAL (docs/DECISIONS.md): not FRD values. The maximum is also in schema.sql (caregiver_shape).
+CAREGIVER_DEFAULT_DAYS = 30
+CAREGIVER_MAX_DAYS = 90
+CAREGIVER_PENDING_TTL = timedelta(hours=24)  # an unapproved request closes after this
+
+
+def decline(conn, consent_id, *, actor_id):
+    """The patient says no to a pending request. Distinct from `expired` (nobody answered)."""
+    return _change(conn, consent_id, "declined", "decline", actor_id, patient_only=True)
+
+
+def expire_stale_requests(conn, patient_id, grantee_id=None):
+    """Close caregiver requests nobody approved in time. Called at request time, so this
+    never depends on a background job."""
+    where = ("purpose = 'CAREGIVER' AND status = 'pending' AND created_at <= clock_timestamp() - %s "
+             "AND patient_id = %s")
+    params = [CAREGIVER_PENDING_TTL, patient_id]
+    if grantee_id is not None:
+        where += " AND grantee_id = %s"
+        params.append(grantee_id)
+    return _change_all(conn, where, params, "expired", "expire", None)
+
+
+def pending_caregiver_request(conn, *, patient_id, caregiver_id):
+    """The pair's open request, or None. Stale ones are closed first."""
+    expire_stale_requests(conn, patient_id, caregiver_id)
+    return conn.cursor(row_factory=dict_row).execute(
+        "SELECT * FROM consents WHERE purpose = 'CAREGIVER' AND status = 'pending' "
+        "AND patient_id = %s AND grantee_id = %s",
+        [patient_id, caregiver_id],
+    ).fetchone()
+
+
+def request_caregiver(conn, *, patient_id, caregiver_id, scopes, days, consent_version, policy_version):
+    """A caregiver asks to act for a patient. Returns (row, created). Grants nothing.
+
+    One open request per pair: asking again returns the same request, scopes unchanged.
+    """
+    scopes = frozenset(scopes)
+    if not scopes or not scopes <= CAREGIVER_SCOPES:
+        raise ValueError("scopes must be a non-empty subset of the caregiver scopes")
+    if type(days) is not int or not 1 <= days <= CAREGIVER_MAX_DAYS:
+        raise ValueError(f"days must be 1 to {CAREGIVER_MAX_DAYS}")
+    if UUID(str(patient_id)) == UUID(str(caregiver_id)):
+        raise ValueError("a patient cannot be their own caregiver")
+    with conn.transaction():
+        # Serialise per pair, so two simultaneous requests see each other.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                     [f"caregiver:{patient_id}:{caregiver_id}"])
+        row = pending_caregiver_request(conn, patient_id=patient_id, caregiver_id=caregiver_id)
+        if row is not None:
+            return row, False
+        row = create(
+            conn, patient_id=patient_id, grantee_id=caregiver_id, grantee_role="caregiver", purpose="CAREGIVER",
+            allowed_categories=scopes, consent_version=consent_version, policy_version=policy_version,
+            actor_id=caregiver_id, requested_ttl=timedelta(days=days),
+        )
+        return row, True
+
+
+def approve_caregiver(conn, consent_id, *, patient_id, method):
+    """Explicit patient approval of a pending request: in the app, or by the code sent to the
+    patient's own phone. In one transaction the pair's current grant (if any) is ended and the
+    new one starts with exactly the scopes that were requested; nothing is merged.
+
+    Locks the request row, then the current grant, always in that order.
+    """
+    stale, result = False, None
+    with conn.transaction():
+        cur = conn.cursor(row_factory=dict_row)
+        row = cur.execute(
+            "SELECT * FROM consents WHERE id = %s AND purpose = 'CAREGIVER' FOR UPDATE", [consent_id]).fetchone()
+        if row is None or row["patient_id"] != UUID(str(patient_id)):
+            raise LookupError("caregiver request not found")
+        if row["status"] != "pending":
+            raise ValueError("request is not pending")
+        now = _now(conn)
+        if row["created_at"] <= now - CAREGIVER_PENDING_TTL:
+            _change(conn, consent_id, "expired", "expire", None)
+            stale = True
+        else:
+            old = cur.execute(
+                "SELECT id FROM consents WHERE purpose = 'CAREGIVER' AND status = 'active' "
+                "AND patient_id = %s AND grantee_id = %s FOR UPDATE",
+                [row["patient_id"], row["grantee_id"]],
+            ).fetchone()
+            if old is not None:
+                _change(conn, old["id"], "revoked", "replace", patient_id, revoked_at=now, revoked_by=patient_id)
+            result = _change(conn, consent_id, "active", "activate", patient_id, method=method,
+                             activated_at=now, expires_at=now + row["requested_ttl"])
+    if stale:  # raised after the block so the request stays closed
+        raise ValueError("request expired")
+    return result
+
+
+def list_for_caregiver(conn, caregiver_id):
+    """Grants this caregiver can use right now. Pending requests are deliberately not listed:
+    listing them would tell a caregiver whether a Health ID they guessed exists."""
+    return conn.cursor(row_factory=dict_row).execute(
+        "SELECT * FROM consents WHERE purpose = 'CAREGIVER' AND status = 'active' AND grantee_id = %s "
+        "AND expires_at > clock_timestamp() ORDER BY created_at, id",
+        [caregiver_id],
+    ).fetchall()

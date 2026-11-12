@@ -172,3 +172,36 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     expires_at   timestamptz NOT NULL,
     PRIMARY KEY (actor_id, endpoint, key)
 );
+
+-- Caregiver-assisted access (DECISIONS.md, "Caregiver access"). Idempotent upgrades of
+-- the consents table: a new purpose, a new `declined` state, and the caregiver rules.
+ALTER TABLE consents ADD COLUMN IF NOT EXISTS requested_ttl interval;  -- duration asked for, applied on approval
+
+ALTER TABLE consents DROP CONSTRAINT IF EXISTS consents_purpose_check;
+ALTER TABLE consents ADD CONSTRAINT consents_purpose_check CHECK (purpose IN (
+    'TIMELINE', 'APPOINTMENT', 'REFERRAL', 'DISPENSING', 'EMERGENCY', 'CLOUD_AI', 'CAREGIVER'));
+
+ALTER TABLE consents DROP CONSTRAINT IF EXISTS consents_status_check;
+ALTER TABLE consents ADD CONSTRAINT consents_status_check CHECK (status IN (
+    'pending', 'active', 'suspended', 'expired', 'revoked', 'declined'));
+
+-- A caregiver authorization: fixed role, no resource binding, never yourself, only the three
+-- approved scopes (verify_documents is deliberately absent: caregivers cannot verify), and
+-- never longer than 90 days. PROVISIONAL: 90 days also lives in core/consent_authz.py.
+ALTER TABLE consents DROP CONSTRAINT IF EXISTS caregiver_shape;
+ALTER TABLE consents ADD CONSTRAINT caregiver_shape CHECK (purpose <> 'CAREGIVER' OR (
+    grantee_role = 'caregiver'
+    AND resource_type IS NULL
+    AND grantee_id <> patient_id
+    AND allowed_categories <@ ARRAY['upload_documents', 'view_documents', 'view_timeline']
+    AND requested_ttl IS NOT NULL
+    AND requested_ttl > interval '0'
+    AND requested_ttl <= interval '90 days'
+    AND (expires_at IS NULL OR activated_at IS NULL OR expires_at <= activated_at + interval '90 days')));
+
+-- At most one active and one pending authorization per patient-caregiver pair. The pending
+-- one is the request for renewal or different scopes; approving it replaces the active one.
+CREATE UNIQUE INDEX IF NOT EXISTS caregiver_one_active ON consents (patient_id, grantee_id)
+    WHERE purpose = 'CAREGIVER' AND status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS caregiver_one_pending ON consents (patient_id, grantee_id)
+    WHERE purpose = 'CAREGIVER' AND status = 'pending';

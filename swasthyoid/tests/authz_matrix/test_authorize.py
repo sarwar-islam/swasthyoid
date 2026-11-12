@@ -114,7 +114,7 @@ def test_boundary_at_expiry_is_still_allowed():
 def test_state_machine():
     allowed = {(s, t) for s, targets in TRANSITIONS.items() for t in targets}
     assert allowed == {
-        ("pending", "active"), ("pending", "expired"),
+        ("pending", "active"), ("pending", "expired"), ("pending", "declined"),
         ("active", "expired"), ("active", "revoked"), ("active", "suspended"),
         ("suspended", "active"), ("suspended", "revoked"),
     }

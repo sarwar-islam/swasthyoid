@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from swasthyoid import pii
 from swasthyoid.api.deps import (
-    Actor, ApiError, client_info, get_code_sender, get_conn, idempotent, require,
+    Actor, ApiError, client_info, get_code_sender, get_conn, idempotent, person_labels, require,
 )
 from swasthyoid.core import audit, consent_authz, notification
 from swasthyoid.identity import accounts, otp, sessions
@@ -222,9 +222,16 @@ def _names(conn, ids):
 
 @router.get("/consents")
 def list_consents(conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+    consent_authz.expire_stale_requests(conn, a.id)
     rows = consent_authz.list_for_patient(conn, a.id)
     names = _names(conn, {r["grantee_id"] for r in rows})
-    return [{**_view(r), "grantee_name": names.get(r["grantee_id"])} for r in rows]
+    people = person_labels(conn, {r["grantee_id"] for r in rows if r["purpose"] == "CAREGIVER"})
+    return [{
+        **_view(r),
+        "grantee_name": names.get(r["grantee_id"]) or people.get(r["grantee_id"], {}).get("name"),
+        "grantee_phone_tail": people.get(r["grantee_id"], {}).get("phone_tail"),
+        "requested_days": r["requested_ttl"] and r["requested_ttl"].days,
+    } for r in rows]
 
 
 @router.post("/consents/{consent_id}/revoke")
@@ -245,4 +252,8 @@ def revoke_consent(consent_id: UUID, request: Request, conn=Depends(get_conn),
 def access_history(conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
     rows = audit.history_for_patient(conn, a.id)
     names = _names(conn, {r["actor_id"] for r in rows if r["actor_id"]})
+    # People are named only if this patient has (or had) a caregiver request from them.
+    known = [r[0] for r in conn.execute(
+        "SELECT DISTINCT grantee_id FROM consents WHERE patient_id = %s AND purpose = 'CAREGIVER'", [a.id])]
+    names.update({k: v["name"] for k, v in person_labels(conn, known).items()})
     return [{**r, "actor_name": names.get(r["actor_id"])} for r in rows]
