@@ -44,6 +44,8 @@ def prod(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", make_conninfo(admin_url, dbname=name))
     monkeypatch.setenv("DOCUMENT_STORE", str(tmp_path))
     monkeypatch.delenv("DEV_LOG_CODES", raising=False)
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setattr(extraction, "HARD_TIMEOUT", None)  # in-process engines unless a test sets a hard timeout
     codes = {}
     app.dependency_overrides[deps.get_code_sender] = lambda: lambda phone, code, context=None: codes.update({phone: code})
     try:
@@ -98,6 +100,7 @@ def test_real_schema_has_the_extraction_objects(prod):
         assert docs["extraction_attempts"] == ("integer", "NO", "0")
         assert docs["next_extraction_at"][:2] == ("timestamp with time zone", "YES")
         assert docs["extraction_error"][:2] == ("text", "YES")
+        assert docs["extraction_claim"][:2] == ("uuid", "YES")
 
         constraints = {r[0]: r[1] for r in conn.execute(
             "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'extractions'::regclass")}
@@ -115,7 +118,7 @@ def test_schema_applies_twice_and_upgrades_a_slice_1_database(prod):
         # put the database back to how slice 1 left it, then start again
         conn.execute("DROP TABLE extractions")
         conn.execute("ALTER TABLE documents DROP COLUMN extraction_attempts, DROP COLUMN next_extraction_at, "
-                     "DROP COLUMN extraction_error")
+                     "DROP COLUMN extraction_error, DROP COLUMN extraction_claim")
     doc_id = upload(prod, patient(prod))  # a document that existed before the upgrade
     with TestClient(app):  # a restart applies the slice 2 additions
         pass
@@ -134,7 +137,7 @@ def test_pipeline_and_endpoint_on_the_real_schema(prod):
 
     with prod.connect() as conn:
         assert extraction.run_due(conn, ocr) == 1
-        assert job(conn, doc_id) == ("needs_review", 0, None, None)
+        assert job(conn, doc_id) == ("needs_review", 1, None, None)
         assert conn.execute("SELECT count(*) FROM events").fetchone()[0] == 0  # nothing reaches the timeline
         with pytest.raises(psycopg.errors.UniqueViolation):  # one row per document and version
             conn.execute("INSERT INTO extractions (id, document_id, version, engine, fields) "

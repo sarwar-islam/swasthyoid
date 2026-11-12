@@ -44,6 +44,8 @@ def failing(pages, doc_type):
 @pytest.fixture
 def x(d, monkeypatch):  # noqa: F811
     monkeypatch.setattr(extraction, "SCHEMAS", SPEC)
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setattr(extraction, "HARD_TIMEOUT", None)  # these engines are closures: run them in-process
     return d
 
 
@@ -88,7 +90,7 @@ def test_extraction_ends_in_needs_review_with_typed_fields(x):
     doc_id, calls = new_doc(x, images=[JPEG, PNG]), []
     assert extraction.run_due(x.conn, engine_returning(GOOD, calls)) == 1
     assert calls == [[JPEG, PNG]]  # the engine got the decrypted originals, in order
-    assert doc_row(x, doc_id) == ("needs_review", 0, None)
+    assert doc_row(x, doc_id) == ("needs_review", 1, None)  # the attempt is counted when it is claimed
 
     row = stored(x, doc_id)
     assert (row["version"], row["engine"], row["raw_text"]) == (1, "fake-ocr", "synthetic raw text")

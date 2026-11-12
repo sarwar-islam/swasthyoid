@@ -59,6 +59,16 @@ CREATE TRIGGER document_images_no_truncate BEFORE TRUNCATE ON document_images
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_attempts int NOT NULL DEFAULT 0;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS next_extraction_at timestamptz;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_error text;  -- error type only, never document text
+-- Fencing token of the attempt that holds the document; a new one on every claim. While set,
+-- next_extraction_at is the end of that attempt's lease.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_claim uuid;
+-- An `extracting` document always has a time at which it is due (lease end or retry time),
+-- so none can be stranded. Rows from before this rule are made due now.
+UPDATE documents SET next_extraction_at = clock_timestamp()
+    WHERE status = 'extracting' AND next_extraction_at IS NULL;
+ALTER TABLE documents DROP CONSTRAINT IF EXISTS extracting_has_time;
+ALTER TABLE documents ADD CONSTRAINT extracting_has_time
+    CHECK (status <> 'extracting' OR next_extraction_at IS NOT NULL);
 
 -- What was read from a document, for human review. Never the timeline: only M3's confirm
 -- step writes events. One row per (document, version); a repeat of the same job is a no-op.

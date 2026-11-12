@@ -117,5 +117,8 @@ def set_status(conn, document_id, target):
             raise LookupError("document not found")
         if target not in TRANSITIONS[row[0]]:
             raise ValueError(f"illegal document transition: {row[0]} -> {target}")
-        conn.execute("UPDATE documents SET status = %s, updated_at = clock_timestamp() WHERE id = %s",
-                     [target, document_id])
+        # a document entering `extracting` is due at once; without a time it would never be picked up
+        conn.execute(
+            "UPDATE documents SET status = %s, updated_at = clock_timestamp(), next_extraction_at = "
+            "CASE WHEN %s = 'extracting' THEN clock_timestamp() ELSE next_extraction_at END WHERE id = %s",
+            [target, target, document_id])

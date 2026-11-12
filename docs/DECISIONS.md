@@ -205,7 +205,9 @@ Owner decision needed on 1 and 2, and a lawyer's view on retention (FRD open que
 
 # Extraction worker recovery (P2 slice 2) — limitation and proposed fix
 
-**Status: the limitations below are present in the code. None of the fixes is implemented.**
+**Status: record of the state at commit `6021085`. Limitations 1 to 3 were then addressed by
+"Worker reliability (M2 step 1)" at the end of this file, which is implemented and awaiting
+owner review. The labels below are kept as written at the time of the proposal.**
 
 Tests: `swasthyoid/tests/test_extraction_recovery.py`.
 
@@ -258,3 +260,97 @@ Each item below is a proposal awaiting approval. No product code has been change
    with the provider (question 5).
 
 Celery and Redis are not needed for any of this; they only decide what calls the worker.
+
+---
+
+# Worker reliability (M2 step 1) — IMPLEMENTED, AWAITING OWNER REVIEW
+
+Not marked complete. Approved requirements from the owner on 2026-11-12; code in
+`swasthyoid/capture/extraction.py`, tests in `swasthyoid/tests/test_extraction_recovery.py`.
+
+## Settings (configurable, owner-approved, not FRD values)
+
+| Setting | Value | Constant |
+|---|---|---|
+| Lease per claim | 5 minutes | `LEASE` |
+| Heartbeat (lease renewal) | every 60 seconds | `HEARTBEAT` |
+| Hard timeout for the OCR process | 10 minutes | `HARD_TIMEOUT` |
+| Maximum attempts, then `extraction_failed` | 3 | `MAX_ATTEMPTS` |
+| Wait before a retry | 1 minute, doubling | `BACKOFF` |
+| Database backstop on worker connections | 60 s statement, 60 s idle-in-transaction, 10 s lock wait | `db.connect_worker` |
+
+## How a job runs
+
+1. **Claim** (short transaction). Take the oldest due document that no other worker has
+   locked (`FOR UPDATE SKIP LOCKED`), add one to the attempt counter, write a new random
+   claim token and set the lease end. Commit.
+2. **Work** (no transaction open). Read the images and run the engine in a child process.
+   Every heartbeat the worker renews the lease; a lease that has already run out cannot be
+   renewed. At the hard timeout the child process is killed and the attempt has failed.
+3. **Store** (short transaction). Lock the row and store the result only if the claim token
+   is still this attempt's **and** the lease has not run out. Otherwise nothing is written.
+   A failed attempt is recorded under the same two conditions.
+
+A document is due when it is `uploaded`, or `extracting` with its time reached. That one
+time is the lease end while a claim is held, and the retry time after a recorded failure.
+
+## What happens when things go wrong
+
+| Situation | Outcome |
+|---|---|
+| Two workers want the same document | One claims it; the other skips it and takes a different one |
+| Worker dies right after claiming, or during OCR | The attempt is already counted. When the lease ends the document is due again as the next attempt |
+| OCR process dies | Attempt recorded as `WorkerDied`, retried after the wait |
+| OCR hangs | Killed at the hard timeout, attempt recorded as `HardTimeout` |
+| Worker is killed while its OCR child runs | The child sees its parent is gone and exits within about a second |
+| A worker finishes after its lease ran out | Its result is refused, whether or not another worker took the document |
+| A stale worker reports a failure | Ignored, whether or not another worker took the document: the token or the lease no longer holds |
+| Every attempt lost without a report | The next claim closes the document as `extraction_failed` (`LeaseExpired`) |
+
+## Bounded time to a terminal state
+
+With at least one worker checking the queue every P seconds, a document reaches
+`needs_review` or `extraction_failed` within
+
+    3 attempts x (longest attempt + wait before retry + P)
+
+where the longest attempt is the larger of the hard timeout (10 min) and the lease (5 min),
+and the waits are 1 and 2 minutes after the first and second attempts. With the defaults that
+is about 33 minutes plus three polling intervals, in the worst case where every attempt hangs
+to the limit.
+
+## Rules enforced
+
+- **In-process OCR is refused unless `APP_ENV=test`.** That mode has no heartbeat and no hard
+  timeout. The refusal happens before anything is claimed.
+- **The heartbeat must be shorter than the lease**, or the settings are refused.
+- **An `extracting` document always has a due time.** A database constraint
+  (`extracting_has_time`) refuses a row without one, and the state-machine call sets it.
+
+## Invariants kept
+
+- A job is still keyed by (document, version); a repeat does nothing, and `(document_id,
+  version)` is unique in the database.
+- No extraction path writes an event. The child process has no database access at all.
+
+## Remaining limitations
+
+- **Nothing runs the worker yet.** The bound above assumes a worker is polling. The runner
+  is step 8 of the M2 plan. Until it exists, `db.connect_worker` (the connection with
+  database timeouts) is used only by its own test, so no real worker has that backstop.
+- **Not verified on Linux or in CI.** Everything here was run on Windows against a local
+  PostgreSQL 16. Process spawning and killing behave differently on Linux, and several
+  recovery tests depend on short timings that a slow CI machine could miss.
+- **The engine must be sendable to a child process** (a module-level function). One that is
+  not fails at start-up of the child and uses up the document's attempts.
+- **Killing the OCR process does not kill programs it started itself.** This matters if the
+  chosen engine launches a separate program.
+- **The integration tests still run the in-process mode** (under `APP_ENV=test`); only the
+  recovery tests exercise the child-process path.
+- **A new child process per document** means the OCR models load each time. Acceptable for a
+  prototype; a long-lived OCR process is a later optimisation.
+- **Clock.** Leases use the database clock only, so worker clocks do not matter, but a
+  worker that stalls completely (for example a frozen machine) can only be fenced, not
+  stopped: its late result is refused when it tries to store.
+- **Cloud AI.** The send is now audited in its own committed step before sending, but a
+  retried attempt would send again. Not reachable: no provider, threshold unset.

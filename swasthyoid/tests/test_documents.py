@@ -239,7 +239,7 @@ def test_originals_are_immutable(d):
                 f"UPDATE documents SET uploaded_by = '{d.caregiver.id}'"):
         with pytest.raises(psycopg.Error, match="append-only|immutable|cannot be deleted"):
             d.conn.execute(sql)
-    d.conn.execute("UPDATE documents SET status = 'extracting'")  # only the status moves
+    documents.set_status(d.conn, doc_id, "extracting")  # only the status moves
     key = d.conn.execute("SELECT storage_key FROM document_images").fetchone()[0]
     with pytest.raises(FileExistsError):
         storage.put(key, b"replacement")
