@@ -40,7 +40,7 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 |---|---|
 | `main` | `origin/main` = local `main` = `33e2aa1` (Step 1 recorded complete). Not changed by 4A |
 | Commits pushed to `main` on 2026-11-12 | `1ebdb15` (Step 1), `2389991` (M2 plan, first version), `6b11e65` (S1 fix, cherry-pick of `cc836f5`), `2b626aa` (docs), `282bd44` (FRD v3, doc fixes, `.gitattributes`), `3f348d3` (handoff Git state), `33e2aa1` (Step 1 complete) |
-| `4a/ocr-infrastructure` | Branched from `33e2aa1`; `7c0c148` (4A code and tests) plus a docs commit; pushed to `origin`, **not merged**. Checked out in the main checkout |
+| `4a/ocr-infrastructure` | Branched from `33e2aa1`: `7c0c148` (4A code and tests), `9f68552` (docs), `06ecf92` (review fixes), plus a docs commit; pushed to `origin`, **not merged**. Checked out in the main checkout |
 | `verify/step1-1ebdb15` | On `origin` at `cc836f5` (`1ebdb15` + `cc836f5`); kept until the owner decides |
 | Worktree | Verification branch checked out in the session scratchpad (`.../scratchpad/verify-step1`); kept until the owner decides |
 | `.claude/` | Untracked; never commit it |
@@ -82,10 +82,9 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
    the scratchpad worktree, and whether any of S2–S8 are fixed.
 2. Approval of the revised docs: `DECISIONS.md`, the M2 plan, FRD v3 and this file are
    committed in `2b626aa` and `282bd44`; owner approval of the FRD and plan content is pending.
-3. 4A: built on `4a/ocr-infrastructure`; CI run #17 on `7c0c148`: 411 passed, 0 failed, 0 skipped,
-   0 errors. Waiting for the owner's review of the code and the four deviations recorded in
-   `DECISIONS.md` ("4A implementation"), confirmation of plan section 2.4 (implemented as option
-   (ii), a startup warning), then merge approval.
+3. 4A: built on `4a/ocr-infrastructure`. Final review decisions applied (B1 option a, M1 option
+   (ii), M2, M3, L4, L5 and the test-package reference fix in `06ecf92`); see `DECISIONS.md`,
+   "4A implementation". Waiting for the owner's review of the fixes, then separate merge approval.
 4. D4 and D18 (model specification), the 4B compatibility review, then explicit integration
    approval. Deployment is a separate approval.
 

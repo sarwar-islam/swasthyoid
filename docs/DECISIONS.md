@@ -672,12 +672,36 @@ pretrained weights or artifact was selected, installed, bundled or integrated.
    `test_in_process_ocr_is_refused_outside_tests` asserted that an engine callable with a hard
    timeout runs outside test mode; it now asserts the refusal, then runs it in test mode.
 
+## Final review decisions (owner, 2026-11-12)
+
+- **B1 — option (a) accepted.** No worker entry module in 4A. The test-mode checks at
+  `run_due()` and `extract()` (before anything is claimed) are sufficient for the current
+  architecture. **Step 8 MUST call `runtime_mode.check_test_mode_config()` at independent worker
+  process startup, before entering its worker loop.**
+- **M1 — option (ii) approved.** The startup warning when the confirmation is set but `APP_ENV`
+  is not `test` stays; test mode stays off. This settles plan section 2.4 and deviation 2.
+- **M2 — fixed.** The worker reads every probe message until the channel reaches EOF, within the
+  existing deadline. Only `[checksum, identity]`, `[failed]` and `[checksum, failed]` are accepted;
+  duplicate, late, out-of-order or unexpected messages are refused. Probe messages are
+  size-limited JSON bytes (not pickles), and the probe child closes its end when done.
+- **M3 — fixed.** The worker validates the full interface v0 result again before building
+  `raw_text` or storing anything.
+- **L4 — fixed.** One safe warning per failure after a claim: code, stage, document id, attempt.
+- **L5 — fixed.** The probe child re-checks test mode before anything else; an exception from
+  `check_test_mode_config()`, or test mode off, sends `engine_unavailable` and imports no adapter
+  code. This also means no adapter code runs in a probe outside test mode (audit item L6).
+- **Test-package references** — fixed: `swasthyoid.tests:x` is caught (`ocr.is_test_ref`).
+- Fix commit `06ecf92`. Remaining audit items L1–L3, L7–L9 accepted as reported.
+
 ## Still open
 
-- Owner review of `7c0c148`, then merge approval; plan section 2.4 confirmation.
+- Owner review of the fixes, then separate approval to merge into `main`.
 - Everything under D18 (unchanged): interface version 1, probe-load, final manifest format,
   timeout values, confidence meaning, output limits, batching, process model, model-specific retry.
-- Step 8 must call `runtime_mode.check_test_mode_config()` at worker start.
+- **New observation, not fixed (outside the approved scope):** the OCR child still returns its
+  result to the worker as a pickle, so the worker unpickles data produced next to adapter code.
+  Probe messages no longer do (M2). Owner decision whether to move the attempt result to the same
+  JSON framing before interface version 1.
 
 ---
 
