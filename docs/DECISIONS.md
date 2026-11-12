@@ -599,9 +599,13 @@ verified with test-only fake adapters, under the revisions below.
    **Model-output conformance tests** are out of scope for 4A and are written after D18.
 10. **D17 authorises infrastructure only.** See "What D17 does not approve" above.
 
-## Sub-choices proposed with D17 and NOT decided by it
+## Sub-choices proposed with D17
 
-These were recommended in the proposal but were not explicitly approved; they stay OPEN for the
+*Update 2026-11-12:* the owner accepted all eight recommendations below and the identity-column
+approach, with `adapter_interface_version` as the canonical name (`adapter_contract_version`
+retired). See "4A implementation" at the end of this file. The table is kept as proposed.
+
+These were recommended in the proposal but were not explicitly approved at the time; they stayed OPEN for the
 owner:
 
 | # | Choice | Recommendation |
@@ -617,6 +621,63 @@ owner:
 | — | Identity column names (`engine_id`, `model_version`, `model_checksum`, interface version) and their additive migration | Names provisional; migration only with 4A implementation approval |
 
 Already decided elsewhere and unchanged: Option A (no adapter: stay due, direct manual entry).
+
+---
+
+# 4A implementation — ON BRANCH `4a/ocr-infrastructure`, AWAITING OWNER REVIEW
+
+Built from the frozen 4A plan, Revision 4 (owner approved implementation on 2026-11-12). Not
+merged into `main`; merging needs separate owner approval. No OCR model, engine, framework,
+pretrained weights or artifact was selected, installed, bundled or integrated.
+
+## Owner decisions applied
+
+- The eight 4A choices (C1, C2, D13, 4A-15, 4A-16, 4A-20, 4A-23, 4A-24) and the identity columns.
+- `AVAILABILITY_TIMEOUT` 30 s and position nesting limit 32 (provisional engineering values);
+  error code `availability_timeout`; hard links accepted as a documented limitation.
+- **Option C (R10):** test mode needs `APP_ENV=test` **and** `SWASTHYOID_TEST_MODE_CONFIRM=1`.
+  Enforced at API startup, at `run_due`/`extract` before any claim, and in the probe and OCR
+  children. A misconfiguration guard, not a security boundary.
+
+## What exists (`7c0c148`)
+
+- `swasthyoid/runtime_mode.py`; `swasthyoid/capture/ocr.py`; empty `capture/adapters/`.
+- Probe child before any claim (artifact hash before adapter import, identity only, never
+  `prepare()`, bounded by `AVAILABILITY_TIMEOUT`); a probe failure is one warning log line with
+  codes only, no database write.
+- OCR child per attempt, re-checks artifacts and test mode; version 0 refused outside test mode
+  at the probe, the child and storage. Outside test mode no adapter is ever available.
+- Five nullable identity columns and the `extraction_identity` CHECK; no backfill.
+- Process-group kill on Linux (descendants that start their own session escape; Windows kills the
+  child only); test-only network guard; typed error codes stored, never messages.
+- Legacy engine callables: deprecated, test mode only in every execution mode, removed after 6B.
+
+## Verification
+
+- GitHub Actions run #17 (`43271813227`) on `7c0c148`, ubuntu-26.04, Python 3.12.16, PostgreSQL
+  16.15: **411 passed, 0 failed, 0 skipped, 0 errors**.
+- Local Windows without a database: 170 passed, 241 skipped (database tests; one symlink test).
+
+## Deviations from the plan text, for owner review
+
+1. **Function name:** the plan's `test_mode_enabled()` is `runtime_mode.is_test_mode()`, because
+   pytest collects any `test_*` function imported into a test module. Behaviour is as planned.
+2. **Plan section 2.4 was still open:** option (ii), a startup warning when the confirmation is
+   set but `APP_ENV` is not `test`, was implemented as recommended (one line in
+   `api/deps.check_config`). Test mode stays off in that case whatever is chosen.
+3. **Import allowlist lint:** existing code imports `pydantic` and `starlette` directly, which
+   arrive only through `fastapi` and are not declared in `pyproject.toml`. The lint lists them
+   explicitly as "via fastapi" instead of changing `pyproject.toml`.
+4. **Existing test changed by the planned legacy-path rule:**
+   `test_in_process_ocr_is_refused_outside_tests` asserted that an engine callable with a hard
+   timeout runs outside test mode; it now asserts the refusal, then runs it in test mode.
+
+## Still open
+
+- Owner review of `7c0c148`, then merge approval; plan section 2.4 confirmation.
+- Everything under D18 (unchanged): interface version 1, probe-load, final manifest format,
+  timeout values, confidence meaning, output limits, batching, process model, model-specific retry.
+- Step 8 must call `runtime_mode.check_test_mode_config()` at worker start.
 
 ---
 

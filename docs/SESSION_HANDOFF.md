@@ -11,8 +11,8 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 1. Read `CLAUDE.md`, this file, `docs/DECISIONS.md` (from "AI models are owner-supplied" to the
    end), `docs/M2_COMPLETION_PLAN.md`, then FRD sections 1.3, M2 and 8.
 2. Run `git status` and `git log origin/main..HEAD --oneline`.
-3. **Do not write code.** Step 4A is approved in scope (D17) but its implementation waits for
-   the owner's go-ahead. Step 1 is complete.
+3. **Do not write more code.** Step 1 is complete. 4A is built on branch
+   `4a/ocr-infrastructure` (`7c0c148`) and waits for the owner's review and merge approval.
 
 ## OCR model: facts and rules
 
@@ -38,8 +38,9 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 
 | Item | State |
 |---|---|
-| `main` | Pushed: `origin/main` = local `main` = `3f348d3` at the time of the push. Later edits to this file are uncommitted until the owner asks |
-| Commits pushed on 2026-11-12 | `1ebdb15` (Step 1), `2389991` (M2 plan, first version), `6b11e65` (S1 fix, cherry-pick of `cc836f5`), `2b626aa` (docs), `282bd44` (FRD v3, doc fixes, `.gitattributes`), `3f348d3` (handoff Git state) |
+| `main` | `origin/main` = local `main` = `33e2aa1` (Step 1 recorded complete). Not changed by 4A |
+| Commits pushed to `main` on 2026-11-12 | `1ebdb15` (Step 1), `2389991` (M2 plan, first version), `6b11e65` (S1 fix, cherry-pick of `cc836f5`), `2b626aa` (docs), `282bd44` (FRD v3, doc fixes, `.gitattributes`), `3f348d3` (handoff Git state), `33e2aa1` (Step 1 complete) |
+| `4a/ocr-infrastructure` | Branched from `33e2aa1`; `7c0c148` (4A code and tests) plus a docs commit; pushed to `origin`, **not merged**. Checked out in the main checkout |
 | `verify/step1-1ebdb15` | On `origin` at `cc836f5` (`1ebdb15` + `cc836f5`); kept until the owner decides |
 | Worktree | Verification branch checked out in the session scratchpad (`.../scratchpad/verify-step1`); kept until the owner decides |
 | `.claude/` | Untracked; never commit it |
@@ -64,8 +65,11 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
   connection drops during the failure write itself; one green run per commit does not rule out
   timing flakiness; CI warns that `actions/checkout@v4` and `actions/setup-python@v5` target
   Node 20, and `ubuntu-latest` is now Ubuntu 26 (workflow unchanged).
-- **Tests on this machine:** without a database, 38 passed and 221 skipped. No PostgreSQL, Docker
-  or WSL here; do not install `pgserver`, Docker or WSL without the owner's OK.
+- **Tests on this machine:** without a database, 38 passed and 221 skipped on `main`; 170 passed
+  and 241 skipped on `4a/ocr-infrastructure`. No PostgreSQL, Docker or WSL here; do not install
+  `pgserver`, Docker or WSL without the owner's OK.
+- **Test mode (4A, Option C):** needs `APP_ENV=test` **and** `SWASTHYOID_TEST_MODE_CONFIRM=1`.
+  Exporting `APP_ENV=test` alone makes the API and the worker refuse to start (intended).
 - **Reading CI:** `gh` is not installed. Read runs in the browser pane (the owner signed in to
   GitHub there on 2026-11-12) or ask the owner.
 
@@ -78,8 +82,10 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
    the scratchpad worktree, and whether any of S2–S8 are fixed.
 2. Approval of the revised docs: `DECISIONS.md`, the M2 plan, FRD v3 and this file are
    committed in `2b626aa` and `282bd44`; owner approval of the FRD and plan content is pending.
-3. Go-ahead to implement 4A, plus its open sub-choices: C1, C2, D13, 4A-15, 4A-16, 4A-20, 4A-23,
-   4A-24, and the identity column names and migration.
+3. 4A: built on `4a/ocr-infrastructure`; CI run #17 on `7c0c148`: 411 passed, 0 failed, 0 skipped,
+   0 errors. Waiting for the owner's review of the code and the four deviations recorded in
+   `DECISIONS.md` ("4A implementation"), confirmation of plan section 2.4 (implemented as option
+   (ii), a startup warning), then merge approval.
 4. D4 and D18 (model specification), the 4B compatibility review, then explicit integration
    approval. Deployment is a separate approval.
 
