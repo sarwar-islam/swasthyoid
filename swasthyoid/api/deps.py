@@ -139,22 +139,28 @@ def patient_read(purpose, *categories, roles=("doctor",), caregiver=None):
     """
 
     def check(patient_id: UUID, request: Request, a: Actor = Depends(actor), conn=Depends(get_conn)) -> Actor:
-        if a.role == "patient" and a.id == patient_id:
-            return a
-        if a.role == "patient" and caregiver:
-            user, want, scopes = replace(a, role="caregiver"), "CAREGIVER", (caregiver,)
-        else:
-            _rbac(request, conn, a, roles, patient_id=patient_id)
-            user, want, scopes = a, purpose, categories
-        decision = consent_authz.check_access(
-            conn, user=user, patient_id=patient_id, purpose=want, categories=scopes,
-            action=_endpoint(request), device_id=a.device_id, **client_info(request),
-        )
-        if not decision.allowed:
-            raise ApiError(403, decision.reason, "The patient has not allowed this access.")
-        return a
+        return authorize_patient_access(request, conn, a, patient_id, purpose, categories, roles, caregiver)
 
     return check
+
+
+def authorize_patient_access(request, conn, a, patient_id, purpose, categories, roles=("doctor",), caregiver=None):
+    """The chain behind patient_read, for routes that learn the patient from a record
+    (for example a document id) instead of the path."""
+    if a.role == "patient" and a.id == patient_id:
+        return a
+    if a.role == "patient" and caregiver:
+        user, want, scopes = replace(a, role="caregiver"), "CAREGIVER", (caregiver,)
+    else:
+        _rbac(request, conn, a, roles, patient_id=patient_id)
+        user, want, scopes = a, purpose, categories
+    decision = consent_authz.check_access(
+        conn, user=user, patient_id=patient_id, purpose=want, categories=scopes,
+        action=_endpoint(request), device_id=a.device_id, **client_info(request),
+    )
+    if not decision.allowed:
+        raise ApiError(403, decision.reason, "The patient has not allowed this access.")
+    return a
 
 
 def idempotent(conn, request: Request, a: Actor, body, work):
@@ -172,7 +178,9 @@ def idempotent(conn, request: Request, a: Actor, body, work):
     scope = [a.id, f"{request.method} {request.url.path}", key]
     where = "actor_id = %s AND endpoint = %s AND key = %s"
     # keyed: a plain hash of a body that holds a 6-digit code could be guessed offline
-    digest = pii.secret_hash("idempotency:" + (body.model_dump_json() if body is not None else ""))
+    # body: a pydantic model, None, or a string fingerprint (uploads)
+    text = body if isinstance(body, str) else body.model_dump_json() if body is not None else ""
+    digest = pii.secret_hash("idempotency:" + text)
 
     conn.execute(f"DELETE FROM idempotency_keys WHERE {where} AND expires_at <= clock_timestamp()", scope)
     claimed = conn.execute(
