@@ -38,7 +38,7 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 
 | Item | State |
 |---|---|
-| Local branch | `main` (`2b626aa`), 4 commits ahead of `origin/main` (`6021085`) |
+| Local branch | `main` (`282bd44`), 5 commits ahead of `origin/main` (`6021085`) |
 | `1ebdb15` | P2 step 1: worker reliability. In local `main`, **not pushed to `main`**; also on the verification branch |
 | `2389991` | Docs: first version of the M2 plan. Local `main` only, not pushed |
 | `6b11e65` | S1 fix on local `main`: cherry-pick (`-x`) of `cc836f5`, **accepted by the owner**. Code identical to the CI-tested `cc836f5`. Not pushed |
@@ -46,8 +46,8 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 | `cc836f5` | The same S1 fix on `verify/step1-1ebdb15`, tested by CI run #14 |
 | Remote `origin` | `main` = `6021085`; `verify/step1-1ebdb15` = `cc836f5` (`1ebdb15` + `cc836f5`) |
 | Worktree | Verification branch checked out in the session scratchpad (`.../scratchpad/verify-step1`); `main` checkout unaffected |
-| `docs/FRD.md` | v3 revision modified, **not committed**; reconciled with `DECISIONS.md` and the plan, owner approval pending |
-| Edits after `2b626aa` | The plan header, this file, `DECISIONS.md` (caregiver FRD note) and a new `.gitattributes` were changed after `2b626aa` and are **not committed** |
+| `282bd44` | Docs commit: FRD v3 revision (pending owner approval), reconciliation fixes in `DECISIONS.md`, the plan and this file, and `.gitattributes` (LF line endings). Local `main` only, not pushed |
+| Working tree | Clean apart from untracked `.claude/` and any later edits to this file |
 | `.claude/` | Untracked; never commit it |
 | Application code, schema, `pyproject.toml` in `main` | Same as the verification branch (`git diff main verify/step1-1ebdb15 -- swasthyoid pyproject.toml .github` is empty). Local tests without a database: 38 passed, 221 skipped. `main` itself has not run in CI |
 
@@ -81,9 +81,8 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
 1. Step 1: Linux CI checked (done), S1 fix accepted (done), S1 fix cherry-picked onto local
    `main` as `6b11e65` (done) → push of `main` approved → owner marks Step 1 complete. Also the owner's call: what to do with the verification branch and the
    scratchpad worktree, and whether any of S2–S8 are fixed.
-2. Approval of the revised docs: `DECISIONS.md`, the M2 plan and this file are committed in
-   `2b626aa` (content approval pending); FRD v3 and the later fixes are uncommitted until the
-   owner asks.
+2. Approval of the revised docs: `DECISIONS.md`, the M2 plan, FRD v3 and this file are
+   committed in `2b626aa` and `282bd44`; owner approval of the FRD and plan content is pending.
 3. Go-ahead to implement 4A, plus its open sub-choices: C1, C2, D13, 4A-15, 4A-16, 4A-20, 4A-23,
    4A-24, and the identity column names and migration.
 4. D4 and D18 (model specification), the 4B compatibility review, then explicit integration
