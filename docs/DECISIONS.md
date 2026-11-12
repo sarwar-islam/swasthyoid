@@ -263,10 +263,41 @@ Celery and Redis are not needed for any of this; they only decide what calls the
 
 ---
 
-# Worker reliability (M2 step 1) — IMPLEMENTED, AWAITING OWNER REVIEW
+# Worker reliability (M2 step 1) — IMPLEMENTED, LINUX CI PASSED, S1 FIX ACCEPTED, NOT MARKED COMPLETE
 
 Not marked complete. Approved requirements from the owner on 2026-11-12; code in
 `swasthyoid/capture/extraction.py`, tests in `swasthyoid/tests/test_extraction_recovery.py`.
+
+## Verification and the S1 fix (2026-11-12)
+
+- **Linux CI on Step 1 as committed** (`1ebdb15`, branch `verify/step1-1ebdb15`, GitHub Actions
+  run #13, `43259228167`): ubuntu-26.04, Python 3.12.16, PostgreSQL 16.15. **258 passed, 0
+  failed, 0 skipped, 0 errors.** All 220 database tests ran, including the 22 recovery tests,
+  the process spawn and kill tests, and the timing-sensitive tests.
+- **S1, found in review:** when the database connection was lost during an attempt, the worker
+  tried to record the failure on the dead connection, and that second error escaped `run_due`
+  and `extract`. Nothing was written and lease expiry still recovered the document, but the
+  docstrings promised no error.
+- **S1 fix, accepted by the owner 2026-11-12** (`cc836f5` on `verify/step1-1ebdb15`;
+  cherry-picked onto local `main` as `6b11e65`, code identical, `main` not pushed): new
+  `WorkerConnectionLost`. Before each failure write the worker checks
+  `conn.closed`; if the connection is gone it raises `WorkerConnectionLost` from the original
+  error and writes nothing more. The check looks at the connection, not the error type, because
+  statement and lock timeouts raise the same error class but leave the connection usable.
+  Docstrings of `_attempt`, `extract` and `run_due` updated. New test
+  `test_database_connection_lost_during_ocr_writes_nothing_and_is_recovered`
+  (`pg_terminate_backend` mid-attempt) shows: no extraction row, attempt 1 still counted and
+  claimed, the OCR child killed, recovery after real lease expiry, attempt 2 completes.
+- **Linux CI on the fix** (`cc836f5`, run #14, `43260900552`), same environment: **259 passed, 0
+  failed, 0 skipped, 0 errors.**
+- **Remaining from the review (not fixed, not approved for fixing):** S2 a Windows-only pipe error
+  may be recorded as `BrokenPipeError` instead of `WorkerDied`; S3 a child that fails to start
+  leaks pipe handles and uses an attempt; S4 option values are not validated; S5 image reading
+  and field shaping run outside the heartbeat; S6 the future runner needs a main-module guard for
+  spawn; S7 the daemon OCR child cannot use multiprocessing itself; S8 no index for the due-row
+  query. Also: if the connection drops *during* the failure write itself, the raw database
+  error still escapes (nothing is written either way).
+- One green run per commit does not rule out occasional failures of the timing-sensitive tests.
 
 ## Settings (configurable, owner-approved, not FRD values)
 
@@ -338,13 +369,17 @@ to the limit.
 - **Nothing runs the worker yet.** The bound above assumes a worker is polling. The runner
   is step 8 of the M2 plan. Until it exists, `db.connect_worker` (the connection with
   database timeouts) is used only by its own test, so no real worker has that backstop.
-- **Not verified on Linux or in CI.** Everything here was run on Windows against a local
+- **Verified on Linux CI since this was written** (runs #13 and #14, see "Verification and the
+  S1 fix" above); the note below is kept as written. **Not verified on Linux or in CI.**
+  Everything here was run on Windows against a local
   PostgreSQL 16. Process spawning and killing behave differently on Linux, and several
   recovery tests depend on short timings that a slow CI machine could miss.
 - **The engine must be sendable to a child process** (a module-level function). One that is
   not fails at start-up of the child and uses up the document's attempts.
 - **Killing the OCR process does not kill programs it started itself.** This matters if the
   chosen engine launches a separate program.
+  *Note added 2026-11-12:* no engine is chosen by the implementer. Read "the chosen engine" as
+  "the owner-supplied model's runtime" (see "AI models are owner-supplied" below).
 - **The integration tests still run the in-process mode** (under `APP_ENV=test`); only the
   recovery tests exercise the child-process path.
 - **A new child process per document** means the OCR models load each time. Acceptable for a
@@ -354,3 +389,237 @@ to the limit.
   stopped: its late result is refused when it tries to store.
 - **Cloud AI.** The send is now audited in its own committed step before sending, but a
   retried attempt would send again. Not reachable: no provider, threshold unset.
+
+---
+
+# AI models are owner-supplied — DECIDED
+
+Owner: Sarwar Islam. Date: 2026-11-12. Replaces the earlier plan to choose an OCR engine
+(RapidOCR or Tesseract), which is obsolete.
+
+- The owner trains and supplies the OCR model (and any later AI model). The platform provides
+  only model-independent infrastructure: versioned adapter contracts, loader, validators,
+  conformance tests and configuration (FRD invariant 10, section 8).
+- The implementer never selects, installs, downloads, bundles or integrates any AI model,
+  OCR engine or pretrained weights.
+- There is no automatic fallback from one model or engine to another. A failed attempt fails.
+- Fake or test adapters exist for tests only and are refused outside `APP_ENV=test`.
+- Integration of the owner's model (plan step 4B) starts only after the owner has supplied the
+  model and its full specification (plan D4) **and** explicitly approved the integration.
+  Supplying the model alone does not authorise integration or deployment.
+- How the artifact enters a deployment (mounted read-only, or packaged into the build) and who
+  writes the model-specific adapter module are part of D4 and need the owner's approval.
+
+Code today: no model or engine dependency exists (`pyproject.toml`). Only fake engines in
+`swasthyoid/tests/` implement the current engine contract.
+
+---
+
+# No OCR adapter available: stay due, direct manual entry — DECIDED (Option A)
+
+Owner: Sarwar Islam. Date: 2026-11-12. The design below is PROPOSED and NOT IMPLEMENTED.
+
+**Decision.** A document for which no OCR adapter is available stays due (status `uploaded`)
+and can go straight to manual entry. It is never marked `extraction_failed` just because no
+adapter is configured.
+
+The code has no status named `due` or `extraction_pending`. "Due" is the condition in
+`capture/extraction.py` (`uploaded`, or `extracting` with its due time reached). `uploaded` is
+the state that means "waiting for extraction". No status is renamed; renaming would need a
+migration and buys nothing.
+
+## Proposed design (not implemented)
+
+| Question | Proposal |
+|---|---|
+| Source states for manual entry | `uploaded`; `extracting` with no live claim (claim token empty, or lease already run out); `extraction_failed` (as today). Refused with 409 `extraction_in_progress` while a live claim is held. Refused from `needs_review`, `verified`, `rejected` |
+| Target state | `needs_review`, with one extraction row at the next version: engine `manual`, empty raw text, every field marked for manual entry (the existing `manual_entry()` result). No new state |
+| Checks | One transaction: lock the row (`FOR UPDATE`), check the source state and claim, clear claim and due time, store the manual row, write the audit entry |
+| Audit | `document.manual_entry`: actor, role, patient, document, result `allow`, source state. No document text. Same transaction as the change, so an audit failure blocks it (fail closed). No C4 event |
+| Race with a worker | Manual entry first: a claim (`SKIP LOCKED`) skips the row and afterwards finds it no longer due. Claim first: manual entry sees the live claim and gets 409. Expired-lease worker: its store and failure writes need status `extracting` and its own token, so they write nothing. `UNIQUE (document_id, version)` is the backstop |
+| Migration | None. The status constraint already allows every status. Changes are application-level: add `uploaded -> needs_review` to `TRANSITIONS`; give `manual_entry()` an actor, the claim check and the audit entry; add the endpoint (plan step 8); change the test that pins manual entry to `extraction_failed` only |
+| Runner rule | The runner checks that an adapter is available **before any claim**, as the in-process refusal does today. Otherwise a claim counts an attempt and a missing adapter would end in `extraction_failed` |
+
+## Bounded-time gate, scoped
+
+- **1a, adapter available:** every document claimed while a configured adapter is available
+  reaches `needs_review` or `extraction_failed` within 3 x (max(hard timeout, lease) + retry
+  wait + polling interval) of its first claim; at most one extraction per version.
+- **1b, no adapter:** nothing is claimed, attempts stay 0, nothing becomes
+  `extraction_failed`, every such document can be moved to `needs_review` by manual entry, and
+  the queue-length counter shows them waiting.
+- **1c, races:** manual entry and extraction never both store.
+
+Time is counted from the first claim; the wait before it depends on runner capacity.
+Infrastructure readiness is shown with test adapters; production readiness needs 1a again on
+the integrated owner model (plan 4B, 9B).
+
+## Sub-decisions still OPEN (recommendations, not decided)
+
+These are tracked in `docs/M2_COMPLETION_PLAN.md` as 1 = D12, 2 = D13, 3 = D14, 4 = D10.
+
+1. Manual entry from `uploaded` also when an adapter is configured (patient's choice)?
+   Recommended: yes, always allowed.
+2. Adapter that fails its checksum or load at runner start: "unavailable" (no claim, documents
+   stay due, alert) or a failed attempt? Recommended: unavailable. A failure inside an attempt
+   still counts as an attempt.
+3. Audit 409 state-conflict refusals too? Recommended: no; authorization denials are already
+   audited by the gateway chain.
+4. Who may start manual entry: plan D10. Recommended: patient only, like viewing the extraction.
+
+---
+
+# OCR model not yet developed: provisional adapter interface only — DECIDED
+
+Owner: Sarwar Islam. Date: 2026-11-12. Extends "AI models are owner-supplied".
+
+**Facts.** OCR model development has **not started**. The owner has not selected an
+architecture, framework, dataset or trained model. The owner will independently select, train,
+own and supply it.
+
+**Decision.**
+
+1. Only model-independent infrastructure is built now, around a **provisional, framework-neutral
+   adapter interface**. The interface is not frozen. It exists so the infrastructure can be
+   exercised with test-only fake adapters.
+2. **Model-dependent decisions stay OPEN** until the owner supplies the model specification (plan
+   D4): page input and output details, confidence (whether present, its range and meaning),
+   position or bounding-box format, text granularity, page and line limits, batching, timeout
+   values (load, per page, per attempt), process model, and resource requirements.
+3. **The future model is not forced to fit the provisional interface.** When the specification
+   arrives, the interface is reviewed against it and revised to fit the model. Incompatibilities
+   are presented to the owner with options; neither the model nor the worker design is changed
+   without the owner's approval.
+4. Nothing is selected, installed, downloaded, trained or integrated by the implementer. No
+   model artifact is bundled or deployed without the owner's explicit authorization.
+5. Model-specific adapter implementation, integration and production deployment require the
+   owner's specification **and** explicit approval.
+6. **Infrastructure-complete is not production-ready.** Infrastructure-complete is shown with
+   test adapters only. Production-ready needs the owner's integrated model, measured and signed
+   off (plan "Readiness levels").
+
+## Status of the 4A contract proposal of 2026-11-12
+
+A full contract proposal (lifecycle, page input and output, line text, confidence, box, identity,
+availability, errors, fakes, privacy, conformance, compatibility; owner choices numbered 4A-1 to
+4A-24b) was presented in the session of 2026-11-12. It was **not approved and is not recorded as
+a contract.** Under this decision its items are split:
+
+| May be settled now (model-independent) | Stays OPEN until the model specification (model-dependent) |
+|---|---|
+| Adapter named by a stable reference in configuration and imported where OCR runs (no pickled objects) | Lifecycle detail beyond "identify, prepare, read, release": load once or per attempt, long-lived process (4A-1), batching (4A-21) |
+| Adapter availability checked before any claim (Option A); unavailable means no claim, no attempt, documents stay due | What the adapter receives: encoded image, decoded pixels, page or whole document, document-type hint (4A-2, 4A-3, 4A-10) |
+| Whether an integrity or load failure before any claim means "unavailable" (D13) | What it returns: granularity, confidence and its meaning, position format, reading order, size limits, strictness on one bad item (4A-4 to 4A-9) |
+| Identity recorded with every extraction: engine id, model version, model checksum, contract version, optionally adapter version (4A-20); field names provisional | How the checksum is defined for the artifact (single file or manifest) (4A-11); how deep the pre-claim check goes, including a probe load (4A-12) |
+| Typed failure codes, attempts and retries as in step 1; no fallback; nothing stored from a failed attempt. (Model-specific retry semantics, including whether malformed output is retried (4A-17), wait for the contract: D17 revision 6) | Timeout values: load, per page, per attempt, and whether a per-page limit exists at all (4A-14) |
+| Fake adapters refused outside `APP_ENV=test` before any claim; approved-adapter list in configuration (4A-18) | Resource limits (4A-22); whether the runtime needs its own process or a separate executable |
+| Killing the whole OCR process group (4A-15); no-network enforcement in tests (production: 4A-16, FRD Q4) | Whether the provisional per-page output becomes the real contract at all |
+| Privacy: no document text in logs, exception messages discarded, OCR process output streams discarded outside test; version 0 items and positions never persisted (4A-19, decided by D17) | |
+| A versioned contract with an owner-approved change process (4A-24); a repository-wide import allowlist lint | |
+| The platform, not the adapter, enforcing whatever time limits are set (4A-23) | |
+
+Owner decisions remaining from that list: see D17 below. 4A-18 (allowlist) and 4A-19 (no
+persistence) are decided by D17; 4A-17 moved to the model-dependent side; D13, 4A-15, 4A-16,
+4A-20, 4A-23, 4A-24 remain open; the model-dependent ones wait for D4 and D18.
+
+## Consequences for the plan
+
+- **4A becomes 4A-infra** (model-independent, can be built after approval) **plus the
+  provisional interface version 0** (test-only, expected to change). Nothing in the
+  infrastructure may depend on the provisional output's details beyond passing it through a
+  versioned validator.
+- **The conformance suite has two parts** (named by D17: infrastructure conformance tests and
+  model-output conformance tests). The infrastructure part is fixed now. The
+  model-dependent output checks are written or revised after the specification is reviewed, so
+  "the suite runs unchanged against the real model" no longer holds.
+- **Version 0 is an infrastructure-test interface only** (D17 below). 3A-harness, 6B parsers and
+  9A metrics may use it only in synthetic infrastructure tests; their production input waits for
+  the model specification (D18).
+- No current code or schema changes as part of this decision.
+
+---
+
+# D17 — 4A model-independent infrastructure scope — APPROVED WITH REVISIONS
+
+Owner: Sarwar Islam. Date: 2026-11-12. Nothing is implemented yet. The proposal reviewed was
+the "4A scope and provisional interface version 0" of 2026-11-12, revised as below.
+
+**What D17 approves:** building the model-independent OCR infrastructure of plan step 4A,
+verified with test-only fake adapters, under the revisions below.
+
+**What D17 does not approve or authorise:**
+
+- Version 0 as an OCR model contract. It is **not** an approved contract of any kind.
+- Implementing any real OCR adapter; selecting, installing, downloading, training, bundling or
+  deploying any model; production deployment of OCR. Each still needs the owner's model
+  specification (D4) and explicit approval.
+
+## Revisions recorded as decisions
+
+1. **Version 0 is an infrastructure-test interface only.** Its shape (`identity`, `prepare`,
+   `read(document)`, `release`; `pages`, `items`, `text`, `confidence`, `position`) exists only to
+   exercise the infrastructure with fakes. It is not a production requirement and nothing may
+   treat it as one.
+2. **Model-dependent contract items stay OPEN until the trained model's specification** (D18):
+   actual OCR input and output, granularity, confidence semantics, bounding-box or position
+   format, page handling, document hints, batching, and output serialization.
+3. **`raw_text` construction from version 0 output** (items joined in order, blank line between
+   pages) may be used **only in synthetic infrastructure tests**. It is not a permanent rule. How
+   production `raw_text` is formed is part of D18.
+4. **Process-per-attempt** (a separate OCR process per attempt, killed at the 10-minute hard
+   timeout) is the **current implementation baseline**, not a model requirement. It is
+   reassessed in the 4B compatibility review.
+5. **Checksum verification infrastructure is built now** (verify declared artifact files against
+   expected SHA-256 values before use, fail closed). **The final artifact-manifest format, and how
+   `model_checksum` is computed from it, stay OPEN** until the artifact structure is known. The
+   version 0 manifest is test-only.
+6. **Retry infrastructure is kept** (step 1: attempts, backoff, maximum attempts, every failure
+   inside an attempt counts). **Model-specific retry semantics** (for example whether malformed
+   output or a model-specific error is retried or closes the document at once) are **not
+   defined** until the actual adapter contract is approved.
+7. **Version 0 page items and positions are not persisted.** No real patient data is used in OCR
+   execution until the required encryption and privacy controls (plan step 2, D2) are implemented
+   and approved by the owner.
+8. **Preserved, not weakened:** the owner-controlled adapter allowlist (only the owner changes
+   it); no fallback to another adapter or engine; fake and test adapters refused outside
+   `APP_ENV=test` before any claim; typed errors with only the code stored; process isolation of
+   OCR from the database and the worker; explicit owner approval for integration and deployment.
+9. **Conformance tests are split.** **Infrastructure conformance tests** (availability, integrity,
+   allowlist, fake refusal, no fallback, typed errors, hard timeout, isolation, no network in
+   tests, privacy of logs and errors, identity recorded, import lint) are in scope for 4A.
+   **Model-output conformance tests** are out of scope for 4A and are written after D18.
+10. **D17 authorises infrastructure only.** See "What D17 does not approve" above.
+
+## Sub-choices proposed with D17 and NOT decided by it
+
+These were recommended in the proposal but were not explicitly approved; they stay OPEN for the
+owner:
+
+| # | Choice | Recommendation |
+|---|---|---|
+| C1 | Adapter configured by environment variables `OCR_ADAPTER` and `OCR_ADAPTERS_APPROVED` | Yes |
+| C2 | Real adapter modules in `swasthyoid/capture/adapters/` (empty in 4A); fakes in `swasthyoid/tests/adapters/` | Yes |
+| D13 | Integrity or availability failure before any claim means "unavailable" (no claim, alert) | Yes |
+| 4A-15 | Kill the whole OCR process group (Linux); Windows keeps the single-process kill, documented | Yes |
+| 4A-16 | No-network enforced in tests only; production enforcement with hosting (FRD Q4) | Yes |
+| 4A-20 | Record an optional `adapter_version` | Yes |
+| 4A-23 | The platform, not the adapter, enforces every time limit | Yes |
+| 4A-24 | One interface version at a time; every change needs owner approval | Yes |
+| — | Identity column names (`engine_id`, `model_version`, `model_checksum`, interface version) and their additive migration | Names provisional; migration only with 4A implementation approval |
+
+Already decided elsewhere and unchanged: Option A (no adapter: stay due, direct manual entry).
+
+---
+
+# P0 exit gate as actually passed — PENDING OWNER ACCEPTANCE
+
+FRD section 11 asks for questions 1, 2, 4, 5 and 7 to be **answered** in P0. They were
+recorded; only Q2 is decided. P1 and P2 work went ahead. Proposed: accept this as a recorded
+deviation, with each open question tied to the work it blocks:
+
+| Question | Blocks |
+|---|---|
+| Q1 drug catalog | Plan step 7 with a real catalog (synthetic catalog only until then) |
+| Q4 hosting and residency | Pilot; any real patient data |
+| Q5 cloud AI | Cloud AI stays off (`CLOUD_AI_THRESHOLD` unset) until decided |
+| Q7 clinical reviewer | Plan steps 6B, 7, 9B; P3 safety rules; every clinical threshold |
