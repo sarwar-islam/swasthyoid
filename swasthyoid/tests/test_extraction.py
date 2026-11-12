@@ -45,6 +45,7 @@ def failing(pages, doc_type):
 def x(d, monkeypatch):  # noqa: F811
     monkeypatch.setattr(extraction, "SCHEMAS", SPEC)
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("SWASTHYOID_TEST_MODE_CONFIRM", "1")  # test mode needs both (runtime_mode)
     monkeypatch.setattr(extraction, "HARD_TIMEOUT", None)  # these engines are closures: run them in-process
     return d
 

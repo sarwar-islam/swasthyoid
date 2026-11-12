@@ -4,9 +4,15 @@ Reads a document's images with an OCR engine, shapes the result into the typed s
 a confidence per field, and leaves the document in `needs_review` or `extraction_failed`.
 It never writes to the timeline: only M3's confirm step creates events.
 
-An engine is engine(pages, doc_type) -> {"engine": name, "raw_text": str, "fields": {...}},
-where a field is {"value", "confidence"} and a repeated group is a list of such dicts.
-The real OCR engine and image pre-processing come later; tests pass fakes.
+The OCR engine is the adapter named by OCR_ADAPTER (capture/ocr.py, step 4A). Before anything is
+claimed, an isolated probe checks that it is available; if not, nothing is claimed and documents
+stay `uploaded` (Option A). Outside test mode no adapter is ever available until an OCR interface
+version beyond the test-only version 0 is approved (D18) and the owner approves integration.
+
+DEPRECATED, test mode only: an engine passed in as a callable,
+engine(pages, doc_type) -> {"engine": name, "raw_text": str, "fields": {...}}, where a field is
+{"value", "confidence"} and a repeated group is a list of such dicts.
+shortcut: legacy engine path, test-only; remove after 6B parsers replace engine-supplied fields.
 
 A cloud AI provider is ai(pages, doc_type, paths) -> {path: {"value", "confidence"}}. It is
 called only for a patient who opted in, and only for the low-confidence fields.
@@ -24,9 +30,10 @@ again as the next attempt, and after the last attempt it becomes extraction_fail
 
 shortcut: no Celery yet, run_due is a plain function; a runner that calls it is a later step.
 """
+import functools
+import logging
 import multiprocessing
 import os
-import threading
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -35,8 +42,11 @@ from uuid import uuid4
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from swasthyoid.capture import documents
+from swasthyoid import runtime_mode
+from swasthyoid.capture import documents, ocr
 from swasthyoid.core import audit
+
+log = logging.getLogger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.85     # manual review: FRD M3 start value, configurable
 # Below this confidence a field may be sent to the cloud AI (opt-in patients only).
@@ -51,7 +61,7 @@ HEARTBEAT = timedelta(seconds=60)       # how often a working attempt renews its
 # The engine runs in a child process that is killed after this long. A database timeout cannot
 # stop a hung OCR process; killing it can. None runs the engine inside the worker instead,
 # with no heartbeat and no hard timeout. That mode is for unit tests with engines that cannot
-# be sent to another process, and is refused unless APP_ENV=test.
+# be sent to another process, and is refused unless in test mode (runtime_mode).
 HARD_TIMEOUT = timedelta(minutes=10)
 
 # doc_type -> {field: kind}. kind is "text", "number" or "date"; a repeated group is
@@ -162,10 +172,17 @@ def _cloud_ai(conn, doc, pages, spec, fields, ai, threshold, ai_threshold):
                 holder[key] = answer
 
 
-def _store(conn, document_id, version, engine, fields, raw_text):
+def _store(conn, document_id, version, engine, fields, raw_text, config=None):
+    """config is the checked adapter (ocr.check_available) for an OCR result; None for manual
+    entry and the legacy test path, whose identity columns stay NULL."""
+    identity = config["identity"] if config else {}
     conn.execute(
-        "INSERT INTO extractions (id, document_id, version, engine, fields, raw_text) VALUES (%s, %s, %s, %s, %s, %s)",
-        [uuid4(), document_id, version, engine, Jsonb(fields), raw_text],
+        "INSERT INTO extractions (id, document_id, version, engine, fields, raw_text, engine_id, model_version, "
+        "model_checksum, adapter_interface_version, adapter_version) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        [uuid4(), document_id, version, engine, Jsonb(fields), raw_text, identity.get("engine_id"),
+         identity.get("model_version"), config and config["model_checksum"], config and config["interface_version"],
+         identity.get("adapter_version")],
     )
 
 
@@ -190,22 +207,48 @@ class WorkerConnectionLost(Exception):
 
 _DUE = "(status = 'uploaded' OR (status = 'extracting' AND next_extraction_at <= clock_timestamp()))"
 _MINE = "id = %s AND extraction_claim = %s AND status = 'extracting'"
-_DEFAULTS = ("threshold", "ai_threshold", "max_attempts", "backoff", "lease", "heartbeat", "hard_timeout")
+_DEFAULTS = ("threshold", "ai_threshold", "max_attempts", "backoff", "lease", "heartbeat", "hard_timeout",
+             "availability_timeout")
+_TEST_MODE = f"APP_ENV=test and {runtime_mode.CONFIRM}=1"
 
 
 def _settings(given):
     """Per-call settings over the module constants, read now so they can be reconfigured."""
+    runtime_mode.check_test_mode_config()  # fail closed before anything else
     unknown = set(given) - set(_DEFAULTS)
     if unknown:
         raise TypeError(f"unknown extraction options: {sorted(unknown)}")
     o = {"threshold": CONFIDENCE_THRESHOLD, "ai_threshold": CLOUD_AI_THRESHOLD, "max_attempts": MAX_ATTEMPTS,
-         "backoff": BACKOFF, "lease": LEASE, "heartbeat": HEARTBEAT, "hard_timeout": HARD_TIMEOUT, **given}
+         "backoff": BACKOFF, "lease": LEASE, "heartbeat": HEARTBEAT, "hard_timeout": HARD_TIMEOUT,
+         "availability_timeout": ocr.AVAILABILITY_TIMEOUT, **given}
     if o["hard_timeout"] is None:
-        if os.environ.get("APP_ENV") != "test":
-            raise RuntimeError("in-process OCR (no heartbeat, no hard timeout) is only allowed with APP_ENV=test")
+        if not runtime_mode.is_test_mode():
+            raise RuntimeError(f"in-process OCR (no heartbeat, no hard timeout) is only allowed with {_TEST_MODE}")
     elif o["heartbeat"] >= o["lease"]:
         raise ValueError("heartbeat must be shorter than the lease, or every lease runs out before it is renewed")
     return o
+
+
+def _engine(engine, o):
+    """(engine for the attempt, adapter config or None), or (None, None) if no adapter is
+    available. Runs before anything is claimed. A probe failure writes nothing: no claim, no
+    attempt, no row; the document stays `uploaded`. It is logged with codes only."""
+    if engine is not None:
+        if not runtime_mode.is_test_mode():
+            raise RuntimeError(f"legacy engine callables are deprecated and only allowed with {_TEST_MODE}")
+        return engine, None
+    started = time.monotonic()
+    try:
+        config = ocr.check_available(o["availability_timeout"])
+    except ocr.AdapterError as e:
+        log.warning("ocr adapter unavailable: code=%s stage=probe ref=%s duration_ms=%d", e.code,
+                    os.environ.get("OCR_ADAPTER") or "-", (time.monotonic() - started) * 1000)
+        return None, None
+    return functools.partial(ocr.run_attempt, config), config
+
+
+def _code(e):
+    return e.code if isinstance(e, ocr.AdapterError) else type(e).__name__
 
 
 def claim(conn, document_id=None, *, lease=None, max_attempts=None):
@@ -259,29 +302,24 @@ def _renew(conn, job, lease):
 
 
 def _child(engine, pages, doc_type, out, limit):
-    """Runs in the child process: the engine, and nothing that touches the database."""
-    def watchdog():  # an orphan must not outlive its worker, nor the hard timeout
-        deadline = time.monotonic() + limit
-        while time.monotonic() < deadline and multiprocessing.parent_process().is_alive():
-            time.sleep(1)
-        os._exit(1)
-
-    threading.Thread(target=watchdog, daemon=True).start()
+    """Runs in the child process: the engine, and nothing that touches the database. Its own
+    process group on Linux; a watchdog ends the group if the worker dies or the limit passes."""
+    ocr.enter_child(limit)
     try:
         out.send(("ok", engine(pages, doc_type)))
     except BaseException as e:
-        out.send(("failed", type(e).__name__))
+        out.send(("failed", _code(e)))  # a code or type name, never the message
 
 
 def _run_engine(engine, pages, doc_type, hard_timeout, heartbeat, renew):
     """The engine's result. Raises AttemptFailed (engine error, child died, hard timeout) or
-    LeaseLost. With a hard timeout the engine runs in a child process that is always killed
-    before this returns."""
+    LeaseLost. With a hard timeout the engine runs in a child process whose process group is
+    always killed before this returns."""
     if hard_timeout is None:
         try:
             return engine(pages, doc_type)
         except Exception as e:
-            raise AttemptFailed(type(e).__name__)
+            raise AttemptFailed(_code(e))
     spawn = multiprocessing.get_context("spawn")
     results, out = spawn.Pipe(duplex=False)
     child = spawn.Process(target=_child, args=(engine, pages, doc_type, out, hard_timeout.total_seconds() + 5),
@@ -305,9 +343,7 @@ def _run_engine(engine, pages, doc_type, hard_timeout, heartbeat, renew):
             if not renew():
                 raise LeaseLost()
     finally:
-        if child.is_alive():
-            child.kill()
-        child.join(10)
+        ocr.stop_child(child)
         results.close()
 
 
@@ -331,17 +367,29 @@ def _fail_unless_disconnected(conn, job, reason, cause, o):
     _fail(conn, job, reason, o["max_attempts"], o["backoff"])
 
 
-def _attempt(conn, job, engine, ai, o):
+def _attempt(conn, job, engine, ai, o, config=None):
     """Work and store for one claimed attempt. Never raises for a failed attempt, except
     WorkerConnectionLost when the database connection is lost: then nothing more is written and
-    the lease expiry makes the document due again."""
+    the lease expiry makes the document due again. config is the checked adapter, or None for
+    the deprecated test-only engine callable."""
     try:
-        pages = [documents.read_image(conn, job["id"], i["n"])[1]
-                 for i in documents.get(conn, job["id"])["images"]]
-        got = _run_engine(engine, pages, job["doc_type"], o["hard_timeout"], o["heartbeat"],
+        images = documents.get(conn, job["id"])["images"]
+        pages = [documents.read_image(conn, job["id"], i["n"])[1] for i in images]
+        work = pages if config is None else [
+            {"page_number": n, "image": data, "media_type": image["content_type"]}
+            for n, (image, data) in enumerate(zip(images, pages), 1)]
+        got = _run_engine(engine, work, job["doc_type"], o["hard_timeout"], o["heartbeat"],
                           lambda: _renew(conn, job, o["lease"]))
         spec = SCHEMAS.get(job["doc_type"], {})
-        fields = structure(spec, got.get("fields"), o["threshold"])
+        if config is None:
+            fields, raw_text, name = structure(spec, got.get("fields"), o["threshold"]), \
+                str(got.get("raw_text") or ""), str(got.get("engine") or "unknown")
+        else:
+            if config["interface_version"] == 0 and not runtime_mode.is_test_mode():
+                raise ocr.AdapterError("engine_unavailable")  # never store a version 0 result outside test mode
+            # fields come from parsers (step 6B), not from OCR; items and positions are never stored
+            fields, raw_text, name = structure(spec, {}, o["threshold"]), ocr.raw_text_v0(got), \
+                config["identity"]["engine_id"]
         _cloud_ai(conn, job, pages, spec, fields, ai, o["threshold"], o["ai_threshold"])
         with conn.transaction():
             # the fence: only the current claim, inside its lease, may store a result
@@ -350,8 +398,7 @@ def _attempt(conn, job, engine, ai, o):
                 [job["id"], job["token"]]).fetchone()
             if mine is None:
                 raise LeaseLost()
-            _store(conn, job["id"], job["version"], str(got.get("engine") or "unknown"), fields,
-                   str(got.get("raw_text") or ""))
+            _store(conn, job["id"], job["version"], name, fields, raw_text, config)
             conn.execute(
                 "UPDATE documents SET status = 'needs_review', extraction_claim = NULL, extraction_error = NULL, "
                 "next_extraction_at = NULL, updated_at = clock_timestamp() WHERE id = %s", [job["id"]])
@@ -360,36 +407,47 @@ def _attempt(conn, job, engine, ai, o):
     except AttemptFailed as e:
         _fail_unless_disconnected(conn, job, e.args[0], e, o)
     except Exception as e:
-        _fail_unless_disconnected(conn, job, type(e).__name__, e, o)
+        _fail_unless_disconnected(conn, job, _code(e), e, o)
 
 
-def extract(conn, document_id, version, engine, ai=None, **options):
+def extract(conn, document_id, version, engine=None, ai=None, **options):
     """Run one extraction job. Keyed by (document_id, version): a repeat, a job for a document
-    that is not due, or one another worker holds, does nothing and returns False.
-    Options: threshold, ai_threshold, max_attempts, backoff, lease, heartbeat, hard_timeout.
-    Raises WorkerConnectionLost if the connection is lost during the attempt: open a new one."""
+    that is not due, one another worker holds, or no available OCR adapter, does nothing and
+    returns False. engine=None uses the configured adapter; a callable is the deprecated
+    test-only path. Options: threshold, ai_threshold, max_attempts, backoff, lease, heartbeat,
+    hard_timeout, availability_timeout.
+    Raises WorkerConnectionLost if the connection is lost during the attempt: open a new one.
+    Raises RuntimeError, before anything is claimed, if APP_ENV=test lacks its confirmation."""
     o = _settings(options)
-    if version != _next_version(conn, document_id):
+    engine, config = _engine(engine, o)
+    if engine is None or version != _next_version(conn, document_id):
         return False
     job = claim(conn, document_id, lease=o["lease"], max_attempts=o["max_attempts"])
     if job is None or job["version"] != version:
         return False
-    _attempt(conn, job, engine, ai, o)
+    _attempt(conn, job, engine, ai, o, config)
     return True
 
 
-def run_due(conn, engine, ai=None, *, limit=100, **options):
+def run_due(conn, engine=None, ai=None, *, limit=100, **options):
     """Claim and run due extraction jobs until none is left; returns how many attempts ran.
-    Several workers can run this at once: each takes different documents.
+    Several workers can run this at once: each takes different documents. With no available OCR
+    adapter it claims nothing and returns 0. engine=None uses the configured adapter; a callable
+    is the deprecated test-only path.
     Raises WorkerConnectionLost if the connection is lost during an attempt: open a new one and
-    call again. The interrupted attempt stays counted and is recovered when its lease ends."""
+    call again. The interrupted attempt stays counted and is recovered when its lease ends.
+    Raises RuntimeError, before anything is claimed, if APP_ENV=test lacks its confirmation.
+    A future worker process (step 8) must call runtime_mode.check_test_mode_config() at start."""
     o = _settings(options)
+    engine, config = _engine(engine, o)
+    if engine is None:
+        return 0
     done = 0
     while done < limit:
         job = claim(conn, lease=o["lease"], max_attempts=o["max_attempts"])
         if job is None:
             break
-        _attempt(conn, job, engine, ai, o)
+        _attempt(conn, job, engine, ai, o, config)
         done += 1
     return done
 

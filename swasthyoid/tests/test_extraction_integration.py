@@ -45,6 +45,7 @@ def prod(monkeypatch, tmp_path):
     monkeypatch.setenv("DOCUMENT_STORE", str(tmp_path))
     monkeypatch.delenv("DEV_LOG_CODES", raising=False)
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("SWASTHYOID_TEST_MODE_CONFIRM", "1")  # test mode needs both (runtime_mode)
     monkeypatch.setattr(extraction, "HARD_TIMEOUT", None)  # in-process engines unless a test sets a hard timeout
     codes = {}
     app.dependency_overrides[deps.get_code_sender] = lambda: lambda phone, code, context=None: codes.update({phone: code})
@@ -95,7 +96,10 @@ def test_real_schema_has_the_extraction_objects(prod):
         assert {k: v[:2] for k, v in ext.items()} == {
             "id": ("uuid", "NO"), "document_id": ("uuid", "NO"), "version": ("integer", "NO"),
             "engine": ("text", "NO"), "fields": ("jsonb", "NO"), "raw_text": ("text", "NO"),
-            "created_at": ("timestamp with time zone", "NO")}
+            "created_at": ("timestamp with time zone", "NO"),
+            # 4A identity columns: nullable, no backfill
+            "engine_id": ("text", "YES"), "model_version": ("text", "YES"), "model_checksum": ("text", "YES"),
+            "adapter_interface_version": ("integer", "YES"), "adapter_version": ("text", "YES")}
         docs = columns("documents")
         assert docs["extraction_attempts"] == ("integer", "NO", "0")
         assert docs["next_extraction_at"][:2] == ("timestamp with time zone", "YES")
@@ -107,6 +111,7 @@ def test_real_schema_has_the_extraction_objects(prod):
         assert constraints["extractions_document_id_version_key"] == "UNIQUE (document_id, version)"
         assert constraints["extractions_document_id_fkey"].startswith("FOREIGN KEY (document_id) REFERENCES documents")
         assert "version >= 1" in constraints["extractions_version_check"]
+        assert "model_checksum ~ '^[0-9a-f]{64}$'" in constraints["extraction_identity"]
         triggers = {r[0] for r in conn.execute(
             "SELECT tgname FROM pg_trigger WHERE tgrelid = 'extractions'::regclass AND NOT tgisinternal")}
         assert triggers == {"extractions_no_change", "extractions_no_truncate"}

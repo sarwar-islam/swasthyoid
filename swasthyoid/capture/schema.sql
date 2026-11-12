@@ -85,6 +85,35 @@ CREATE TABLE IF NOT EXISTS extractions (
     UNIQUE (document_id, version)
 );
 
+-- Which OCR adapter and model produced an extraction (M2 step 4A, docs/DECISIONS.md D17).
+-- Additive and nullable, no backfill: rows from before 4A, manual entries and the deprecated
+-- test-only engine path keep all five NULL. An OCR row fills the four required columns;
+-- adapter_version is optional. Each branch below tests NULL explicitly, so a partly filled row
+-- makes both branches FALSE (never UNKNOWN) and is rejected.
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS engine_id text;
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS model_version text;
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS model_checksum text;
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS adapter_interface_version int;
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS adapter_version text;
+ALTER TABLE extractions DROP CONSTRAINT IF EXISTS extraction_identity;
+ALTER TABLE extractions ADD CONSTRAINT extraction_identity CHECK (
+    (    engine_id IS NULL
+     AND model_version IS NULL
+     AND model_checksum IS NULL
+     AND adapter_interface_version IS NULL
+     AND adapter_version IS NULL)
+    OR
+    (    engine_id IS NOT NULL
+     AND model_version IS NOT NULL
+     AND model_checksum IS NOT NULL
+     AND adapter_interface_version IS NOT NULL
+     AND engine_id ~ '^[a-z0-9_-]{1,64}$'
+     AND length(model_version) BETWEEN 1 AND 128
+     AND model_checksum ~ '^[0-9a-f]{64}$'
+     AND adapter_interface_version >= 0
+     AND (adapter_version IS NULL OR length(adapter_version) BETWEEN 1 AND 64))
+);
+
 DROP TRIGGER IF EXISTS extractions_no_change ON extractions;
 CREATE TRIGGER extractions_no_change BEFORE UPDATE OR DELETE ON extractions
     FOR EACH ROW EXECUTE FUNCTION append_only();

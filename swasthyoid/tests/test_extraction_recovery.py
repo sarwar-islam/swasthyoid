@@ -439,8 +439,11 @@ def test_in_process_ocr_is_refused_outside_tests(prod, monkeypatch):
                 extraction.extract(conn, doc_id, 1, ocr, hard_timeout=None)
             with pytest.raises(RuntimeError, match="APP_ENV=test"):
                 extraction.run_due(conn, ocr)  # the fixture left HARD_TIMEOUT at None
+            # 4A: an engine callable is deprecated and test-only in every mode, child process too
+            with pytest.raises(RuntimeError, match="APP_ENV=test"):
+                extraction.run_due(conn, fake_engines.good, hard_timeout=timedelta(minutes=10))
         assert job(conn, doc_id) == ("uploaded", 0, None, None)  # refused before anything was claimed
-        # the child-process mode needs no special environment
+        monkeypatch.setenv("APP_ENV", "test")  # with the fixture's confirmation, test mode again
         assert extraction.run_due(conn, fake_engines.good, hard_timeout=timedelta(minutes=10)) == 1
         assert job(conn, doc_id)[0] == "needs_review"
 

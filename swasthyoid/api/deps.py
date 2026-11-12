@@ -4,6 +4,7 @@ Order for every protected request: token -> account still valid -> role (RBAC).
 Reads of patient data by anyone but the patient then go through C1 (consent) and
 C2 (audit): use patient_read() on those routes.
 """
+import logging
 import os
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -13,7 +14,7 @@ from fastapi import Depends, Request
 from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 
-from swasthyoid import db, pii
+from swasthyoid import db, pii, runtime_mode
 from swasthyoid.core import audit, consent_authz, notification
 from swasthyoid.identity import sessions
 
@@ -39,9 +40,15 @@ def dev_codes_enabled():
 
 
 def check_config():
-    """Refuse to start if codes would be logged anywhere but an explicit development setup."""
+    """Refuse to start if codes would be logged anywhere but an explicit development setup, or
+    if APP_ENV=test lacks its confirmation (runtime_mode)."""
     if dev_codes_enabled() and os.environ.get("APP_ENV") != "development":
         raise RuntimeError("DEV_LOG_CODES=1 is only allowed with APP_ENV=development")
+    runtime_mode.check_test_mode_config()
+    if runtime_mode.confirm_without_test_env():
+        # owner decision 4A §2.4 pending; option (ii), a warning, implemented as recommended
+        logging.getLogger(__name__).warning("%s is set but APP_ENV is not test: test mode is off",
+                                            runtime_mode.CONFIRM)
 
 
 def no_code_delivery(*args, **kwargs):
