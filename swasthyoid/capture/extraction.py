@@ -182,6 +182,12 @@ class LeaseLost(Exception):
     """The claim is no longer ours. Stop, and change nothing."""
 
 
+class WorkerConnectionLost(Exception):
+    """The worker's database connection is gone. Nothing more was written for the attempt: it
+    stays counted and claimed until its lease ends, then the document is due again. The caller
+    must open a new connection; __cause__ is the original error."""
+
+
 _DUE = "(status = 'uploaded' OR (status = 'extracting' AND next_extraction_at <= clock_timestamp()))"
 _MINE = "id = %s AND extraction_claim = %s AND status = 'extracting'"
 _DEFAULTS = ("threshold", "ai_threshold", "max_attempts", "backoff", "lease", "heartbeat", "hard_timeout")
@@ -318,8 +324,17 @@ def _fail(conn, job, reason, max_attempts, backoff):
     )
 
 
+def _fail_unless_disconnected(conn, job, reason, cause, o):
+    # a lost connection cannot record the failure; do not try another write on it
+    if conn.closed:
+        raise WorkerConnectionLost() from cause
+    _fail(conn, job, reason, o["max_attempts"], o["backoff"])
+
+
 def _attempt(conn, job, engine, ai, o):
-    """Work and store for one claimed attempt. Never raises for a failed attempt."""
+    """Work and store for one claimed attempt. Never raises for a failed attempt, except
+    WorkerConnectionLost when the database connection is lost: then nothing more is written and
+    the lease expiry makes the document due again."""
     try:
         pages = [documents.read_image(conn, job["id"], i["n"])[1]
                  for i in documents.get(conn, job["id"])["images"]]
@@ -343,15 +358,16 @@ def _attempt(conn, job, engine, ai, o):
     except LeaseLost:
         pass  # another attempt owns the document now, or will: leave everything as it is
     except AttemptFailed as e:
-        _fail(conn, job, e.args[0], o["max_attempts"], o["backoff"])
+        _fail_unless_disconnected(conn, job, e.args[0], e, o)
     except Exception as e:
-        _fail(conn, job, type(e).__name__, o["max_attempts"], o["backoff"])
+        _fail_unless_disconnected(conn, job, type(e).__name__, e, o)
 
 
 def extract(conn, document_id, version, engine, ai=None, **options):
     """Run one extraction job. Keyed by (document_id, version): a repeat, a job for a document
     that is not due, or one another worker holds, does nothing and returns False.
-    Options: threshold, ai_threshold, max_attempts, backoff, lease, heartbeat, hard_timeout."""
+    Options: threshold, ai_threshold, max_attempts, backoff, lease, heartbeat, hard_timeout.
+    Raises WorkerConnectionLost if the connection is lost during the attempt: open a new one."""
     o = _settings(options)
     if version != _next_version(conn, document_id):
         return False
@@ -364,7 +380,9 @@ def extract(conn, document_id, version, engine, ai=None, **options):
 
 def run_due(conn, engine, ai=None, *, limit=100, **options):
     """Claim and run due extraction jobs until none is left; returns how many attempts ran.
-    Several workers can run this at once: each takes different documents."""
+    Several workers can run this at once: each takes different documents.
+    Raises WorkerConnectionLost if the connection is lost during an attempt: open a new one and
+    call again. The interrupted attempt stays counted and is recovered when its lease ends."""
     o = _settings(options)
     done = 0
     while done < limit:
