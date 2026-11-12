@@ -305,6 +305,125 @@ def test_outside_test_mode_version_0_is_never_available(test_mode, monkeypatch):
     assert code(e) == "engine_unavailable"
 
 
+# ---- the probe message protocol (M2) and the probe child's own test-mode check (L5)
+
+class Scripted:
+    """Stands in for the worker's end of the probe channel: messages, then EOF."""
+
+    def __init__(self, *items, eof=True):
+        self.items, self.eof = list(items), eof
+
+    def poll(self, timeout):
+        if self.items or self.eof:
+            return True
+        time.sleep(min(timeout, 0.05))
+        return False
+
+    def recv_bytes(self, maxlength):
+        if not self.items:
+            raise EOFError
+        item = self.items.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        data = item if isinstance(item, bytes) else json.dumps(item).encode("utf-8")
+        if len(data) > maxlength:
+            raise OSError("message too long")
+        return data
+
+
+CHECKSUM, IDENT = ["checksum", "a" * 64], ["identity", dict(IDENTITY)]
+
+
+def read(conn, seconds=5):
+    return ocr._read_probe(conn, time.monotonic() + seconds)
+
+
+def test_probe_protocol_accepts_checksum_then_identity_then_eof():
+    assert read(Scripted(CHECKSUM, IDENT)) == ("a" * 64, IDENTITY)
+
+
+@pytest.mark.parametrize("messages", [
+    [IDENT, CHECKSUM],                      # out of order
+    [CHECKSUM, CHECKSUM, IDENT],            # duplicate checksum
+    [CHECKSUM, IDENT, CHECKSUM],            # late checksum, after identity
+    [CHECKSUM, IDENT, IDENT],               # late identity
+    [CHECKSUM, IDENT, ["note", "x"]],       # anything after identity
+    [CHECKSUM, ["note", "x"], IDENT],       # unexpected kind
+    [CHECKSUM], [IDENT], [],                # incomplete, or EOF with nothing
+    [b"not json"], [["checksum"]], ["checksum"],
+    [CHECKSUM, IDENT, OSError()],           # channel error
+    [b"x" * (ocr._PROBE_MESSAGE_MAX + 1)],  # over the size limit
+])
+def test_probe_protocol_refuses_anything_else(messages):
+    with pytest.raises(ocr.AdapterError) as e:
+        read(Scripted(*messages))
+    assert code(e) == "engine_unavailable"
+
+
+def test_probe_protocol_passes_a_failure_code_through():
+    for messages in ([["failed", "model_integrity_failed"]], [CHECKSUM, ["failed", "malformed_output"]]):
+        with pytest.raises(ocr.AdapterError) as e:
+            read(Scripted(*messages))
+        assert code(e) == messages[-1][1]
+    with pytest.raises(ocr.AdapterError) as e:
+        read(Scripted(["failed", "made up"]))
+    assert code(e) == "engine_unavailable"
+
+
+def test_probe_protocol_waits_for_eof_within_the_deadline():
+    """A complete sequence is not accepted until the channel closes: a message could follow."""
+    started = time.monotonic()
+    with pytest.raises(ocr.AdapterError) as e:
+        read(Scripted(CHECKSUM, IDENT, eof=False), seconds=1)
+    assert code(e) == "availability_timeout" and time.monotonic() - started < 10
+
+
+def test_a_forged_second_checksum_from_adapter_code_is_refused(test_mode, monkeypatch):
+    monkeypatch.setenv("OCR_ADAPTER", FAKE + "extra_checksum")
+    with pytest.raises(ocr.AdapterError) as e:
+        ocr.check_available(timedelta(seconds=60))
+    assert code(e) == "engine_unavailable"
+
+
+MARKER = "swasthyoid.tests.adapters.fake_import_marker:adapter"
+
+
+@pytest.mark.parametrize("unset", ["APP_ENV", "SWASTHYOID_TEST_MODE_CONFIRM"])
+def test_probe_child_refuses_outside_test_mode_before_importing_adapter_code(test_mode, monkeypatch, unset):
+    monkeypatch.delenv(unset)  # without APP_ENV: off; with APP_ENV=test but no confirmation: fails closed
+    started = time.monotonic()
+    with pytest.raises(ocr.AdapterError) as e:
+        ocr.probe(MARKER, None, timedelta(seconds=30))
+    assert code(e) == "engine_unavailable"  # a probe failure, not a timeout and not a success
+    assert time.monotonic() - started < 25
+    assert "imported" not in events(test_mode)
+
+
+def test_probe_child_in_test_mode_imports_and_reports(test_mode):
+    checksum, identity = ocr.probe(MARKER, None, timedelta(seconds=60))
+    assert (checksum, identity) == (EMPTY_SHA, IDENTITY) and "imported" in events(test_mode)
+
+
+@pytest.mark.parametrize("ref, expected", [
+    ("swasthyoid.tests:x", True), ("swasthyoid.tests.adapters.fake_adapters:good", True),
+    ("swasthyoid.testsuite:x", False), ("swasthyoid.tests_extra.mod:x", False), ("owner_models.ocr:adapter", False),
+])
+def test_test_package_references(ref, expected):
+    assert ocr.is_test_ref(ref) is expected
+
+
+def test_the_test_package_itself_is_refused_outside_test_mode(test_mode, monkeypatch):
+    """Regression: "swasthyoid.tests:x" was not caught by the old "swasthyoid.tests." prefix."""
+    monkeypatch.delenv("APP_ENV")
+    ref = "swasthyoid.tests:x"
+    monkeypatch.setenv("OCR_ADAPTER", ref)
+    monkeypatch.setattr(ocr, "load_allowlist", lambda: {ref: entry(test_mode, ["w.bin"], checksum="1" * 64, ref=ref)})
+    monkeypatch.setattr(ocr, "probe", lambda *a: pytest.fail("probed a test-package adapter outside test mode"))
+    with pytest.raises(ocr.AdapterError) as e:
+        ocr.check_available()
+    assert code(e) == "engine_unavailable"
+
+
 # ---- the OCR attempt (OCR child entry, run in-process here)
 
 def config_for(test_mode, monkeypatch, factory="good"):

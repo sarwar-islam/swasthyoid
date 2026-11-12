@@ -361,6 +361,9 @@ def _fail(conn, job, reason, max_attempts, backoff):
 
 
 def _fail_unless_disconnected(conn, job, reason, cause, o):
+    # codes and ids only: never a message, document text, OCR output or artifact content
+    log.warning("ocr attempt failed: code=%s stage=attempt document=%s attempt=%d",
+                str(reason)[:100], job["id"], job["attempt"])
     # a lost connection cannot record the failure; do not try another write on it
     if conn.closed:
         raise WorkerConnectionLost() from cause
@@ -387,6 +390,8 @@ def _attempt(conn, job, engine, ai, o, config=None):
         else:
             if config["interface_version"] == 0 and not runtime_mode.is_test_mode():
                 raise ocr.AdapterError("engine_unavailable")  # never store a version 0 result outside test mode
+            # validated again here: the child's own check ran next to adapter code that could change it
+            got = ocr.validate_result(got, len(work), config["identity"])
             # fields come from parsers (step 6B), not from OCR; items and positions are never stored
             fields, raw_text, name = structure(spec, {}, o["threshold"]), ocr.raw_text_v0(got), \
                 config["identity"]["engine_id"]
@@ -437,7 +442,8 @@ def run_due(conn, engine=None, ai=None, *, limit=100, **options):
     Raises WorkerConnectionLost if the connection is lost during an attempt: open a new one and
     call again. The interrupted attempt stays counted and is recovered when its lease ends.
     Raises RuntimeError, before anything is claimed, if APP_ENV=test lacks its confirmation.
-    A future worker process (step 8) must call runtime_mode.check_test_mode_config() at start."""
+    Step 8 MUST call runtime_mode.check_test_mode_config() at independent worker process startup,
+    before entering its worker loop (owner decision B1, 2026-11-12)."""
     o = _settings(options)
     engine, config = _engine(engine, o)
     if engine is None:

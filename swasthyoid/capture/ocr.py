@@ -319,17 +319,77 @@ def _load(ref):
     return adapter
 
 
+def is_test_ref(ref):
+    """An adapter reference inside the swasthyoid.tests package (test-only fakes)."""
+    module = ref.partition(":")[0]
+    return module == "swasthyoid.tests" or module.startswith("swasthyoid.tests.")
+
+
+_PROBE_MESSAGE_MAX = 1 << 16  # bytes; a probe message is a checksum or an identity
+
+
 def _probe_main(ref, entry, out, limit):
-    """Probe child: the artifacts first (no adapter code loaded yet), then the identity. Never
-    calls prepare(): whether a probe may load the model is open until D18."""
+    """Probe child. Re-checks test mode before anything else: interface version 0 is the only
+    version and it is test-only, so outside test mode no adapter code is imported. Then the
+    artifacts (no adapter code loaded yet), then the identity. Never calls prepare(): whether a
+    probe may load the model is open until D18. Messages are JSON bytes, never pickles, and the
+    channel is closed at the end so the worker sees EOF."""
+    def send(kind, value):
+        out.send_bytes(json.dumps([kind, value]).encode("utf-8"))
+
     enter_child(limit)
     try:
-        out.send(("checksum", manifest_checksum(entry)))
-        out.send(("identity", validate_identity(_load(ref).identity())))
+        try:
+            runtime_mode.check_test_mode_config()
+            test_mode = runtime_mode.is_test_mode()
+        except Exception:  # APP_ENV=test without its confirmation: fail closed
+            test_mode = False
+        if not test_mode:
+            send("failed", "engine_unavailable")
+            return
+        send("checksum", manifest_checksum(entry))
+        send("identity", validate_identity(_load(ref).identity()))
     except AdapterError as e:
-        out.send(("failed", e.code))
+        send("failed", e.code)
     except BaseException:
-        out.send(("failed", "engine_unavailable"))
+        send("failed", "engine_unavailable")
+    finally:
+        out.close()
+
+
+def _read_probe(results, deadline):
+    """Every message the probe child sends, read until the channel reaches EOF, or AdapterError.
+    The only accepted sequences are [checksum, identity], [failed] and [checksum, failed];
+    anything duplicate, late, out of order or unexpected is refused. The deadline still applies
+    to the whole exchange, including waiting for EOF."""
+    messages = []
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AdapterError("availability_timeout")
+        try:
+            if not results.poll(remaining):
+                continue
+            raw = results.recv_bytes(_PROBE_MESSAGE_MAX)
+        except (EOFError, BrokenPipeError):
+            break  # the child closed its end: the sequence is complete
+        except OSError:  # includes a message over the size limit
+            raise AdapterError("engine_unavailable")
+        try:
+            message = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise AdapterError("engine_unavailable")
+        if not (isinstance(message, list) and len(message) == 2 and isinstance(message[0], str)):
+            raise AdapterError("engine_unavailable")
+        messages.append(message)
+        if len(messages) > 2:
+            raise AdapterError("engine_unavailable")  # nothing valid is longer than two
+    kinds = [kind for kind, _ in messages]
+    if kinds in (["failed"], ["checksum", "failed"]):
+        raise AdapterError(messages[-1][1] if messages[-1][1] in CODES else "engine_unavailable")
+    if kinds != ["checksum", "identity"]:
+        raise AdapterError("engine_unavailable")
+    return messages[0][1], messages[1][1]
 
 
 def probe(ref, entry, timeout):
@@ -337,31 +397,17 @@ def probe(ref, entry, timeout):
     spawn = multiprocessing.get_context("spawn")
     results, out = spawn.Pipe(duplex=False)
     child = spawn.Process(target=_probe_main, args=(ref, entry, out, timeout.total_seconds() + 5), daemon=True)
-    got = {}
     try:
         child.start()
-        out.close()
-        deadline = time.monotonic() + timeout.total_seconds()
-        while "identity" not in got:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise AdapterError("availability_timeout")
-            try:
-                if not results.poll(remaining):
-                    continue
-                kind, value = results.recv()
-            except (EOFError, OSError):
-                raise AdapterError("engine_unavailable")
-            if kind == "failed":
-                raise AdapterError(value)
-            got[kind] = value
+        out.close()  # so that EOF arrives once the child closes its end
+        checksum, identity = _read_probe(results, time.monotonic() + timeout.total_seconds())
     finally:
         stop_child(child)
         out.close()  # also when start() failed
         results.close()
-    if not (isinstance(got.get("checksum"), str) and _SHA256.fullmatch(got["checksum"])):
+    if not (isinstance(checksum, str) and _SHA256.fullmatch(checksum)):
         raise AdapterError("engine_unavailable")
-    return got["checksum"], validate_identity(got["identity"])  # never trust the child's copy
+    return checksum, validate_identity(identity)  # never trust the child's copy
 
 
 def check_available(timeout=None):
@@ -372,7 +418,7 @@ def check_available(timeout=None):
     if not (ref and _REF.fullmatch(ref)):
         raise AdapterError("engine_unavailable")
     entry = load_allowlist().get(ref)
-    if not test_mode and (entry is None or ref.startswith("swasthyoid.tests.") or not entry["artifacts"]):
+    if not test_mode and (entry is None or is_test_ref(ref) or not entry["artifacts"]):
         raise AdapterError("engine_unavailable")
     checksum, identity = probe(ref, entry, timeout or AVAILABILITY_TIMEOUT)
     if identity["test_only"] and not test_mode:

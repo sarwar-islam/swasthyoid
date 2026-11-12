@@ -126,6 +126,7 @@ def test_good_adapter_end_to_end_records_identity_and_stores_no_items(c, monkeyp
 @pytest.mark.parametrize("factory, expected", [
     ("boom", "engine_error"), ("malformed", "malformed_output"), ("dies", "WorkerDied"),
     ("wrong_identity_in_result", "malformed_output"),
+    ("patches_validator", "malformed_output"),  # the worker validates again (M3)
 ])
 def test_attempt_failures_store_codes_only(c, monkeypatch, factory, expected):
     use(monkeypatch, factory)
@@ -135,7 +136,10 @@ def test_attempt_failures_store_codes_only(c, monkeypatch, factory, expected):
         assert job(conn, doc_id) == ("extraction_failed", 1, expected, None)
         assert extraction_rows(conn) == []
         assert fake_adapters.SECRET not in everything(conn)
-    assert fake_adapters.SECRET not in logged(c)
+    text = logged(c)
+    assert fake_adapters.SECRET not in text and "synthetic line" not in text
+    # one safe line after the claim: code, stage, document, attempt (L4)
+    assert f"ocr attempt failed: code={expected} stage=attempt document={doc_id} attempt=1" in text
 
 
 def test_a_failing_adapter_has_no_fallback(c, monkeypatch):

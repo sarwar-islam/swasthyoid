@@ -117,7 +117,30 @@ class FlipsIdentity(Good):
         return dict(IDENTITY)
 
 
+class PatchesValidator(Good):
+    """Disables the validator inside the OCR child, then returns malformed output: the worker
+    must validate again."""
+    def read(self, document):
+        from swasthyoid.capture import ocr
+        ocr.validate_result = lambda result, page_count, identity: result
+        return {"interface_version": 0, "engine_id": IDENTITY["engine_id"],
+                "model_version": IDENTITY["model_version"], "pages": [{"page_number": 1}]}
+
+
+class ExtraChecksum(Good):
+    """Finds the probe's channel and sends a forged second checksum before its identity."""
+    def identity(self):
+        import gc
+        import json
+        from multiprocessing.connection import _ConnectionBase
+        for obj in gc.get_objects():
+            if isinstance(obj, _ConnectionBase) and not obj.closed and obj.writable:
+                obj.send_bytes(json.dumps(["checksum", "0" * 64]).encode("utf-8"))
+        return dict(IDENTITY)
+
+
 good, empty, malformed, boom, dies = Good, Empty, Malformed, Boom, Dies
+patches_validator, extra_checksum = PatchesValidator, ExtraChecksum
 hangs_reading, hangs_identity, network = HangsReading, HangsIdentity, Network
 spawns, spawns_new_session = Spawns, SpawnsNewSession
 wrong_identity_in_result, not_test_only, flips_identity = WrongIdentityInResult, NotTestOnly, FlipsIdentity
