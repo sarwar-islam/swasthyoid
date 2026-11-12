@@ -213,6 +213,59 @@ def test_ocr_child_process_dies_and_the_attempt_is_counted(prod):
         assert extractions(conn) == []
 
 
+def test_database_connection_lost_during_ocr_writes_nothing_and_is_recovered(prod, monkeypatch, tmp_path):
+    beat = tmp_path / "beat"
+    monkeypatch.setenv("FAKE_ENGINE_BEAT_FILE", str(beat))
+    doc_id = upload(prod, patient(prod))
+    worker = prod.connect()
+    outcome = []
+
+    def run():
+        try:
+            outcome.append(extraction.run_due(worker, fake_engines.beating, lease=timedelta(seconds=2),
+                                              heartbeat=timedelta(seconds=0.3), hard_timeout=timedelta(seconds=60)))
+        except Exception as e:
+            outcome.append(e)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        for _ in range(100):  # wait for the OCR child to be running
+            if beat.exists() and beat.stat().st_size > 2:
+                break
+            time.sleep(0.2)
+        else:
+            pytest.fail("the OCR child never started")
+        with prod.connect() as admin:  # the database drops the worker's session mid-attempt
+            assert admin.execute("SELECT pg_terminate_backend(%s)", [worker.info.backend_pid]).fetchone()[0] is True
+        thread.join(30)
+        assert not thread.is_alive()
+    finally:
+        worker.close()
+
+    assert len(outcome) == 1 and isinstance(outcome[0], extraction.WorkerConnectionLost)
+    assert isinstance(outcome[0].__cause__, psycopg.OperationalError)  # the original error, not a failed _fail
+    assert multiprocessing.active_children() == []  # the OCR child was killed
+    size = beat.stat().st_size
+    time.sleep(1)
+    assert beat.stat().st_size == size  # and it no longer runs
+
+    with prod.connect() as conn:
+        assert extractions(conn) == []  # no extraction row
+        status, attempts, token, _ = claim_row(conn, doc_id)
+        assert (status, attempts) == ("extracting", 1) and token is not None  # attempt 1 counted, still claimed
+        assert job(conn, doc_id)[2] is None  # no failure was recorded over the lost connection
+        for _ in range(50):  # real lease expiry, not a simulated one
+            if claim_row(conn, doc_id)[3] is False:
+                break
+            time.sleep(0.2)
+        else:
+            pytest.fail("the lease never ran out")
+        assert extraction.run_due(conn, ocr) == 1  # recovered by a new connection
+        assert job(conn, doc_id) == ("needs_review", 2, None, None)  # attempt 2 completed
+        assert extractions(conn) == [(doc_id, 1, "fake-ocr")]
+
+
 def test_engine_error_in_the_child_is_reported_by_type_only(prod):
     doc_id = upload(prod, patient(prod))
     with prod.connect() as conn:
