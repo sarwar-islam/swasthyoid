@@ -91,9 +91,13 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
    "4A implementation". Waiting for the owner's review of the fixes, then separate merge approval.
 4. D4 and D18 (model specification), the 4B compatibility review, then explicit integration
    approval. Deployment is a separate approval.
+5. Step 8 runner (2026-11-13): D9 and the five runner decisions (poll interval, exit codes, second
+   signal, schema ownership, connection loss) are recorded in `DECISIONS.md` ("Step 8 runner — owner
+   decisions"); nothing is implemented. Slices 8.1–8.5 start only when the owner says so; slice 8.6
+   waits for D10, D12 and D14. A throwaway branch is approved for the Linux AC5 measurement only.
 
 **Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D8, D10, D11 (D9 decided 2026-11-13); D12, D14
-(manual entry); D15 (M3 start); D16 (P0 deviation); FRD Q1, Q3, Q4, Q5, Q7, Q12, Q15; Option A
+(manual entry); D13 alert mechanism (the "unavailable" behavior itself is accepted); D15 (M3 start); D16 (P0 deviation); FRD Q1, Q3, Q4, Q5, Q7, Q12, Q15; Option A
 sub-decisions (mapped to D10, D12, D13, D14); whether `CLAUDE.md` gets an AI-model rule line;
 provisional values (caregiver 30/90 days and 24 h, rate limits, Luhn check digit).
 

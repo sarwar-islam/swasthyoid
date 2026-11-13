@@ -871,6 +871,96 @@ kill are covered by the existing tests that run in Linux CI.
 
 ---
 
+# Step 8 runner — owner decisions of 2026-11-13 (nothing implemented)
+
+Owner: Sarwar Islam. Date: 2026-11-13. These refine the runner design under D9; **D9 is unchanged**.
+S6 acceptance criteria AC1–AC6 (`docs/M2_COMPLETION_PLAN.md`, Step 8) remain mandatory. Slices
+8.1–8.5 of the Step 8 plan (revision 2) may start only when the owner says so; slice 8.6 (retry and
+manual-entry endpoints) stays blocked on D10, D12 and D14.
+
+## Decision 1 — poll interval setting
+
+- Name: `EXTRACTION_POLL_SECONDS`. Required in loop mode. Must be a positive, finite number of
+  seconds. Empty, NaN, infinity, zero, negative and boolean-like values are rejected.
+- No default and no production value is selected. `--once` does not require it.
+
+## Decision 2 — exit-code contract
+
+| Code | Meaning |
+|---|---|
+| `0` | A polling cycle completed, regardless of individual document outcomes, or the runner completed a graceful shutdown |
+| `1` | Infrastructure failure: database connection loss, missing schema, or an unexpected runtime infrastructure failure |
+| `2` | Invalid command-line usage or configuration error |
+| `3` | The runner was forcibly aborted by the second shutdown signal |
+
+Per-document failures (attempts that fail, retries, `extraction_failed`) are recorded through the
+existing extraction workflow and do not change the exit code. Exit codes `1`, `2` and `3` describe
+runner-level failures only.
+
+## Decision 3 — shutdown signals
+
+- **First signal:** request a graceful shutdown. No further claim is started once the claim
+  operation in progress reaches a safe boundary, and the active attempt is allowed to finish.
+  **Claim race:** if a claim has already committed when the stop request arrives, that claimed
+  document is the active attempt and is allowed to finish. A deterministic (not timing-based) test
+  of this boundary is required.
+- **Second signal:** emit one code-only log line and immediately call `os._exit(3)`. A
+  `KeyboardInterrupt` is not raised from the handler.
+- Recovery relies on the existing lease expiry, fencing, and parent-gone cleanup of the OCR child.
+  **None of this is verified until real-process tests show it.** Required real-process evidence:
+  the runner exits with code `3`; the OCR child exits through the parent-gone watchdog; any open
+  PostgreSQL transaction is rolled back; the lease expires; a subsequent runner recovers the
+  document; and exactly one extraction result exists per document version. Unit tests alone are not
+  accepted as proof.
+
+## Decision 4 — schema ownership
+
+- The runner never applies or alters the schema and does not import or call `db.apply_schema`.
+- Before any availability probe or document claim it checks that the required tables and columns
+  exist. A missing one produces a single diagnostic that names only the missing tables or columns,
+  and exit code `1`. Tests must prove that no DDL runs.
+- Applying the schema stays with the existing API startup until FRD Q4 determines the requirements
+  of a worker-only deployment.
+
+## Decision 5 — database connection loss
+
+- Any database connection loss, during an attempt, between attempts or during a claim, ends the
+  runner process: close the connection where possible and exit with code `1`.
+- No automatic in-process reconnect is implemented. An interrupted attempt is handled by lease
+  expiry and the existing recovery mechanism. A supervisor or restart configuration remains FRD Q4.
+
+## D13 clarification (D13 stays open as a whole)
+
+The behavior already accepted on 2026-11-12 and implemented in 4A is unchanged: before any claim, an
+integrity or availability check that finds the adapter unavailable means no claim and a warning.
+**The alert mechanism remains OPEN.**
+
+## Other decisions of this date
+
+- **AC1 negative control** (an unguarded copy of the runner that must not produce the guarded
+  outcome) is optional. The required positive AC1 tests must prove, independently of it, that module
+  execution happens only through the guarded entry point and that spawned children re-import the
+  module without re-running `main()`. Omitting the control does not weaken AC1.
+- **Linux measurement branch.** A throwaway branch is approved to measure Linux multiprocessing
+  bootstrap-failure behavior before any AC5 fix. No experiments on `main`, no automatic merge of
+  that branch. Observations and evidence are reported before any code correction is proposed.
+
+## Production-data boundary (unchanged)
+
+Production extraction stays blocked by the existing 4B, D2 and Q4 prerequisites. Outside test mode
+no adapter is available (4A), so a runner started outside test mode claims nothing and documents
+stay `uploaded` (Option A). Test mode is a misconfiguration guard, not a security boundary, and
+"synthetic data only" remains a project rule held by process. This boundary is not weakened.
+
+## Still open
+
+D10, D12, D14, the D13 alert mechanism, FRD Q4 (hosting, supervisor or scheduler, poll-interval
+value, log destination, metrics sink, environment injection, stop grace period) and every decision
+not listed above. Startup validation of `DOCUMENT_STORE` and `DOCUMENT_KEY`, the idle-wait slice
+length and the `run_due` stop-hook mechanism are plan proposals, not decisions.
+
+---
+
 # P0 exit gate as actually passed — PENDING OWNER ACCEPTANCE
 
 FRD section 11 asks for questions 1, 2, 4, 5 and 7 to be **answered** in P0. They were
