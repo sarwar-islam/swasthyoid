@@ -1156,6 +1156,37 @@ bootstrap failure of the spawned runner process itself, and PostgreSQL connectio
   labels only: no Bangla font has been chosen. No clinical content. The harness (3A-harness), the
   handwritten set (3B, D3) and all of step 9 are not built.
 
+## Combined M2 batch after runner slices 8.2-8.4 (2026-11-13; committed locally, not pushed, no CI run)
+
+Behavior changes only; details are in the code docstrings and tests.
+
+- **Worker option `preprocess`** (`capture/extraction.py`): names from `exif`, `deskew`, `denoise`,
+  `contrast`; default `PREPROCESS = ()` (nothing on). Pages are processed in memory for one attempt;
+  the stored original is never changed and no copy is stored. The cloud-AI path still receives the
+  originals. A page that cannot be decoded fails the attempt with the code `ImageRejected`. **Not
+  recorded in the extraction row** (that needs a column: an owner decision). The runner does not
+  expose it; it waits for the model specification and the 9B measurements.
+- **Imaging** (`capture/imaging.py`): sharpness on a box-filtered page, glare by block medians,
+  contrast and skew measures, reason codes `image_low_contrast` and `image_skewed` added, and
+  `process()`. Limits remain provisional and are not wired into upload.
+- **Schema mechanism (step 6A):** a schema entry may be `{"kind", "required", "rules"}`; `RULES` holds
+  two technical checks (`not_future`, `positive`); a value that breaks a rule is never accepted;
+  `missing_required()` and `check_spec()` exist. `SCHEMAS` is still empty; the schema version is not
+  stored (needs a column).
+- **Evaluation harness** (`tests/evaluation/harness.py`): field-level scoring, manifest and integrity
+  checks, and a confidence analysis whose threshold is an argument, never a default.
+- **Evidence (local Windows, 2026-11-13):** without a database 504 passed, 262 skipped. With a
+  throwaway local PostgreSQL (pgserver in a venv outside the repo, since deleted; the owner approved
+  it for this run) **758 passed, 8 skipped, 0 failed**, including the five PostgreSQL end-to-end
+  tests (`test_m2_end_to_end.py`: upload of a real PNG to `needs_review`, original bytes and hash
+  unchanged, no extra image row, adapter identity on the row, no verified event created, rules
+  applied to stored fields, an undecodable page failing with a code only, no duplicate attempt).
+  **Not executed and therefore unverified:** the Linux-only runner tests (first and second SIGTERM,
+  SIGKILL recovery, the new connection-close-after-kill check, `WorkerDied` timing; they last passed
+  in CI run #36 before the connection-close check existed) and the three Linux-only process-group
+  kill tests; one symlink test is skipped for lack of privileges on this machine. No CI run covers
+  this commit until the owner authorizes a push.
+
 ## D13 clarification (D13 stays open as a whole)
 
 The behavior already accepted on 2026-11-12 and implemented in 4A is unchanged: before any claim, an

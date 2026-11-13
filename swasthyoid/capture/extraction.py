@@ -36,7 +36,7 @@ import logging
 import multiprocessing
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
@@ -44,7 +44,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from swasthyoid import runtime_mode
-from swasthyoid.capture import documents, ocr
+from swasthyoid.capture import documents, imaging, ocr
 from swasthyoid.core import audit
 
 log = logging.getLogger(__name__)
@@ -64,13 +64,29 @@ HEARTBEAT = timedelta(seconds=60)       # how often a working attempt renews its
 # with no heartbeat and no hard timeout. That mode is for unit tests with engines that cannot
 # be sent to another process, and is refused unless in test mode (runtime_mode).
 HARD_TIMEOUT = timedelta(minutes=10)
+# Operations applied to a transient processing copy of each page before the engine sees it (step
+# 5B; capture/imaging.py: "exif", "deskew", "denoise", "contrast"). Empty by default: a model
+# trained on unprocessed photos may do worse with them, so nothing is on until the model's
+# specification and the 9B measurements say so. The stored original is never changed; the copy
+# lives in memory for one attempt. NOT recorded in the extraction row (that needs a column).
+PREPROCESS = ()
 
-# doc_type -> {field: kind}. kind is "text", "number" or "date"; a repeated group is
-# [{sub_field: kind}]. Fields an engine returns that are not listed here are dropped.
+# doc_type -> {field: entry}. An entry is a kind ("text", "number" or "date") or a dict
+# {"kind": ..., "required": bool, "rules": [names from RULES]}; a repeated group is
+# [{sub_field: entry}]. Fields an engine returns that are not listed here are dropped. A value
+# that breaks a rule is never accepted, whatever its confidence. "required" only makes
+# missing_required() report the field: M3's confirm step enforces it, M2 does not.
 # PENDING APPROVAL: the FRD says "typed schema" but lists no fields. Until the list in
 # docs/DECISIONS.md is approved this is empty, so every document goes to review with its
 # raw text only.
 SCHEMAS = {}
+
+# Technical checks only. Clinical rules (ranges, units, thresholds) are NOT defined here: they wait
+# for the approved field list and the clinical reviewer.
+RULES = {
+    "not_future": lambda value: date.fromisoformat(value) <= date.today(),
+    "positive": lambda value: Decimal(value) > 0,
+}
 
 _BANGLA_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 _DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y")  # day first, as written in Bangladesh
@@ -105,9 +121,35 @@ def parse(kind, value):
     raise ValueError(f"unknown kind {kind}")
 
 
-def _field(kind, got, threshold, source="ocr"):
+def _entry(entry):
+    """(kind, required, rules) of a schema entry given as a kind or as a dict."""
+    if isinstance(entry, str):
+        return entry, False, ()
+    return entry["kind"], bool(entry.get("required")), tuple(entry.get("rules", ()))
+
+
+def check_spec(spec):
+    """ValueError for an unknown kind or rule anywhere in a doc_type's spec."""
+    for name, entry in spec.items():
+        for sub in (entry[0].values() if isinstance(entry, list) else [entry]):
+            kind, _, rules = _entry(sub)
+            if kind not in ("text", "number", "date"):
+                raise ValueError(f"{name}: unknown kind {kind}")
+            for rule in rules:
+                if rule not in RULES:
+                    raise ValueError(f"{name}: unknown rule {rule}")
+
+
+def missing_required(spec, fields):
+    """Paths of required fields that have no accepted value (left for manual entry)."""
+    return [path for path, entry, holder, key in _slots(spec, fields)
+            if _entry(entry)[1] and holder[key]["value"] is None]
+
+
+def _field(entry, got, threshold, source="ocr"):
     """One schema field. Below the threshold, missing or invalid: left empty for manual entry
     (FRD section 8). `raw` keeps what was read, for the reviewer to see."""
+    kind, _, rules = _entry(entry)
     out = {"value": None, "raw": None, "confidence": 0.0, "source": None, "manual_entry": True}
     if not isinstance(got, dict) or got.get("value") is None:
         return out
@@ -118,9 +160,15 @@ def _field(kind, got, threshold, source="ocr"):
     out.update(raw=str(got["value"]), confidence=confidence, source=source)
     if confidence >= threshold:
         try:
-            out.update(value=parse(kind, got["value"]), manual_entry=False)
+            value = parse(kind, got["value"])
         except ValueError:
             out["error"] = f"invalid_{kind}"
+            return out
+        broken = next((rule for rule in rules if not RULES[rule](value)), None)
+        if broken:
+            out["error"] = f"invalid_{broken}"
+        else:
+            out.update(value=value, manual_entry=False)
     return out
 
 
@@ -209,7 +257,7 @@ class WorkerConnectionLost(Exception):
 _DUE = "(status = 'uploaded' OR (status = 'extracting' AND next_extraction_at <= clock_timestamp()))"
 _MINE = "id = %s AND extraction_claim = %s AND status = 'extracting'"
 _DEFAULTS = ("threshold", "ai_threshold", "max_attempts", "backoff", "lease", "heartbeat", "hard_timeout",
-             "availability_timeout")
+             "availability_timeout", "preprocess")
 _TEST_MODE = f"APP_ENV=test and {runtime_mode.CONFIRM}=1"
 
 
@@ -239,6 +287,24 @@ def _attempts(value):
         raise ValueError("extraction option max_attempts must be at least 1")
 
 
+PREPROCESS_OPERATIONS = ("exif", "deskew", "denoise", "contrast")
+
+
+def _preprocess(value):
+    if isinstance(value, (str, bytes)) or not isinstance(value, (tuple, list)):
+        raise TypeError("extraction option preprocess must be a tuple of operation names")
+    if len(set(value)) != len(value) or any(op not in PREPROCESS_OPERATIONS for op in value):
+        raise ValueError(f"extraction option preprocess must hold distinct names from {PREPROCESS_OPERATIONS}")
+
+
+def _working_copy(pages, operations):
+    """Processing copies of the page bytes, or the same objects when no operation is switched on.
+    Raises imaging.ImageRejected for a page that cannot be decoded; the originals are only read."""
+    if not operations:
+        return pages
+    return [imaging.process(page, **{op: True for op in operations})[0] for page in pages]
+
+
 def _settings(given):
     """Per-call settings over the module constants, read now so they can be reconfigured."""
     runtime_mode.check_test_mode_config()  # fail closed before anything else
@@ -247,7 +313,7 @@ def _settings(given):
         raise TypeError(f"unknown extraction options: {sorted(unknown)}")
     o = {"threshold": CONFIDENCE_THRESHOLD, "ai_threshold": CLOUD_AI_THRESHOLD, "max_attempts": MAX_ATTEMPTS,
          "backoff": BACKOFF, "lease": LEASE, "heartbeat": HEARTBEAT, "hard_timeout": HARD_TIMEOUT,
-         "availability_timeout": ocr.AVAILABILITY_TIMEOUT, **given}
+         "availability_timeout": ocr.AVAILABILITY_TIMEOUT, "preprocess": PREPROCESS, **given}
     if o["availability_timeout"] is None:
         o["availability_timeout"] = ocr.AVAILABILITY_TIMEOUT  # None means "the default"
     if o["hard_timeout"] is None:
@@ -262,6 +328,7 @@ def _settings(given):
     if o["ai_threshold"] is not None:  # None: nothing is ever sent to the cloud AI
         _fraction(o, "ai_threshold")
     _attempts(o["max_attempts"])
+    _preprocess(o["preprocess"])
     if o["hard_timeout"] is not None and o["heartbeat"] >= o["lease"]:
         raise ValueError("heartbeat must be shorter than the lease, or every lease runs out before it is renewed")
     return o
@@ -447,9 +514,11 @@ def _attempt(conn, job, engine, ai, o, config=None):
         # reading ran without a heartbeat: confirm, and extend, the lease before the engine starts
         if not _renew(conn, job, o["lease"]):
             raise LeaseLost()
-        work = pages if config is None else [
-            {"page_number": n, "image": data, "media_type": image["content_type"]}
-            for n, (image, data) in enumerate(zip(images, pages), 1)]
+        used = _working_copy(pages, o["preprocess"])  # transient; `pages` stays the stored originals
+        media = ["image/png"] * len(images) if o["preprocess"] else [image["content_type"] for image in images]
+        work = used if config is None else [
+            {"page_number": n, "image": data, "media_type": kind}
+            for n, (kind, data) in enumerate(zip(media, used), 1)]
         got = _run_engine(engine, work, job["doc_type"], o["hard_timeout"], o["heartbeat"],
                           lambda: _renew(conn, job, o["lease"]))
         spec = SCHEMAS.get(job["doc_type"], {})

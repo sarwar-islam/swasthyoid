@@ -130,7 +130,7 @@ The approved proposal was a claim-and-lease design fenced by attempt number, wit
 
 Everything in step 3 is model-independent. It produces data and plumbing; it measures no real model.
 
-- **Status.** Partly implemented: **only the 3A synthetic generator** (printed English pages, exact ground truth, degraded copies, seeded splits) exists, in commit `553c3db`. **Not implemented:** the evaluation harness and any scoring (3A-harness, step 9A), the handwritten set (3B, D3), Bangla rendering (no font chosen). Its tests passed in CI run #36 (one run).
+- **Status.** Partly implemented: the 3A synthetic generator (commit `553c3db`) and, in the combined M2 commit, a harness with field-level scoring, integrity checks and a confidence analysis (`tests/evaluation/harness.py`; fakes only). **Not implemented:** scoring of any real model (step 9; needs 4B), the handwritten set (3B, D3), Bangla rendering (no font chosen). Its tests passed in CI run #36 (one run).
 - **FRD requirement.** Section 8 gate: "Field-level on a labelled synthetic set of printed and handwritten prescriptions". Invariant 9: synthetic data only.
 
 ### 3A — Generator, degraded copies and harness plumbing
@@ -265,7 +265,7 @@ Planned work, in order, after those conditions are met:
 
 ## Step 5 — Image quality checks and pre-processing (your area 3)
 
-- **Status.** Partly implemented: **only the 5A imaging module** (`capture/imaging.py`: decode, pixel cap, measurements, reason codes; provisional limits) exists, in commit `553c3db`. **Upload integration is not done and is unapproved** (owner decision 2026-11-13; it also needs D5 and D11), so no upload is checked or refused yet. 5B (pre-processing) is not implemented and waits for 4B. Its tests passed in CI run #36 (one run).
+- **Status.** Partly implemented: the 5A imaging module (`capture/imaging.py`: decode, pixel cap, sharpness, glare, contrast and skew measures, reason codes; provisional limits), plus in the combined M2 commit a processing-copy function and a worker option `preprocess` (empty by default; transient copy, original untouched; not recorded in the extraction row). **Upload integration is not done and is unapproved** (owner decision 2026-11-13; it also needs D5 and D11), so no upload is checked or refused yet. 5B (pre-processing) is not implemented and waits for 4B. Its tests passed in CI run #36 (one run).
 - **FRD requirement.** M2: "pre-process (rotate, deskew, denoise, contrast)"; "Blur and glare detection asks for a retake".
 
 ### 5A — Upload validation and quality checks (model-independent)

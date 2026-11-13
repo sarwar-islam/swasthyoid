@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 
 import pytest
 
@@ -104,10 +105,17 @@ def test_the_first_sigterm_does_not_interrupt_the_running_attempt(prod, tmp_path
 @pytest.mark.parametrize("how", ["second_sigterm", "sigkill"])
 def test_an_aborted_runner_leaves_a_claim_that_a_later_runner_recovers_exactly_once(prod, tmp_path, start, how):
     doc_id = upload(prod, patient(prod))
-    proc, err = start(env_for(tmp_path, "slow_reading"))
+    name = f"runner-test-{uuid.uuid4().hex}"  # libpq reports it, so the runner's own backend can be found
+    proc, err = start({**env_for(tmp_path, "slow_reading"), "PGAPPNAME": name})
     log = tmp_path / "adapter.log"
     assert wait_until(lambda: "child:" in text(log)), text(err)
     child = child_pid(log)
+
+    def backends(conn):
+        return conn.execute("SELECT count(*) FROM pg_stat_activity WHERE application_name = %s", [name]).fetchone()[0]
+
+    with prod.connect() as conn:
+        assert backends(conn) == 1  # the filter finds the live runner's connection (a control for the check below)
     if how == "second_sigterm":
         proc.send_signal(signal.SIGTERM)
         assert wait_until(lambda: "code=stop_requested" in text(err)), text(err)
@@ -118,7 +126,8 @@ def test_an_aborted_runner_leaves_a_claim_that_a_later_runner_recovers_exactly_o
         proc.kill()
         assert proc.wait(60) == -signal.SIGKILL
     assert wait_until(lambda: not alive(child)), "the OCR child outlived the runner"  # parent-gone watchdog
-    with prod.connect() as conn:  # nothing is left open in the database
+    with prod.connect() as conn:  # the runner's connection is closed and nothing is left open in the database
+        assert wait_until(lambda: backends(conn) == 0), "the runner's database connection outlived it"
         assert wait_until(lambda: conn.execute(
             "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() "
             "AND state LIKE 'idle in transaction%'").fetchone()[0] == 0)
