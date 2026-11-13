@@ -692,6 +692,14 @@ pretrained weights or artifact was selected, installed, bundled or integrated.
   code. This also means no adapter code runs in a probe outside test mode (audit item L6).
 - **Test-package references** — fixed: `swasthyoid.tests:x` is caught (`ocr.is_test_ref`).
 - Fix commit `06ecf92`. Remaining audit items L1–L3, L7–L9 accepted as reported.
+- **M2 follow-up — fixed, owner-approved (2026-11-13), commit `e9253e7`.** A probe `failed`
+  message with a non-string payload (list, dict) raised `TypeError` out of `_read_probe` instead of
+  `AdapterError`. Only a string in `CODES` now passes through; anything else is
+  `engine_unavailable`. No other protocol, EOF, deadline or timeout change. Regression test covers
+  `[]`, `{}`, `5`, `None`, `["x"]`, with and without the checksum prefix.
+- **CI, owner-reported, not independently verified:** CI #19 (`06ecf92`) and CI #20 (`0713df4`)
+  both completed successfully. Test counts were unavailable: the GitHub Actions listing did not
+  show them. They were not read by the implementer (no `gh`, no signed-in browser).
 
 ## Still open
 
