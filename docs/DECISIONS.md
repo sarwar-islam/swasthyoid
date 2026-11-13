@@ -1156,7 +1156,7 @@ bootstrap failure of the spawned runner process itself, and PostgreSQL connectio
   labels only: no Bangla font has been chosen. No clinical content. The harness (3A-harness), the
   handwritten set (3B, D3) and all of step 9 are not built.
 
-## Combined M2 batch after runner slices 8.2-8.4 (2026-11-13; committed locally, not pushed, no CI run)
+## Combined M2 batch after runner slices 8.2-8.4 (commit `0ce66f8`, 2026-11-13; CI run #38 passed)
 
 Behavior changes only; details are in the code docstrings and tests.
 
@@ -1181,11 +1181,17 @@ Behavior changes only; details are in the code docstrings and tests.
   tests (`test_m2_end_to_end.py`: upload of a real PNG to `needs_review`, original bytes and hash
   unchanged, no extra image row, adapter identity on the row, no verified event created, rules
   applied to stored fields, an undecodable page failing with a code only, no duplicate attempt).
-  **Not executed and therefore unverified:** the Linux-only runner tests (first and second SIGTERM,
-  SIGKILL recovery, the new connection-close-after-kill check, `WorkerDied` timing; they last passed
-  in CI run #36 before the connection-close check existed) and the three Linux-only process-group
-  kill tests; one symlink test is skipped for lack of privileges on this machine. No CI run covers
-  this commit until the owner authorizes a push.
+  Not executed on Windows: the Linux-only runner tests and the three Linux-only process-group kill
+  tests, and one symlink test (no privileges on that machine).
+- **CI evidence (read from the run page and the expanded pytest log, 2026-11-13).** Run #38
+  (`0ce66f8`, Linux, PostgreSQL 16) **passed: 766 passed, 0 skipped, 0 failed, 1 warning (`httpx`
+  deprecation)**, 2m 38s of pytest, 3m 11s for the job. 766 = the 758 local passes plus the 8 tests
+  skipped on Windows. Test names are not printed, so each test is inferred from the totals: with 0
+  skipped, the Linux-only tests ran and passed (first and second SIGTERM, SIGKILL recovery, the
+  connection-close-after-kill check, `WorkerDied` timing, the three process-group kill tests) and so
+  did the five PostgreSQL end-to-end tests. Still one green run for the new tests (the signal and
+  kill tests also passed in run #36), so timing flakiness is not ruled out; the 20 s `WorkerDied`
+  bound remains the implementation's own choice.
 
 ## D13 clarification (D13 stays open as a whole)
 

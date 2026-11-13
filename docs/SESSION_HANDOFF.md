@@ -17,7 +17,7 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
    `553c3db` (pushed; CI run #36 on `2ddb8a6` passed, 713 passed, 0 skipped) adds slices 8.2–8.4 (`--once`, the loop with `limit=1`,
    signals, queue statistics, real-process tests), step 5A (`capture/imaging.py`, not wired into upload) and
    step 3A-data (generator). Its PostgreSQL-backed and Linux tests ran in CI run #36 (run #35 failed on one test bug,
-   fixed in `2ddb8a6`); still one green run, not proof against flakiness. Known limitation: one availability probe per document and per idle poll. A later combined M2 commit (local; see `DECISIONS.md`, "Combined M2 batch") adds the processing-copy wiring, imaging measures, the schema mechanism and the evaluation harness; it passed 758 tests against a local PostgreSQL on Windows, with the Linux-only signal, kill and connection-close tests unexecuted.
+   fixed in `2ddb8a6`); still one green run, not proof against flakiness. Known limitation: one availability probe per document and per idle poll. A later combined M2 commit (see `DECISIONS.md`, "Combined M2 batch") adds the processing-copy wiring, imaging measures, the schema mechanism and the evaluation harness; it is commit `0ce66f8`, pushed; CI run #38 passed on Linux with PostgreSQL (766 passed, 0 skipped), including the signal, kill and connection-close tests. Still one green run, not proof against flakiness.
 
 ## OCR model: facts and rules
 
