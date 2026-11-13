@@ -789,7 +789,8 @@ integrated.
 
 # D9 — How the worker is run — DECIDED
 
-Owner: Sarwar Islam. Date: 2026-11-13. Nothing is implemented: no runner exists yet (plan Step 8).
+Owner: Sarwar Islam. Date: 2026-11-13. Nothing was implemented when D9 was decided; slice 8.1 (the
+startup skeleton) was implemented later the same day, see "Slice 8.1 implementation record" below.
 The S6 acceptance criteria AC1–AC6 in `docs/M2_COMPLETION_PLAN.md` (Step 8) apply to it.
 
 The extraction worker runs as a plain Python process launched using:
@@ -877,7 +878,7 @@ kill are covered by the existing tests that run in Linux CI.
 
 ---
 
-# Step 8 runner — owner decisions of 2026-11-13 (nothing implemented)
+# Step 8 runner — owner decisions of 2026-11-13 (slice 8.1 implemented; the rest not implemented)
 
 Owner: Sarwar Islam. Date: 2026-11-13. These refine the runner design under D9; **D9 is unchanged**.
 S6 acceptance criteria AC1–AC6 (`docs/M2_COMPLETION_PLAN.md`, Step 8) remain mandatory. Slices
@@ -1036,6 +1037,53 @@ to be derived from the actual code during the authorized design (`DATABASE_URL` 
 `db.connect`; no further required variable is invented here); and validating `DOCUMENT_STORE` and
 `DOCUMENT_KEY` remains a proposal that needs confirmation and is not mandatory. None of this is
 verified by running code: the runner does not exist yet.
+
+## Slice 8.1 implementation record (2026-11-13)
+
+- **What was built.** `swasthyoid/workers/extract.py`, launched as
+  `python -m swasthyoid.workers.extract [--once]`, and `swasthyoid/tests/test_runner_startup.py`.
+  Commits `2b8038f` (skeleton and tests) and `c4be86d` (a brittle connection-count assertion
+  relaxed to `>= 3`, and the `--once` help text corrected). The slice calls no `run_due()`, runs no
+  `--once` cycle or loop, handles no signals, claims and processes nothing, and never applies or
+  alters the schema. No dependency, schema, workflow or package change.
+- **Order and exit codes as implemented.** Main-module guard; side-effect-free argument parsing
+  (usage error exits `2`); `check_test_mode_config()` (its refusal exits `2`); the poll interval in
+  loop mode only (`--once` ignores the variable); `DATABASE_URL` (missing, empty, whitespace-only or
+  rejected by psycopg's parser exits `2`); connection (failure exits `1`); one read-only catalog
+  `SELECT` for the required tables and columns (missing ones exit `1`, named). Diagnostics go to
+  stderr as one line each and name settings, tables and columns only.
+- **Required schema inventory (derived from the worker's SQL).** `documents`: `id`, `patient_id`,
+  `doc_type`, `status`, `created_at`, `updated_at`, `extraction_attempts`, `next_extraction_at`,
+  `extraction_error`, `extraction_claim`. `document_images`: `document_id`, `n`, `storage_key`,
+  `content_type`, `size_bytes`, `sha256`. `extractions`: `id`, `document_id`, `version`, `engine`,
+  `fields`, `raw_text`, `engine_id`, `model_version`, `model_checksum`, `adapter_interface_version`,
+  `adapter_version`. `patients` and `audit_logs` are not listed because only the cloud AI path
+  touches them. The check sees only what the connecting role may use, so missing privileges also
+  report names as missing (fails closed), and it checks existence only, not types or constraints.
+- **Evidence.** Local (Windows, no database): 54 slice tests passed and 4 skipped; whole suite 431
+  passed, 247 skipped. CI run #31 (`c4be86d`, Linux, PostgreSQL 16): `678 passed, 1 warning`, 0
+  skipped, 0 failed (= 620 + 58). `pytest -q` prints no test names, so the four PostgreSQL tests
+  are shown to have run by that count and not by name. Parser behavior seen when run: psycopg's
+  parser rejected both malformed strings used in the tests. The audit-hook event names used for
+  process creation on Linux come from documentation; the probe passed on Linux CI but its coverage
+  of those names was not independently confirmed.
+- **Interpretations made in the implementation, for the owner to confirm or change.**
+  "Boolean-like" poll values are read as non-numeric words (`true`, `false`, `yes`), so a plain `1`
+  is accepted as one second; underscores (`1_0`) are refused. The diagnostic format
+  `runner: code=<code> key=value` is the implementation's.
+- **Open points, not decided by the implementation.** (1) A successful run exits `0` after logging
+  `startup_checks_passed` although no polling cycle ran, while decision 2 defines `0` as a completed
+  cycle or a graceful shutdown. (2) The runner sets no `connect_timeout`, so a blackholed host could
+  delay its exit; the tests set the timeout in the URL. (3) Validating `DOCUMENT_STORE` and
+  `DOCUMENT_KEY` remains an unapproved proposal and is not implemented. (4) A few catch-all branches
+  (`startup_failed` at the connect and schema-check stages, closing the connection on failure) have
+  no test.
+- **Not part of 8.1 and still to do (S6 AC1–AC6 stay mandatory for the completed runner):** the
+  spawn-based half of AC1, the PostgreSQL-backed processing-cycle test (AC3), first- and
+  second-signal behavior, the OCR-child watchdog, rollback and lease-expiry recovery, Linux hard-kill
+  recovery and child bootstrap-failure behavior (AC5), and recovery by a later runner. The scopes
+  of slices 8.2–8.5 are still not written out. D10, D12, D14, Q4 and the D13 alert mechanism stay
+  open, slice 8.6 stays blocked, and the production prerequisites (4B, D2, Q4) are unchanged.
 
 ## D13 clarification (D13 stays open as a whole)
 

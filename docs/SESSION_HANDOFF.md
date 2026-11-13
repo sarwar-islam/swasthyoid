@@ -13,7 +13,8 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 2. Run `git status` and `git log origin/main..HEAD --oneline`.
 3. Step 1 and 4A are complete and merged into `main` (4A by fast-forward `33e2aa1..a9f2abc` on
    2026-11-13; the merge is historical, see `DECISIONS.md`, "4A implementation"). Write code only for
-   a slice the owner has authorized: Step 8 is planning only until the owner says to start slice 8.1.
+   a slice the owner has authorized: Step 8 slice 8.1 (the runner's startup skeleton) is implemented
+   and CI-verified; slices 8.2–8.5 need their scopes written down and the owner's go-ahead.
 
 ## OCR model: facts and rules
 
@@ -71,7 +72,9 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
   Node 20, and `ubuntu-latest` is now Ubuntu 26 (workflow unchanged).
 - **Tests on this machine:** without a database, 38 passed and 221 skipped on `main`; 377 passed
   and 243 skipped on `main` at `9013429` (S2/S3, S4 with 142 new tests, then S5 Part A with 8 new
-  tests and one skipped PostgreSQL test). 4A is merged into `main`. No PostgreSQL, Docker or WSL here; do not install
+  tests and one skipped PostgreSQL test); 431 passed and 247 skipped at `c4be86d` (Step 8 slice 8.1,
+  58 new tests, 4 of them PostgreSQL-backed). CI run #31 on `c4be86d`: 678 passed, 0 skipped. 4A is
+  merged into `main`. No PostgreSQL, Docker or WSL here; do not install
   `pgserver`, Docker or WSL without the owner's OK.
 - **Test mode (4A, Option C):** needs `APP_ENV=test` **and** `SWASTHYOID_TEST_MODE_CONFIRM=1`.
   Exporting `APP_ENV=test` alone makes the API and the worker refuse to start (intended).
@@ -95,7 +98,12 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
    approval. Deployment is a separate approval.
 5. Step 8 runner (2026-11-13): D9 and the five runner decisions (poll interval, exit codes, second
    signal, schema ownership, connection loss) are recorded in `DECISIONS.md` ("Step 8 runner — owner
-   decisions"); nothing is implemented. Slice 8.1 (a safe startup skeleton that does not run `run_due()` or `--once`) is defined in the plan (Step 8); its startup error and ordering contract (exit code per failure category, argument parsing before the first safety check) is in `DECISIONS.md`. Slices 8.1–8.5 start only when the owner says so; slice 8.6
+   decisions"). **Slice 8.1 is implemented** (`2b8038f`, `c4be86d`; CI run #31: 678 passed, 0
+   skipped): a startup skeleton that does not run `run_due()` or `--once`; see `DECISIONS.md`,
+   "Slice 8.1 implementation record", for what exists, the evidence and the open points (exit `0`
+   without a cycle, no `connect_timeout`). The rest of the runner is not implemented. Its startup
+   error and ordering contract (exit code per failure category) is in `DECISIONS.md`. Slices 8.2–8.5
+   start only when the owner says so and their scopes are written; slice 8.6
    waits for D10, D12 and D14. A throwaway branch is approved for the Linux AC5 measurement only.
 
 **Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D8, D10, D11 (D9 decided 2026-11-13); D12, D14
