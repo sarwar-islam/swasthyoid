@@ -61,14 +61,15 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
   timing-sensitive tests. `pytest -q` prints no test names; the counts show it.
 - **S1 fixed and accepted:** a lost database connection now raises `WorkerConnectionLost` with no
   further write; new `pg_terminate_backend` recovery test. On `main` as `6b11e65`.
-- **Open, not part of Step 1:** S5–S8 (deferred by the owner; S2, S3 and S4 are fixed, S4 locally
-  only until pushed and checked in CI); the raw error still escapes if the
+- **Open, not part of Step 1:** S5 Parts B and C and A+, S6, S7, S8 (deferred by the owner; S2, S3
+  and S4 are fixed and S5 Part A is implemented, locally only until pushed and checked in CI; its
+  PostgreSQL test has never run); the raw error still escapes if the
   connection drops during the failure write itself; one green run per commit does not rule out
   timing flakiness; CI warns that `actions/checkout@v4` and `actions/setup-python@v5` target
   Node 20, and `ubuntu-latest` is now Ubuntu 26 (workflow unchanged).
-- **Tests on this machine:** without a database, 38 passed and 221 skipped on `main`; 369 passed
-  and 242 skipped on `main` at `22a2928` (S2/S3 fix, then S4 with 142 new tests). 4A is merged into
-  `main`. No PostgreSQL, Docker or WSL here; do not install
+- **Tests on this machine:** without a database, 38 passed and 221 skipped on `main`; 377 passed
+  and 243 skipped on `main` at `9013429` (S2/S3, S4 with 142 new tests, then S5 Part A with 8 new
+  tests and one skipped PostgreSQL test). 4A is merged into `main`. No PostgreSQL, Docker or WSL here; do not install
   `pgserver`, Docker or WSL without the owner's OK.
 - **Test mode (4A, Option C):** needs `APP_ENV=test` **and** `SWASTHYOID_TEST_MODE_CONFIRM=1`.
   Exporting `APP_ENV=test` alone makes the API and the worker refuse to start (intended).

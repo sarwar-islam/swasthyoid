@@ -305,9 +305,26 @@ Approved requirements from the owner on 2026-11-12; code in
   an earlier cleanup step fails. Cleanup policy: an ordinary cleanup error never replaces a primary
   exception (logged by type only, never its message); `KeyboardInterrupt` and `SystemExit` during
   cleanup are never suppressed; a cleanup failure after a good result propagates. Tests:
-  `swasthyoid/tests/test_run_engine.py` (25, no database). S5–S8 stay deferred by the owner: S5
-  before cloud AI (FRD Q5); S6 guard and a real spawn test in Step 8; S7 after the D18 model
-  runtime specification; S8 needs `EXPLAIN` evidence on PostgreSQL before any index is proposed.
+  `swasthyoid/tests/test_run_engine.py` (25, no database). S5 Part A is fixed (next entry);
+  the rest of S5 and S6–S8 stay deferred by the owner: S6 guard and a real spawn test in Step 8;
+  S7 after the D18 model runtime specification; S8 needs `EXPLAIN` evidence on PostgreSQL before
+  any index is proposed.
+- **S5 Part A — fixed, owner-approved (2026-11-13), commit `9013429`.** The lease was renewed only
+  inside the engine wait loop; reading the images ran with no heartbeat. `_attempt()` now calls
+  `_renew()` once after all images are read and before the engine starts. A `False` result raises
+  `LeaseLost`: the engine never starts and nothing is written. The shared `LeaseLost` handler now
+  logs one warning, `ocr attempt lease lost: code=LeaseLost stage=attempt document=<id>
+  attempt=<n>` (no patient data, image content or text); it fires for all three sources of
+  `LeaseLost` (this renewal, the heartbeat, the fence), which were silent before. Tests: 8 without
+  a database in `swasthyoid/tests/test_extraction_lease.py`, and one PostgreSQL test appended to
+  `test_extraction_recovery.py` (`test_a_lease_that_expires_while_reading_images_stops_before_the_engine`).
+  **Local only so far: no CI result, and the PostgreSQL test has never been executed** (none on the
+  development machine). **Deferred, not decided:** the lease check before the cloud AI audit and
+  send (Part B), a provider timeout, process isolation and idempotent sends (Part C) — FRD Q5;
+  per-image renewal (A+) and storage-read timeouts — FRD Q4; a background heartbeat thread is not
+  recommended (a hung call would keep renewing). Not reproducible today: cloud AI is unreachable
+  (`CLOUD_AI_THRESHOLD` is `None`, `SCHEMAS` is empty, no caller passes a provider), and nothing in
+  production calls `run_due` or `extract` until step 8.
 - **S4 — fixed, owner-approved (2026-11-13), commit `22a2928`.** `_settings()` validates every
   option before anything is claimed or probed (rules under "Rules enforced"), and `claim()` no
   longer replaces an explicit zero with the default. Tests: `swasthyoid/tests/test_extraction_settings.py`
@@ -317,7 +334,7 @@ Approved requirements from the owner on 2026-11-12; code in
   interval or timestamp arithmetic (for example `clock_timestamp() + lease`) and fail at claim time.
   (2) `backoff * 2 ** (attempt - 1)` grows exponentially, so a large `max_attempts` might overflow
   before any cap. Review together with S8 once a database is available.
-- **Remaining from the review (S2, S3 and S4 below are now fixed; the rest not fixed, not approved for fixing):** S2 a Windows-only pipe error
+- **Remaining from the review (S2, S3, S4 and S5 Part A below are now fixed; the rest not fixed, not approved for fixing):** S2 a Windows-only pipe error
   may be recorded as `BrokenPipeError` instead of `WorkerDied`; S3 a child that fails to start
   leaks pipe handles and uses an attempt; S4 option values are not validated; S5 image reading
   and field shaping run outside the heartbeat; S6 the future runner needs a main-module guard for
@@ -342,9 +359,11 @@ Approved requirements from the owner on 2026-11-12; code in
 1. **Claim** (short transaction). Take the oldest due document that no other worker has
    locked (`FOR UPDATE SKIP LOCKED`), add one to the attempt counter, write a new random
    claim token and set the lease end. Commit.
-2. **Work** (no transaction open). Read the images and run the engine in a child process.
-   Every heartbeat the worker renews the lease; a lease that has already run out cannot be
-   renewed. At the hard timeout the child process is killed and the attempt has failed.
+2. **Work** (no transaction open). Read the images, then renew the lease once (S5 Part A: reading
+   has no heartbeat, and a lapsed lease ends the attempt before the engine starts), then run the
+   engine in a child process. Every heartbeat the worker renews the lease; a lease that has
+   already run out cannot be renewed. At the hard timeout the child process is killed and the
+   attempt has failed.
 3. **Store** (short transaction). Lock the row and store the result only if the claim token
    is still this attempt's **and** the lease has not run out. Otherwise nothing is written.
    A failed attempt is recorded under the same two conditions.
@@ -364,6 +383,7 @@ time is the lease end while a claim is held, and the retry time after a recorded
 | A worker finishes after its lease ran out | Its result is refused, whether or not another worker took the document |
 | A stale worker reports a failure | Ignored, whether or not another worker took the document: the token or the lease no longer holds |
 | Every attempt lost without a report | The next claim closes the document as `extraction_failed` (`LeaseExpired`) |
+| Reading the images takes longer than the lease | The renewal after reading finds the lease gone: the attempt ends before the engine starts, nothing is written, one warning is logged, the document is due again and the attempt stays counted |
 
 ## Bounded time to a terminal state
 
@@ -375,7 +395,8 @@ With at least one worker checking the queue every P seconds, a document reaches
 where the longest attempt is the larger of the hard timeout (10 min) and the lease (5 min),
 and the waits are 1 and 2 minutes after the first and second attempts. With the defaults that
 is about 33 minutes plus three polling intervals, in the worst case where every attempt hangs
-to the limit.
+to the limit. Reading the images and shaping the result are counted as negligible here; the
+single renewal after reading keeps a slow read from using up the first lease (S5 Part A).
 
 ## Rules enforced
 
