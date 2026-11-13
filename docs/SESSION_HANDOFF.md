@@ -1,7 +1,7 @@
 # Session handoff — SwasthyoID
 
-Refreshed 2026-11-12. Committed at the owner's request in `2b626aa`, but still a snapshot, not
-permanent documentation. Durable
+Refreshed 2026-11-12; the Git state, 4A and Step 8 sections were corrected 2026-11-13. Committed at
+the owner's request in `2b626aa`, but still a snapshot, not permanent documentation. Durable
 facts live in `CLAUDE.md`, `docs/DECISIONS.md`, `docs/FRD.md` (v3) and
 `docs/M2_COMPLETION_PLAN.md`. Where this file and those disagree, those win. **Verify Git state
 yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file for it.
@@ -11,8 +11,9 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 1. Read `CLAUDE.md`, this file, `docs/DECISIONS.md` (from "AI models are owner-supplied" to the
    end), `docs/M2_COMPLETION_PLAN.md`, then FRD sections 1.3, M2 and 8.
 2. Run `git status` and `git log origin/main..HEAD --oneline`.
-3. **Do not write more code.** Step 1 is complete. 4A is built on branch
-   `4a/ocr-infrastructure` (`7c0c148`) and waits for the owner's review and merge approval.
+3. Step 1 and 4A are complete and merged into `main` (4A by fast-forward `33e2aa1..a9f2abc` on
+   2026-11-13; the merge is historical, see `DECISIONS.md`, "4A implementation"). Write code only for
+   a slice the owner has authorized: Step 8 is planning only until the owner says to start slice 8.1.
 
 ## OCR model: facts and rules
 
@@ -34,13 +35,13 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
   implemented and approved.
 - The old plan to choose RapidOCR or Tesseract is obsolete.
 
-## Git state (verified 2026-11-12 with `git status`, `git log` and `git ls-remote`)
+## Git state (rows for `main` and `4a/ocr-infrastructure` corrected 2026-11-13; verify yourself)
 
 | Item | State |
 |---|---|
-| `main` | `origin/main` = local `main` = `33e2aa1` (Step 1 recorded complete). Not changed by 4A |
+| `main` | Contains Step 1, 4A (fast-forward `33e2aa1..a9f2abc`, 2026-11-13), the S2–S5 fixes and the Step 8 decision documentation. Last tip verified when this row was corrected: `34506d8` = `origin/main`. Run `git log` for the current tip. Until 2026-11-12 it was `33e2aa1` (Step 1 recorded complete) |
 | Commits pushed to `main` on 2026-11-12 | `1ebdb15` (Step 1), `2389991` (M2 plan, first version), `6b11e65` (S1 fix, cherry-pick of `cc836f5`), `2b626aa` (docs), `282bd44` (FRD v3, doc fixes, `.gitattributes`), `3f348d3` (handoff Git state), `33e2aa1` (Step 1 complete) |
-| `4a/ocr-infrastructure` | Branched from `33e2aa1`: `7c0c148` (4A code and tests), `9f68552` (docs), `06ecf92` (review fixes), plus a docs commit; pushed to `origin`, **not merged**. Checked out in the main checkout |
+| `4a/ocr-infrastructure` | Historical. Branched from `33e2aa1`: `7c0c148` (4A code and tests), `9f68552` (docs), `06ecf92` (review fixes), `0713df4` (docs), `e9253e7` (M2 failure-code fix), `a9f2abc` (docs). **Merged into `main` by fast-forward on 2026-11-13** after the owner's review and separate merge approval; CI run #21 on the branch and #22 on `main`, both at `a9f2abc`. The branch still exists on `origin` at `a9f2abc`; deleting it is the owner's call |
 | `verify/step1-1ebdb15` | On `origin` at `cc836f5` (`1ebdb15` + `cc836f5`); kept until the owner decides |
 | Worktree | Verification branch checked out in the session scratchpad (`.../scratchpad/verify-step1`); kept until the owner decides |
 | `.claude/` | Untracked; never commit it |
@@ -86,14 +87,15 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
    the scratchpad worktree, and whether any of S2–S8 are fixed.
 2. Approval of the revised docs: `DECISIONS.md`, the M2 plan, FRD v3 and this file are
    committed in `2b626aa` and `282bd44`; owner approval of the FRD and plan content is pending.
-3. 4A: built on `4a/ocr-infrastructure`. Final review decisions applied (B1 option a, M1 option
-   (ii), M2, M3, L4, L5 and the test-package reference fix in `06ecf92`); see `DECISIONS.md`,
-   "4A implementation". Waiting for the owner's review of the fixes, then separate merge approval.
+3. 4A: **merged into `main`** (fast-forward `33e2aa1..a9f2abc`, 2026-11-13) after the owner's review
+   of the fixes (B1 option a, M1 option (ii), M2, M3, L4, L5 and the test-package reference fix in
+   `06ecf92`) and a separate merge approval; see `DECISIONS.md`, "4A implementation". Historical,
+   not pending.
 4. D4 and D18 (model specification), the 4B compatibility review, then explicit integration
    approval. Deployment is a separate approval.
 5. Step 8 runner (2026-11-13): D9 and the five runner decisions (poll interval, exit codes, second
    signal, schema ownership, connection loss) are recorded in `DECISIONS.md` ("Step 8 runner — owner
-   decisions"); nothing is implemented. Slices 8.1–8.5 start only when the owner says so; slice 8.6
+   decisions"); nothing is implemented. Slice 8.1 (a safe startup skeleton that does not run `run_due()` or `--once`) is defined in the plan (Step 8). Slices 8.1–8.5 start only when the owner says so; slice 8.6
    waits for D10, D12 and D14. A throwaway branch is approved for the Linux AC5 measurement only.
 
 **Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D8, D10, D11 (D9 decided 2026-11-13); D12, D14

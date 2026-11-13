@@ -673,11 +673,16 @@ Already decided elsewhere and unchanged: Option A (no adapter: stay due, direct 
 
 ---
 
-# 4A implementation — ON BRANCH `4a/ocr-infrastructure`, AWAITING OWNER REVIEW
+# 4A implementation — MERGED INTO `main` (2026-11-13); built on branch `4a/ocr-infrastructure`
 
-Built from the frozen 4A plan, Revision 4 (owner approved implementation on 2026-11-12). Not
-merged into `main`; merging needs separate owner approval. No OCR model, engine, framework,
-pretrained weights or artifact was selected, installed, bundled or integrated.
+Built from the frozen 4A plan, Revision 4 (owner approved implementation on 2026-11-12), on branch
+`4a/ocr-infrastructure`. **Merged into `main` on 2026-11-13** by fast-forward (`33e2aa1..a9f2abc`)
+after the owner's review of the fixes and a separate merge approval; the merge is historical, not
+pending. CI run #21 (branch) and #22 (`main`), both at `a9f2abc`: 444 passed, 0 skipped (see "CI
+evidence for the 4A fixes, S2–S5" in the Step 1 section). The branch still exists on `origin` at
+`a9f2abc`. The text below describes the build as it stood on the branch on 2026-11-12. No OCR
+model, engine, framework, pretrained weights or artifact was selected, installed, bundled or
+integrated.
 
 ## Owner decisions applied
 
@@ -771,7 +776,8 @@ pretrained weights or artifact was selected, installed, bundled or integrated.
 
 ## Still open
 
-- Owner review of the fixes, then separate approval to merge into `main`.
+- (Resolved 2026-11-13, kept as history: the owner reviewed the fixes and approved the merge; 4A is
+  merged into `main`.)
 - Everything under D18 (unchanged): interface version 1, probe-load, final manifest format,
   timeout values, confidence meaning, output limits, batching, process model, model-specific retry.
 - **New observation, not fixed (outside the approved scope):** the OCR child still returns its
@@ -883,6 +889,8 @@ manual-entry endpoints) stays blocked on D10, D12 and D14.
 - Name: `EXTRACTION_POLL_SECONDS`. Required in loop mode. Must be a positive, finite number of
   seconds. Empty, NaN, infinity, zero, negative and boolean-like values are rejected.
 - No default and no production value is selected. `--once` does not require it.
+- In loop mode a missing or invalid value is a configuration error and maps to exit code `2`
+  (decision 2, whose definitions are unchanged).
 
 ## Decision 2 — exit-code contract
 
@@ -929,6 +937,31 @@ runner-level failures only.
 - No automatic in-process reconnect is implemented. An interrupted attempt is handled by lease
   expiry and the existing recovery mechanism. A supervisor or restart configuration remains FRD Q4.
 
+## Slice 8.1 clarifications (2026-11-13; the five decisions above are unchanged)
+
+- **Startup order.** (1) The Python main-module guard; (2) `check_test_mode_config()` as the first
+  runtime safety check, before any schema inspection, database connection, child spawn,
+  availability probe or claim; (3) required configuration validation; (4) read-only schema
+  validation; (5) only after all of them pass may the runner proceed toward availability probing or
+  claiming. Checked against the 4A code on 2026-11-13: `check_test_mode_config()` is an
+  environment-only check, `run_due()` already runs it first and then probes and claims, and no 4A
+  code has to change. Details in `docs/M2_COMPLETION_PLAN.md`, Step 8.
+- **Slice 8.1 acceptance versus whole-runner acceptance.** Slice 8.1 is a safe startup skeleton:
+  main-module guard, import purity, ordering of the first runtime safety check, configuration
+  validation, read-only schema-presence validation, no-DDL verification, no database claim or
+  processing cycle before all startup checks pass, and the relevant regression tests. Real
+  subprocess spawn and child-execution proof, the PostgreSQL-backed processing-cycle test, first-
+  and second-signal behavior, OCR-child watchdog behavior, PostgreSQL rollback and lease-expiry
+  recovery, Linux hard-kill recovery of the runner, and subsequent-runner recovery with exactly one
+  extraction per document version are whole-runner requirements that 8.1 does not complete. S6
+  AC1–AC6 stay mandatory for the completed runner. The later runner slices (8.2–8.5) are not yet
+  written out, so no per-requirement slice ownership is recorded.
+- **No `--once` execution in 8.1.** Slice 8.1 does not execute `run_due()`, a `--once` processing
+  cycle or the long-running polling loop; the `--once` execution path belongs to a later
+  runner-execution slice. Slice 8.1 may test argument and configuration parsing but must not claim
+  or process documents. The meaning of `--once` is unchanged: exactly one `run_due()` call with its
+  normal limit, not exactly one document.
+
 ## D13 clarification (D13 stays open as a whole)
 
 The behavior already accepted on 2026-11-12 and implemented in 4A is unchanged: before any claim, an
@@ -951,6 +984,12 @@ Production extraction stays blocked by the existing 4B, D2 and Q4 prerequisites.
 no adapter is available (4A), so a runner started outside test mode claims nothing and documents
 stay `uploaded` (Option A). Test mode is a misconfiguration guard, not a security boundary, and
 "synthetic data only" remains a project rule held by process. This boundary is not weakened.
+
+**No-bypass rule.** The runner must not bypass the existing adapter allowlist or the availability
+probe. No command-line option, environment variable or runner switch may enable production
+extraction by bypassing those controls, and no new production-authorization mechanism is
+introduced. Production extraction remains blocked pending 4B, D2 privacy approval and the FRD Q4
+deployment decisions.
 
 ## Still open
 
