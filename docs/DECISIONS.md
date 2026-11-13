@@ -1091,11 +1091,25 @@ verified by running code: the runner does not exist yet.
   of slices 8.2–8.5 are still not written out. D10, D12, D14, Q4 and the D13 alert mechanism stay
   open, slice 8.6 stays blocked, and the production prerequisites (4B, D2, Q4) are unchanged.
 
-## Runner slices 8.2–8.4, step 5A and step 3A: implementation record (commit `553c3db`, local, 2026-11-13)
+## Runner slices 8.2–8.4, step 5A and step 3A: implementation record (commit `553c3db`, pushed 2026-11-13; CI runs #35 and #36)
 
-Written on the owner's instruction to work in larger batches. **Not pushed; no CI run exists for this
-commit.** Evidence so far is local on Windows without PostgreSQL: 456 passed, 257 skipped, 0 failed.
-Nothing below is verified on Linux or against PostgreSQL until CI runs it.
+Written on the owner's instruction to work in larger batches. Local evidence (Windows, no
+PostgreSQL): 456 passed, 257 skipped, 0 failed. CI evidence is in the next paragraph.
+
+**CI evidence (read from the run pages and the pytest log, 2026-11-13).** GitHub starts one run per
+push, so `553c3db` has no run of its own. Run #35 (`a650486`, which contains `553c3db` and the docs
+commit) **failed: 712 passed, 1 failed, 0 skipped.** The failure was a test bug:
+`test_two_runners_at_once_extract_every_document_exactly_once` started its runners without `--once`,
+so they ran in loop mode without `EXTRACTION_POLL_SECONDS` and exited `2` (the intended behavior).
+Commit `2ddb8a6` fixed the test (it passes `--once`). Run #36 (`2ddb8a6`, Linux, PostgreSQL 16)
+**passed: 713 passed, 0 skipped, 0 failed, 1 warning (`httpx` deprecation)**, 2m 9s of pytest. Test
+names are not printed, so each test is inferred from the totals: with 0 skipped, the PostgreSQL-backed
+and Linux real-process tests ran and passed (first SIGTERM, second SIGTERM, SIGKILL recovery, dying
+OCR child under 20 s, unimportable adapter, two concurrent runners, `--once` extraction and stats).
+That is one green run per commit; it does not rule out timing flakiness. S6 evidence now available:
+AC3 (a real `--once` process extracts a document to `needs_review`, exit `0`, "runner started"
+once), the signal and hard-kill recovery evidence, and the OCR-child watchdog. **Still not shown:**
+bootstrap failure of the spawned runner process itself, and PostgreSQL connection close on kill.
 
 - **Runner (`swasthyoid/workers/extract.py`).** After the 8.1 startup checks, `--once` makes exactly
   one `run_due()` call with its normal limit and exits `0` with a `cycle_done` line. Loop mode calls
@@ -1112,10 +1126,10 @@ Nothing below is verified on Linux or against PostgreSQL until CI runs it.
 - **Queue statistics.** `queue_stats()` is one read-only query: `due`, `in_flight` (live lease),
   `lease_expired` (also counted as due) and `failed`. Counts only, no document text.
 - **Tests.** DB-free (ran): the loop, the stop request, the wait, both signal paths, the handlers and
-  the exit-1 mappings. PostgreSQL-backed (written, **not run**): `--once` extracts a due document to
+  the exit-1 mappings. PostgreSQL-backed (written; **not run locally, passed in CI run #36**): `--once` extracts a due document to
   `needs_review` with `runner_started` exactly once; a second run adds no second result; outside test
   mode nothing is claimed; the statistics against constructed database states. Real-process
-  (`tests/test_runner_process.py`, written, **not run**; Linux for signals): the first SIGTERM does
+  (`tests/test_runner_process.py`, written; **not run locally, passed in CI run #36**; Linux for signals): the first SIGTERM does
   not interrupt the running attempt; a second SIGTERM (exit `3`) and a SIGKILL each leave a claim
   that a runner started before the lease ends respects, that expires, and that a later runner
   recovers with exactly one extraction; the OCR child ends through the parent-gone watchdog; no
@@ -1126,7 +1140,7 @@ Nothing below is verified on Linux or against PostgreSQL until CI runs it.
   `run_due` references was narrowed (it still forbids `claim`, `apply_schema`, adapter handling).
 - **Not covered.** Bootstrap failure of the spawned runner process itself (the import-failure test
   exercises the availability probe only); connection close on kill is not asserted; real signal delivery
-  on Windows. S6 AC5 stays unmeasured until CI runs these tests on Linux.
+  on Windows. S6 AC5 is only partly shown by run #36 (see the CI evidence above).
 - **Step 5A: `capture/imaging.py`.** Decodes for real (JPEG and PNG only, pixel cap checked from the
   header), measures sharpness (Laplacian variance) and blown-out share, returns reason codes
   `image_blurry`, `image_glare`, `image_too_small`, or raises `ImageRejected`. **Not called by the

@@ -14,10 +14,10 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 3. Step 1 and 4A are complete and merged into `main` (4A by fast-forward `33e2aa1..a9f2abc` on
    2026-11-13; the merge is historical, see `DECISIONS.md`, "4A implementation"). Write code only for
    a slice the owner has authorized: Step 8 slice 8.1 is implemented and CI-verified (run #31). Commit
-   `553c3db` (local, **not pushed, no CI run yet**) adds slices 8.2–8.4 (`--once`, the loop with `limit=1`,
+   `553c3db` (pushed; CI run #36 on `2ddb8a6` passed, 713 passed, 0 skipped) adds slices 8.2–8.4 (`--once`, the loop with `limit=1`,
    signals, queue statistics, real-process tests), step 5A (`capture/imaging.py`, not wired into upload) and
-   step 3A-data (generator). Its PostgreSQL-backed and Linux tests have never run: push only on the owner's
-   word, then read the CI log. Known limitation: one availability probe per document and per idle poll.
+   step 3A-data (generator). Its PostgreSQL-backed and Linux tests ran in CI run #36 (run #35 failed on one test bug,
+   fixed in `2ddb8a6`); still one green run, not proof against flakiness. Known limitation: one availability probe per document and per idle poll.
 
 ## OCR model: facts and rules
 
@@ -76,7 +76,7 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
 - **Tests on this machine:** without a database, 38 passed and 221 skipped on `main`; 377 passed
   and 243 skipped on `main` at `9013429` (S2/S3, S4 with 142 new tests, then S5 Part A with 8 new
   tests and one skipped PostgreSQL test); 431 passed and 247 skipped at `c4be86d` (Step 8 slice 8.1,
-  58 new tests, 4 of them PostgreSQL-backed). CI run #31 on `c4be86d`: 678 passed, 0 skipped; run #32 on the docs commit `d629b94` succeeded
+  58 new tests, 4 of them PostgreSQL-backed). CI run #31 on `c4be86d`: 678 passed, 0 skipped; CI run #36 on `2ddb8a6`: 713 passed, 0 skipped (run #35 failed on one test bug, fixed in `2ddb8a6`); run #32 on the docs commit `d629b94` succeeded
   (page only, no count read), as did run #33 on `4c8c43c` (list page only). 4A is
   merged into `main`. No PostgreSQL, Docker or WSL here; do not install
   `pgserver`, Docker or WSL without the owner's OK.
@@ -105,10 +105,10 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
    decisions"). **Slice 8.1 is implemented** (`2b8038f`, `c4be86d`; CI run #31: 678 passed, 0
    skipped): a startup skeleton (it did not run `run_due()`; slice 8.2 in `553c3db` now does, and `--once`
    exits `0` after a completed cycle). Open point left from 8.1: no `connect_timeout`. See `DECISIONS.md`,
-   "Slice 8.1 implementation record" and "Runner slices 8.2–8.4 ...". `553c3db` is local, unpushed and
-   has not been verified by PostgreSQL or Linux CI. Its startup
+   "Slice 8.1 implementation record" and "Runner slices 8.2–8.4 ...". `553c3db` is pushed; CI run #36
+   (`2ddb8a6`) passed on Linux with PostgreSQL. Its startup
    error and ordering contract (exit code per failure category) is in `DECISIONS.md`. Slices 8.2–8.4
-   are in `553c3db` (unverified by CI); 8.5 beyond the statistics line needs the owner's go-ahead; slice 8.6
+   are in `553c3db` (CI run #36 passed); 8.5 beyond the statistics line needs the owner's go-ahead; slice 8.6
    waits for D10, D12 and D14. A throwaway branch is approved for the Linux AC5 measurement only.
 
 **Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D8, D10, D11 (D9 decided 2026-11-13); D12, D14

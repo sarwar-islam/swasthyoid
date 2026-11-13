@@ -130,7 +130,7 @@ The approved proposal was a claim-and-lease design fenced by attempt number, wit
 
 Everything in step 3 is model-independent. It produces data and plumbing; it measures no real model.
 
-- **Status.** Partly implemented: **only the 3A synthetic generator** (printed English pages, exact ground truth, degraded copies, seeded splits) exists, in commit `553c3db`. **Not implemented:** the evaluation harness and any scoring (3A-harness, step 9A), the handwritten set (3B, D3), Bangla rendering (no font chosen). Not verified by CI.
+- **Status.** Partly implemented: **only the 3A synthetic generator** (printed English pages, exact ground truth, degraded copies, seeded splits) exists, in commit `553c3db`. **Not implemented:** the evaluation harness and any scoring (3A-harness, step 9A), the handwritten set (3B, D3), Bangla rendering (no font chosen). Its tests passed in CI run #36 (one run).
 - **FRD requirement.** Section 8 gate: "Field-level on a labelled synthetic set of printed and handwritten prescriptions". Invariant 9: synthetic data only.
 
 ### 3A — Generator, degraded copies and harness plumbing
@@ -265,7 +265,7 @@ Planned work, in order, after those conditions are met:
 
 ## Step 5 — Image quality checks and pre-processing (your area 3)
 
-- **Status.** Partly implemented: **only the 5A imaging module** (`capture/imaging.py`: decode, pixel cap, measurements, reason codes; provisional limits) exists, in commit `553c3db`. **Upload integration is not done and is unapproved** (owner decision 2026-11-13; it also needs D5 and D11), so no upload is checked or refused yet. 5B (pre-processing) is not implemented and waits for 4B. Not verified by CI.
+- **Status.** Partly implemented: **only the 5A imaging module** (`capture/imaging.py`: decode, pixel cap, measurements, reason codes; provisional limits) exists, in commit `553c3db`. **Upload integration is not done and is unapproved** (owner decision 2026-11-13; it also needs D5 and D11), so no upload is checked or refused yet. 5B (pre-processing) is not implemented and waits for 4B. Its tests passed in CI run #36 (one run).
 - **FRD requirement.** M2: "pre-process (rotate, deskew, denoise, contrast)"; "Blur and glare detection asks for a retake".
 
 ### 5A — Upload validation and quality checks (model-independent)
@@ -325,7 +325,7 @@ Planned work, in order, after those conditions are met:
 
 ## Step 8 — Running the worker, failure handling and audit (your area 7)
 
-- **Status.** **Slice 8.1 (the runner's startup skeleton) is implemented and CI-verified** (commits `2b8038f` and `c4be86d`, 2026-11-13; CI run #31: 678 passed, 0 skipped; details in the Slice 8.1 entry below and in `docs/DECISIONS.md`, "Slice 8.1 implementation record"). **Update 2026-11-13, commit `553c3db` (local, not pushed, no CI run yet):** the `--once` cycle, the polling loop (`limit=1` per `run_due()` call; known cost: one availability probe per document and per idle poll), signal handling, queue statistics and the real-process, spawn and recovery tests are written (details in `docs/DECISIONS.md`, "Runner slices 8.2–8.4 ..."). Only the DB-free part ran (456 passed, 257 skipped locally); the PostgreSQL-backed and Linux real-process tests have not run, so none of AC3, AC5 or the signal evidence is verified. **Still plan only:** slice 8.6, and the written scopes of 8.2–8.5 are now this record, not earlier approvals.
+- **Status.** **Slice 8.1 (the runner's startup skeleton) is implemented and CI-verified** (commits `2b8038f` and `c4be86d`, 2026-11-13; CI run #31: 678 passed, 0 skipped; details in the Slice 8.1 entry below and in `docs/DECISIONS.md`, "Slice 8.1 implementation record"). **Update 2026-11-13, commit `553c3db` (pushed; CI run #35 failed on one test bug, fixed in `2ddb8a6`; CI run #36 passed: 713 passed, 0 skipped):** the `--once` cycle, the polling loop (`limit=1` per `run_due()` call; known cost: one availability probe per document and per idle poll), signal handling, queue statistics and the real-process, spawn and recovery tests are written (details in `docs/DECISIONS.md`, "Runner slices 8.2–8.4 ..."). Run #36 (Linux, PostgreSQL 16, one run, counts inferred from the totals) ran the PostgreSQL-backed and real-process tests with 0 skipped, so AC3 and the signal, hard-kill and watchdog evidence now exist; AC5 is only partly shown (a child that dies after starting is recorded as `WorkerDied` within 20 s; bootstrap failure of the spawned runner process itself is not tested). **Still plan only:** slice 8.6, and the written scopes of 8.2–8.5 are now this record, not earlier approvals.
 - **FRD requirement.** M2: a background job. Section 4.2: what is audited. Section 9: observability (queue metrics), no personal data in logs.
 - **Proposed implementation.**&#x20;
   - A small runner that calls `run_due` on an interval, started as its own process. Celery is not needed for this and can replace the runner later without changing the pipeline. The runner uses `db.connect_worker`.
