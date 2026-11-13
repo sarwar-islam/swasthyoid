@@ -212,6 +212,32 @@ _DEFAULTS = ("threshold", "ai_threshold", "max_attempts", "backoff", "lease", "h
 _TEST_MODE = f"APP_ENV=test and {runtime_mode.CONFIRM}=1"
 
 
+def _duration(o, name, *, zero_ok=False):
+    """o[name] must be a timedelta above zero (or from zero, with zero_ok). The message names the
+    option and never the value."""
+    value = o[name]
+    if not isinstance(value, timedelta):
+        raise TypeError(f"extraction option {name} must be a datetime.timedelta")
+    if value < timedelta(0) or (value == timedelta(0) and not zero_ok):
+        raise ValueError(f"extraction option {name} must be {'zero or ' if zero_ok else ''}positive")
+
+
+def _fraction(o, name):
+    """o[name] must be a number from 0 to 1 inclusive; not a bool, NaN or infinite."""
+    value = o[name]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"extraction option {name} must be a number")
+    if not 0 <= value <= 1:  # false for NaN and infinity too
+        raise ValueError(f"extraction option {name} must be between 0 and 1")
+
+
+def _attempts(value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("extraction option max_attempts must be an integer")
+    if value < 1:
+        raise ValueError("extraction option max_attempts must be at least 1")
+
+
 def _settings(given):
     """Per-call settings over the module constants, read now so they can be reconfigured."""
     runtime_mode.check_test_mode_config()  # fail closed before anything else
@@ -221,10 +247,21 @@ def _settings(given):
     o = {"threshold": CONFIDENCE_THRESHOLD, "ai_threshold": CLOUD_AI_THRESHOLD, "max_attempts": MAX_ATTEMPTS,
          "backoff": BACKOFF, "lease": LEASE, "heartbeat": HEARTBEAT, "hard_timeout": HARD_TIMEOUT,
          "availability_timeout": ocr.AVAILABILITY_TIMEOUT, **given}
+    if o["availability_timeout"] is None:
+        o["availability_timeout"] = ocr.AVAILABILITY_TIMEOUT  # None means "the default"
     if o["hard_timeout"] is None:
         if not runtime_mode.is_test_mode():
             raise RuntimeError(f"in-process OCR (no heartbeat, no hard timeout) is only allowed with {_TEST_MODE}")
-    elif o["heartbeat"] >= o["lease"]:
+    else:
+        _duration(o, "hard_timeout")
+    for name in ("lease", "heartbeat", "availability_timeout"):
+        _duration(o, name)
+    _duration(o, "backoff", zero_ok=True)
+    _fraction(o, "threshold")
+    if o["ai_threshold"] is not None:  # None: nothing is ever sent to the cloud AI
+        _fraction(o, "ai_threshold")
+    _attempts(o["max_attempts"])
+    if o["hard_timeout"] is not None and o["heartbeat"] >= o["lease"]:
         raise ValueError("heartbeat must be shorter than the lease, or every lease runs out before it is renewed")
     return o
 
@@ -261,7 +298,11 @@ def claim(conn, document_id=None, *, lease=None, max_attempts=None):
     """
     if not conn.autocommit:
         raise ValueError("extraction needs an autocommit connection, so each step commits on its own")
-    lease, max_attempts = lease or LEASE, max_attempts or MAX_ATTEMPTS
+    # only an omitted value or None selects the default; an explicit zero is refused, not replaced
+    lease = LEASE if lease is None else lease
+    max_attempts = MAX_ATTEMPTS if max_attempts is None else max_attempts
+    _duration({"lease": lease}, "lease")
+    _attempts(max_attempts)
     while True:
         with conn.transaction():
             doc = conn.cursor(row_factory=dict_row).execute(
@@ -444,7 +485,8 @@ def extract(conn, document_id, version, engine=None, ai=None, **options):
     that is not due, one another worker holds, or no available OCR adapter, does nothing and
     returns False. engine=None uses the configured adapter; a callable is the deprecated
     test-only path. Options: threshold, ai_threshold, max_attempts, backoff, lease, heartbeat,
-    hard_timeout, availability_timeout.
+    hard_timeout, availability_timeout (None: the default). Invalid values raise TypeError or
+    ValueError before anything is claimed or probed.
     Raises WorkerConnectionLost if the connection is lost during the attempt: open a new one.
     Raises RuntimeError, before anything is claimed, if APP_ENV=test lacks its confirmation."""
     o = _settings(options)
@@ -462,7 +504,8 @@ def run_due(conn, engine=None, ai=None, *, limit=100, **options):
     """Claim and run due extraction jobs until none is left; returns how many attempts ran.
     Several workers can run this at once: each takes different documents. With no available OCR
     adapter it claims nothing and returns 0. engine=None uses the configured adapter; a callable
-    is the deprecated test-only path.
+    is the deprecated test-only path. Options as for extract(); invalid values raise TypeError or
+    ValueError before anything is claimed or probed.
     Raises WorkerConnectionLost if the connection is lost during an attempt: open a new one and
     call again. The interrupted attempt stays counted and is recovered when its lease ends.
     Raises RuntimeError, before anything is claimed, if APP_ENV=test lacks its confirmation.
