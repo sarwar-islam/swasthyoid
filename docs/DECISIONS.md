@@ -1071,6 +1071,8 @@ verified by running code: the runner does not exist yet.
   `main` (job `test`, 2m 9s), read from the run page; the same Node.js 20 warning and Ubuntu 26
   notice as before. The job log was not opened, so no pytest total is recorded for this run; the
   commit changes documentation only. The last verified count remains run #31's 678 passed.
+  CI run #33 (`4c8c43c`, the commit that recorded #32) also completed successfully on `main`
+  (1m 58s), read from the Actions list page only; no log or count was read.
 - **Interpretations made in the implementation, for the owner to confirm or change.**
   "Boolean-like" poll values are read as non-numeric words (`true`, `false`, `yes`), so a plain `1`
   is accepted as one second; underscores (`1_0`) are refused. The diagnostic format

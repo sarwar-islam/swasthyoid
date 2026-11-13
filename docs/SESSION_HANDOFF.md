@@ -74,7 +74,7 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
   and 243 skipped on `main` at `9013429` (S2/S3, S4 with 142 new tests, then S5 Part A with 8 new
   tests and one skipped PostgreSQL test); 431 passed and 247 skipped at `c4be86d` (Step 8 slice 8.1,
   58 new tests, 4 of them PostgreSQL-backed). CI run #31 on `c4be86d`: 678 passed, 0 skipped; run #32 on the docs commit `d629b94` succeeded
-  (page only, no count read). 4A is
+  (page only, no count read), as did run #33 on `4c8c43c` (list page only). 4A is
   merged into `main`. No PostgreSQL, Docker or WSL here; do not install
   `pgserver`, Docker or WSL without the owner's OK.
 - **Test mode (4A, Option C):** needs `APP_ENV=test` **and** `SWASTHYOID_TEST_MODE_CONFIRM=1`.
