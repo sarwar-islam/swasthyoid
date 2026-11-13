@@ -95,7 +95,7 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
    approval. Deployment is a separate approval.
 5. Step 8 runner (2026-11-13): D9 and the five runner decisions (poll interval, exit codes, second
    signal, schema ownership, connection loss) are recorded in `DECISIONS.md` ("Step 8 runner — owner
-   decisions"); nothing is implemented. Slice 8.1 (a safe startup skeleton that does not run `run_due()` or `--once`) is defined in the plan (Step 8). Slices 8.1–8.5 start only when the owner says so; slice 8.6
+   decisions"); nothing is implemented. Slice 8.1 (a safe startup skeleton that does not run `run_due()` or `--once`) is defined in the plan (Step 8); its startup error and ordering contract (exit code per failure category, argument parsing before the first safety check) is in `DECISIONS.md`. Slices 8.1–8.5 start only when the owner says so; slice 8.6
    waits for D10, D12 and D14. A throwaway branch is approved for the Linux AC5 measurement only.
 
 **Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D8, D10, D11 (D9 decided 2026-11-13); D12, D14

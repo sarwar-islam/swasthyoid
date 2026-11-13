@@ -962,6 +962,81 @@ runner-level failures only.
   or process documents. The meaning of `--once` is unchanged: exactly one `run_due()` call with its
   normal limit, not exactly one document.
 
+## Startup error and ordering contract (2026-11-13; decisions 1–5 and D9 are unchanged)
+
+This classifies startup failures within decision 2. It adds no exit code and changes no meaning.
+
+- **Refused test-mode configuration.** `runtime_mode.check_test_mode_config()` has exactly one
+  refusal condition (code read on 2026-11-13): `APP_ENV` is exactly `test` and
+  `SWASTHYOID_TEST_MODE_CONFIRM` is not exactly `1` (unset, or any other value). It then raises
+  `RuntimeError("APP_ENV=test requires SWASTHYOID_TEST_MODE_CONFIRM=1")`. It only reads two
+  environment variables and performs no I/O, so it cannot produce an infrastructure failure, and it
+  refuses no other environment: an environment outside test mode is handled by the 4A availability
+  probe, which finds no adapter and claims nothing. The runner treats this refusal as a
+  configuration and safety refusal: **exit code `2`**. After it, nothing else happens: no PostgreSQL
+  connection, schema inspection, child spawn, availability probe, claim or extraction. The
+  diagnostic is concise and non-sensitive: the refusal text names the variables and exposes no
+  environment value, and no secret or environment value is added to it. Only this `RuntimeError` is
+  mapped to `2`; other exceptions are not classified as configuration failures by default.
+  **Limit of this check:** it does not reject every unsafe or invalid environment. A non-test
+  environment is not blocked by it. The existing adapter allowlist and availability-probe
+  restrictions stay essential, and the runner must not bypass either of them or add a bypass
+  switch.
+- **Argument parsing and the first runtime safety check.** Side-effect-free argument parsing may
+  run before the safety check. It must not connect to the database, inspect the schema, start a
+  process or thread, probe availability, claim a document or run extraction.
+  `check_test_mode_config()` is the first runtime safety check, and no other runtime startup
+  operation precedes it. Invalid command-line usage exits with `2`. After valid parsing, the safety
+  check runs before any configuration-dependent infrastructure operation.
+
+| Failure category | Exit code |
+|---|---:|
+| Invalid command-line usage | `2` |
+| Missing or invalid `EXTRACTION_POLL_SECONDS` in loop mode (`--once` does not require it) | `2` |
+| Refused test-mode configuration (`APP_ENV=test` and `SWASTHYOID_TEST_MODE_CONFIRM` not exactly `1`) | `2` |
+| `DATABASE_URL` missing, empty or whitespace-only | `2` |
+| `DATABASE_URL` rejected by the connection-string parser before any connection | `2` |
+| Other invalid or missing required configuration | `2` |
+| `DATABASE_URL` accepted by the parser, but the database connection fails | `1` |
+| Required schema, table or column unavailable | `1` |
+| Other infrastructure failure preventing safe startup | `1` |
+| Per-document extraction failure during normal processing | does not change the exit code |
+| Successful completion or graceful shutdown | `0` |
+| Second-signal abort | `3` |
+
+**`DATABASE_URL`: what exists today and what slice 8.1 must implement (code read on 2026-11-13).**
+- *Today:* `db.connect()` does `psycopg.connect(os.environ["DATABASE_URL"], ...)`, and
+  `db.connect_worker()` calls it. A missing variable raises a raw `KeyError`. Nothing validates the
+  value before the connection call anywhere in the non-test code; the API only checks whether the
+  variable is present (`api/main.py`). So a malformed URL is **not** detected before connection
+  today.
+- *Required in 8.1, not implemented:* a presence check for `DATABASE_URL` (exit `2`), and
+  side-effect-free syntax validation of its value before any connection is attempted (exit `2`).
+  A connection failure that follows a URL the validation accepted is exit `1`. Exceptions from
+  the connection call are not all treated alike: a malformed value is a configuration failure where
+  the pre-connection validation can tell. The mechanism is an 8.1 design item. For information,
+  psycopg, an already declared dependency, has a parser that does not connect
+  (`psycopg.conninfo.conninfo_to_dict`); how it treats each malformed form is not verified here.
+
+**Empty or whitespace-only `DATABASE_URL` (owner decision, 2026-11-13).** A `DATABASE_URL` that is
+missing, empty or only whitespace is invalid configuration: exit code `2`, checked before any
+connection attempt, so the runner cannot fall back to the connection library's default parameters.
+A non-empty value that psycopg's own connection-string parser (`psycopg.conninfo.conninfo_to_dict`,
+which does not connect) rejects is also exit code `2`. A value the parser accepts whose connection
+then fails is exit code `1`. "Valid" means acceptable to that parser, which covers both libpq forms
+(a `postgresql://` URI and a keyword/value string), not URL-only; the existing integration tests
+set `DATABASE_URL` to a keyword/value string through `make_conninfo`. The mechanism and its
+behavior on each malformed form are 8.1 design items, unverified today. Source evidence behind this
+(psycopg code read on 2026-11-13, nothing run): the parser path only parses and never connects;
+psycopg's Python code has no check that rejects an empty string; libpq's own handling of an empty
+or whitespace-only string was not inspected.
+
+Open points, not decided here: which settings count as required configuration is an 8.1 design item,
+to be derived from the actual code during the authorized design (`DATABASE_URL` is needed by
+`db.connect`; no further required variable is invented here); and validating `DOCUMENT_STORE` and
+`DOCUMENT_KEY` remains a proposal that needs confirmation and is not mandatory. None of this is
+verified by running code: the runner does not exist yet.
+
 ## D13 clarification (D13 stays open as a whole)
 
 The behavior already accepted on 2026-11-12 and implemented in 4A is unchanged: before any claim, an
