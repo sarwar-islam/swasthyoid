@@ -1,0 +1,7 @@
+# Optional: install into a SEPARATE virtual environment, never into the application's environment.
+# Versions are the ones the Jonaki model card reports as tested; CPU build of PaddlePaddle.
+# See docs/OCR_JONAKI.md. Not referenced by pyproject.toml and not installed by CI.
+paddleocr==3.7.0
+paddlepaddle==3.3.1
+opencv-python-headless
+numpy
