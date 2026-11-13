@@ -1189,9 +1189,13 @@ Behavior changes only; details are in the code docstrings and tests.
   skipped on Windows. Test names are not printed, so each test is inferred from the totals: with 0
   skipped, the Linux-only tests ran and passed (first and second SIGTERM, SIGKILL recovery, the
   connection-close-after-kill check, `WorkerDied` timing, the three process-group kill tests) and so
-  did the five PostgreSQL end-to-end tests. Still one green run for the new tests (the signal and
-  kill tests also passed in run #36), so timing flakiness is not ruled out; the 20 s `WorkerDied`
-  bound remains the implementation's own choice.
+  did the five PostgreSQL end-to-end tests. Run #39 (`e4ba021`, the docs-only commit that recorded
+  #38) ran the same code again and also **passed: 766 passed, 0 skipped, 0 failed, 1 warning**, 2m
+  47s of pytest, 3m 19s for the job (read from the expanded pytest log; the Actions pages kept
+  showing "In progress" for minutes after it had finished). So the Linux-only tests have passed in
+  two runs on the same code (and the signal and kill tests also in run #36). That is two green runs,
+  not proof against timing flakiness; the 20 s `WorkerDied` bound remains the implementation's own
+  choice.
 
 ## D13 clarification (D13 stays open as a whole)
 
