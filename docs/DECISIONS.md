@@ -318,8 +318,8 @@ Approved requirements from the owner on 2026-11-12; code in
   `LeaseLost` (this renewal, the heartbeat, the fence), which were silent before. Tests: 8 without
   a database in `swasthyoid/tests/test_extraction_lease.py`, and one PostgreSQL test appended to
   `test_extraction_recovery.py` (`test_a_lease_that_expires_while_reading_images_stops_before_the_engine`).
-  **Local only so far: no CI result, and the PostgreSQL test has never been executed** (none on the
-  development machine). **Deferred, not decided:** the lease check before the cloud AI audit and
+  **CI-verified: run #25 (see "CI evidence for the 4A fixes, S2–S5" below).** The PostgreSQL test
+  cannot run on the development machine (no PostgreSQL); in CI it ran, by count. **Deferred, not decided:** the lease check before the cloud AI audit and
   send (Part B), a provider timeout, process isolation and idempotent sends (Part C) — FRD Q5;
   per-image renewal (A+) and storage-read timeouts — FRD Q4; a background heartbeat thread is not
   recommended (a hung call would keep renewing). Not reproducible today: cloud AI is unreachable
@@ -328,7 +328,7 @@ Approved requirements from the owner on 2026-11-12; code in
 - **S4 — fixed, owner-approved (2026-11-13), commit `22a2928`.** `_settings()` validates every
   option before anything is claimed or probed (rules under "Rules enforced"), and `claim()` no
   longer replaces an explicit zero with the default. Tests: `swasthyoid/tests/test_extraction_settings.py`
-  (142, no database). Local only so far: no CI result for it yet.
+  (142, no database). CI-verified: run #24 (see "CI evidence for the 4A fixes, S2–S5" below).
 - **Deferred risks from S4 (not confirmed failures, not measured, need PostgreSQL to test):** no upper
   bounds are enforced. (1) A very large `lease`, `backoff` or `hard_timeout` might overflow PostgreSQL
   interval or timestamp arithmetic (for example `clock_timestamp() + lease`) and fail at claim time.
@@ -747,6 +747,25 @@ pretrained weights or artifact was selected, installed, bundled or integrated.
 - **CI, owner-reported, not independently verified:** CI #19 (`06ecf92`) and CI #20 (`0713df4`)
   both completed successfully. Test counts were unavailable: the GitHub Actions listing did not
   show them. They were not read by the implementer (no `gh`, no signed-in browser).
+- **CI evidence for the 4A fixes, S2–S5 (read from the actual "Run pytest -q" logs, 2026-11-13).**
+  GitHub Actions workflow "CI", job `test`: ubuntu, Python 3.12.16, a `postgres:16` service, so the
+  database-backed tests ran. Every run: **0 failed, 0 skipped, 0 errors**, one warning (Starlette
+  `httpx` deprecation in the third-party test client). Each run's last line is the pytest summary.
+
+  | Run | Commit | Branch | What it covers | Result |
+  |---|---|---|---|---|
+  | #21 (`43372843363`) | `a9f2abc` | `4a/ocr-infrastructure` | 4A with the M2 non-string failure-code fix (`e9253e7`) | 444 passed in 74.22 s |
+  | #22 (`43374734206`) | `a9f2abc` | `main` | the same commit after the fast-forward merge of 4A | 444 passed in 77.79 s |
+  | #23 (`43377285358`) | `761cf45` | `main` | S2 and S3 (`94210d9`), 25 new tests | 469 passed in 91.08 s |
+  | #24 (`43379343362`) | `b40ef4d` | `main` | S4 (`22a2928`), 142 new tests | 611 passed in 83.30 s |
+  | #25 (`43382219028`) | `7b8e929` | `main` | S5 Part A (`9013429`), 8 new tests plus one PostgreSQL test | 620 passed in 88.76 s |
+
+  The counts add up: 444 + 25 = 469; 469 + 142 = 611; 611 + 9 = 620. The local Windows run without
+  a database collects the same 620 tests (377 passed, 243 skipped), so in run #25 every skipped test
+  ran, among them `test_a_lease_that_expires_while_reading_images_stops_before_the_engine`.
+  **Limit:** `pytest -q` prints no test names, so that test is shown to have run by the count, not by
+  name. #19 and #20 stay owner-reported. The findings still deferred (S5 Parts B and C, A+,
+  storage-read timeouts, S6, S7, S8) are not covered by this evidence.
 
 ## Still open
 

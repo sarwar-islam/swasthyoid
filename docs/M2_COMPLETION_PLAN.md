@@ -103,7 +103,7 @@ The record of what was built is `docs/DECISIONS.md`, "Worker reliability (M2 ste
 
 - OCR descendants survive the timeout.
 - An engine that cannot be sent to a child process uses up a document's attempts.
-- Review findings (`docs/DECISIONS.md`): S2, S3, S4 are fixed and S5 Part A is implemented (no CI result yet). Deferred by the owner: S5 Parts B and C (cloud AI, FRD Q5), per-image renewal and storage-read timeouts (FRD Q4), S6 (Step 8), S7 (D18), S8 (needs PostgreSQL `EXPLAIN`).
+- Review findings (`docs/DECISIONS.md`): S2, S3, S4 are fixed and S5 Part A is implemented; all CI-verified in runs #21–#25 (620 passed, 0 skipped on `7b8e929`; `docs/DECISIONS.md`). Deferred by the owner: S5 Parts B and C (cloud AI, FRD Q5), per-image renewal and storage-read timeouts (FRD Q4), S6 (Step 8), S7 (D18), S8 (needs PostgreSQL `EXPLAIN`).
 - The timing-sensitive recovery tests passed in one run per commit; occasional flakiness is not ruled out.
 
 **FRD requirement.** M2: "Retries with backoff, idempotent by (document_id, version)"; "every document ends in needs_review or extraction_failed". Section 7: tasks are at-least-once and a repeat does nothing. Invariant 8: fail closed.
