@@ -306,7 +306,9 @@ Approved requirements from the owner on 2026-11-12; code in
   exception (logged by type only, never its message); `KeyboardInterrupt` and `SystemExit` during
   cleanup are never suppressed; a cleanup failure after a good result propagates. Tests:
   `swasthyoid/tests/test_run_engine.py` (25, no database). S5 Part A is fixed (next entry);
-  the rest of S5 and S6–S8 stay deferred by the owner: S6 guard and a real spawn test in Step 8;
+  the rest of S5 and S6–S8 stay deferred by the owner: S6 guard and a real spawn test in Step 8
+  (preserved as mandatory Step 8 acceptance criteria AC1–AC6, `docs/M2_COMPLETION_PLAN.md`; D9
+  must be decided before the runner is created);
   S7 after the D18 model runtime specification; S8 needs `EXPLAIN` evidence on PostgreSQL before
   any index is proposed.
 - **S5 Part A — fixed, owner-approved (2026-11-13), commit `9013429`.** The lease was renewed only

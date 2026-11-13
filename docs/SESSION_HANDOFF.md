@@ -61,7 +61,8 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
   timing-sensitive tests. `pytest -q` prints no test names; the counts show it.
 - **S1 fixed and accepted:** a lost database connection now raises `WorkerConnectionLost` with no
   further write; new `pg_terminate_backend` recovery test. On `main` as `6b11e65`.
-- **Open, not part of Step 1:** S5 Parts B and C and A+, S6, S7, S8 (deferred by the owner; S2, S3
+- **Open, not part of Step 1:** S5 Parts B and C and A+, S6 (mandatory Step 8 acceptance criteria
+  AC1–AC6 in the plan; D9 first), S7, S8 (deferred by the owner; S2, S3
   and S4 are fixed and S5 Part A is implemented; all CI-verified, runs #21–#25, see
   `docs/DECISIONS.md` "CI evidence for the 4A fixes, S2–S5"); the raw error still escapes if the
   connection drops during the failure write itself; one green run per commit does not rule out
