@@ -305,11 +305,19 @@ Approved requirements from the owner on 2026-11-12; code in
   an earlier cleanup step fails. Cleanup policy: an ordinary cleanup error never replaces a primary
   exception (logged by type only, never its message); `KeyboardInterrupt` and `SystemExit` during
   cleanup are never suppressed; a cleanup failure after a good result propagates. Tests:
-  `swasthyoid/tests/test_run_engine.py` (25, no database). S4–S8 stay deferred by the owner: S4
-  validation rules and tests before Step 8; S5 before cloud AI (FRD Q5); S6 guard and a real spawn
-  test in Step 8; S7 after the D18 model runtime specification; S8 needs `EXPLAIN` evidence on
-  PostgreSQL before any index is proposed.
-- **Remaining from the review (S2 and S3 below are now fixed; the rest not fixed, not approved for fixing):** S2 a Windows-only pipe error
+  `swasthyoid/tests/test_run_engine.py` (25, no database). S5–S8 stay deferred by the owner: S5
+  before cloud AI (FRD Q5); S6 guard and a real spawn test in Step 8; S7 after the D18 model
+  runtime specification; S8 needs `EXPLAIN` evidence on PostgreSQL before any index is proposed.
+- **S4 — fixed, owner-approved (2026-11-13), commit `22a2928`.** `_settings()` validates every
+  option before anything is claimed or probed (rules under "Rules enforced"), and `claim()` no
+  longer replaces an explicit zero with the default. Tests: `swasthyoid/tests/test_extraction_settings.py`
+  (142, no database). Local only so far: no CI result for it yet.
+- **Deferred risks from S4 (not confirmed failures, not measured, need PostgreSQL to test):** no upper
+  bounds are enforced. (1) A very large `lease`, `backoff` or `hard_timeout` might overflow PostgreSQL
+  interval or timestamp arithmetic (for example `clock_timestamp() + lease`) and fail at claim time.
+  (2) `backoff * 2 ** (attempt - 1)` grows exponentially, so a large `max_attempts` might overflow
+  before any cap. Review together with S8 once a database is available.
+- **Remaining from the review (S2, S3 and S4 below are now fixed; the rest not fixed, not approved for fixing):** S2 a Windows-only pipe error
   may be recorded as `BrokenPipeError` instead of `WorkerDied`; S3 a child that fails to start
   leaks pipe handles and uses an attempt; S4 option values are not validated; S5 image reading
   and field shaping run outside the heartbeat; S6 the future runner needs a main-module guard for
@@ -373,7 +381,15 @@ to the limit.
 
 - **In-process OCR is refused unless `APP_ENV=test`.** That mode has no heartbeat and no hard
   timeout. The refusal happens before anything is claimed.
-- **The heartbeat must be shorter than the lease**, or the settings are refused.
+- **The heartbeat must be shorter than the lease**, or the settings are refused (not checked when
+  `hard_timeout` is `None`, the test-only in-process mode, which has no heartbeat).
+- **Option values are validated (S4)** with `TypeError` for a wrong type and `ValueError` for a bad
+  range; the message names the option, never the value. `lease`, `heartbeat`, `hard_timeout` (when
+  not `None`) and `availability_timeout` are `timedelta` above zero; `backoff` a `timedelta` of zero
+  or more; `max_attempts` an int of at least 1; `threshold` and `ai_threshold` a number from 0 to 1
+  inclusive (`ai_threshold` may be `None`: nothing is sent). Bools, NaN, infinity and non-numbers
+  are refused. `availability_timeout=None` means `ocr.AVAILABILITY_TIMEOUT`. `claim()` applies the
+  `lease` and `max_attempts` rules; only an omitted value or `None` selects the default.
 - **An `extracting` document always has a due time.** A database constraint
   (`extracting_has_time`) refuses a row without one, and the state-machine call sets it.
 

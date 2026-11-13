@@ -103,7 +103,7 @@ The record of what was built is `docs/DECISIONS.md`, "Worker reliability (M2 ste
 
 - OCR descendants survive the timeout.
 - An engine that cannot be sent to a child process uses up a document's attempts.
-- Review findings S2–S8 (`docs/DECISIONS.md`), not fixed.
+- Review findings S5–S8 (`docs/DECISIONS.md`), deferred by the owner; S2, S3 and S4 are fixed.
 - The timing-sensitive recovery tests passed in one run per commit; occasional flakiness is not ruled out.
 
 **FRD requirement.** M2: "Retries with backoff, idempotent by (document_id, version)"; "every document ends in needs_review or extraction_failed". Section 7: tasks are at-least-once and a repeat does nothing. Invariant 8: fail closed.
