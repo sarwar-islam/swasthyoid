@@ -54,9 +54,9 @@ def alive(pid):
 def start(tmp_path):
     started = []
 
-    def _start(env):
+    def _start(env, *args):
         err = tmp_path / f"runner{len(started)}.err"
-        proc = subprocess.Popen(COMMAND, cwd=REPO, env=env, stdout=subprocess.DEVNULL, stderr=err.open("w"))
+        proc = subprocess.Popen([*COMMAND, *args], cwd=REPO, env=env, stdout=subprocess.DEVNULL, stderr=err.open("w"))
         started.append(proc)
         return proc, err
 
@@ -161,7 +161,7 @@ def test_an_adapter_that_cannot_be_imported_claims_nothing(prod, tmp_path):
 def test_two_runners_at_once_extract_every_document_exactly_once(prod, tmp_path, start):
     headers = patient(prod)
     ids = [upload(prod, headers) for _ in range(6)]
-    procs = [start(env_for(tmp_path, "good", loop=False)) for _ in range(2)]
+    procs = [start(env_for(tmp_path, "good", loop=False), "--once") for _ in range(2)]  # loop mode would need a poll interval
     for proc, err in procs:
         assert proc.wait(180) == 0, text(err)
     for doc_id in ids:
