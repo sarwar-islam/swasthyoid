@@ -370,6 +370,14 @@ def test_probe_protocol_passes_a_failure_code_through():
     assert code(e) == "engine_unavailable"
 
 
+@pytest.mark.parametrize("payload", [[], {}, 5, None, ["x"]])
+def test_probe_protocol_refuses_a_non_string_failure_code(payload):
+    for prefix in ([], [CHECKSUM]):
+        with pytest.raises(ocr.AdapterError) as e:
+            read(Scripted(*prefix, ["failed", payload]))
+        assert code(e) == "engine_unavailable"
+
+
 def test_probe_protocol_waits_for_eof_within_the_deadline():
     """A complete sequence is not accepted until the channel closes: a message could follow."""
     started = time.monotonic()

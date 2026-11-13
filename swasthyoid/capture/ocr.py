@@ -386,7 +386,8 @@ def _read_probe(results, deadline):
             raise AdapterError("engine_unavailable")  # nothing valid is longer than two
     kinds = [kind for kind, _ in messages]
     if kinds in (["failed"], ["checksum", "failed"]):
-        raise AdapterError(messages[-1][1] if messages[-1][1] in CODES else "engine_unavailable")
+        failure = messages[-1][1]  # child-supplied: only a string can be a code (a list is unhashable)
+        raise AdapterError(failure if isinstance(failure, str) and failure in CODES else "engine_unavailable")
     if kinds != ["checksum", "identity"]:
         raise AdapterError("engine_unavailable")
     return messages[0][1], messages[1][1]
