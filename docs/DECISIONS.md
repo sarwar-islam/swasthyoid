@@ -781,6 +781,96 @@ pretrained weights or artifact was selected, installed, bundled or integrated.
 
 ---
 
+# D9 — How the worker is run — DECIDED
+
+Owner: Sarwar Islam. Date: 2026-11-13. Nothing is implemented: no runner exists yet (plan Step 8).
+The S6 acceptance criteria AC1–AC6 in `docs/M2_COMPLETION_PLAN.md` (Step 8) apply to it.
+
+The extraction worker runs as a plain Python process launched using:
+`python -m swasthyoid.workers.extract`
+It uses the existing database-backed queue through `db.connect_worker`. No Celery, Redis,
+console-script entry point, or `pyproject.toml` change is required.
+
+## Execution modes
+
+The runner supports two modes:
+
+1. **Loop mode (default):** Repeatedly executes polling cycles using a required, validated
+   polling-interval setting. The interval is configurable, but no production value is selected by
+   this decision. The interval is the wait after a polling cycle completes, so cycles do not
+   overlap within one runner process.
+2. **`--once` mode:** Executes exactly one polling cycle — one call to `run_due()` using its
+   existing normal limit — and then exits. A cycle may process multiple due documents and is not
+   equivalent to processing one document.
+
+## Exit-code semantics
+
+- Exit code `0`: the requested polling cycle completes, regardless of individual document
+  outcomes. Per-document successes and failures are recorded through the existing extraction
+  workflow.
+- Non-zero exit code: startup is refused or fails, or the runner cannot complete its required
+  startup or infrastructure operations.
+
+## Startup and safety
+
+The runner must:
+
+- Keep all execution behavior inside `main()` behind a proper `if __name__ == "__main__":` guard.
+- Preserve import purity: importing the runner must not connect to the database, start processes
+  or threads, perform network operations, or produce output.
+- Call `runtime_mode.check_test_mode_config()` once at startup, before entering the loop or
+  spawning any child process, as required by B1.
+- Satisfy all committed S6 acceptance criteria AC1–AC6.
+
+## Shutdown behavior
+
+On a supported stop signal, the runner stops claiming new documents, allows the current attempt
+to finish, and then exits. Supported signal handling must be implemented and verified per
+platform: `SIGINT` and `SIGTERM` where available, and `SIGBREAK` on Windows where supported.
+
+The idle wait must be interruptible and short enough to notice a stop promptly rather than
+waiting for the entire polling interval.
+
+If the process is forcibly terminated before an attempt finishes, recovery relies on the existing
+lease-expiry and fencing mechanisms. Computation is at-least-once: a document may be computed
+again after lease expiry. A stale worker cannot store a result or failure after losing its valid
+claim. At most one extraction result is stored per document version. Side effects outside the
+database are not covered by this guarantee.
+
+## Availability probe
+
+The existing availability probe remains before queue claiming. Its idle-cycle process-spawn
+overhead is accepted for this decision. No 4A-adjacent optimization is authorized.
+
+## Deferred decisions
+
+The following remain OPEN or deferred and are not decided by D9:
+
+- Production hosting platform and process supervisor or scheduler (FRD Q4).
+- Production polling-interval value.
+- Log destination, metrics sink, environment-variable injection, and supervisor shutdown grace
+  period.
+- Console-script packaging.
+- Celery and Redis.
+- D13 alerting mechanism and other separately tracked Step 8 decisions.
+
+This decision does not reopen frozen 4A decisions. S5 Parts B and C, per-image renewal,
+storage-read timeouts, S7, and S8 remain deferred.
+
+The selected architecture is a long-running plain Python worker with a bounded `--once` mode. A
+scheduler-invoked `--once` execution remains possible where the eventual hosting environment
+makes that preferable.
+
+**Evidence recorded with the decision (investigation, 2026-11-13; Windows laptop scratch unless
+stated).** Signals on Windows: `terminate()` and `kill()` are hard kills with no handler;
+`CTRL_BREAK_EVENT` is caught as `SIGBREAK`; with a 10 s idle wait the process did not react to
+`SIGBREAK` until the wait ended, whereas 0.2 s wait slices stopped it at once. `SIGINT` on Windows
+and all Linux signal behavior are not yet verified. An availability probe took about 1.3 s and
+Python start plus import about 1.0–1.3 s. Duplicate claims, stale writes and recovery after a
+kill are covered by the existing tests that run in Linux CI.
+
+---
+
 # P0 exit gate as actually passed — PENDING OWNER ACCEPTANCE
 
 FRD section 11 asks for questions 1, 2, 4, 5 and 7 to be **answered** in P0. They were

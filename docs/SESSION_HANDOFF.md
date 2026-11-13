@@ -92,7 +92,7 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
 4. D4 and D18 (model specification), the 4B compatibility review, then explicit integration
    approval. Deployment is a separate approval.
 
-**Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D11; D12, D14
+**Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D8, D10, D11 (D9 decided 2026-11-13); D12, D14
 (manual entry); D15 (M3 start); D16 (P0 deviation); FRD Q1, Q3, Q4, Q5, Q7, Q12, Q15; Option A
 sub-decisions (mapped to D10, D12, D13, D14); whether `CLAUDE.md` gets an AI-model rule line;
 provisional values (caregiver 30/90 days and 24 h, rate limits, Luhn check digit).
