@@ -21,8 +21,9 @@ PLACEHOLDER: no provider is chosen (DECISIONS.md Q5), so callers pass none.
 How a job runs (worker reliability, docs/DECISIONS.md):
   1. claim   short transaction: take a due document other workers are not holding
              (FOR UPDATE SKIP LOCKED), count the attempt, write a fresh claim token and a lease.
-  2. work    no transaction open: read the images and run the engine in a child process that
-             is killed at the hard timeout. The lease is renewed on a heartbeat meanwhile.
+  2. work    no transaction open: read the images, renew the lease once, and run the engine in
+             a child process that is killed at the hard timeout. The lease is renewed on a
+             heartbeat meanwhile.
   3. store   short transaction: keep the result only if the claim token is still ours and the
              lease has not run out. A late or superseded worker changes nothing.
 A worker that dies or hangs just stops renewing; when the lease ends the document is due
@@ -443,6 +444,9 @@ def _attempt(conn, job, engine, ai, o, config=None):
     try:
         images = documents.get(conn, job["id"])["images"]
         pages = [documents.read_image(conn, job["id"], i["n"])[1] for i in images]
+        # reading ran without a heartbeat: confirm, and extend, the lease before the engine starts
+        if not _renew(conn, job, o["lease"]):
+            raise LeaseLost()
         work = pages if config is None else [
             {"page_number": n, "image": data, "media_type": image["content_type"]}
             for n, (image, data) in enumerate(zip(images, pages), 1)]
@@ -473,7 +477,9 @@ def _attempt(conn, job, engine, ai, o, config=None):
                 "UPDATE documents SET status = 'needs_review', extraction_claim = NULL, extraction_error = NULL, "
                 "next_extraction_at = NULL, updated_at = clock_timestamp() WHERE id = %s", [job["id"]])
     except LeaseLost:
-        pass  # another attempt owns the document now, or will: leave everything as it is
+        # another attempt owns the document now, or will: leave everything as it is
+        log.warning("ocr attempt lease lost: code=LeaseLost stage=attempt document=%s attempt=%d",
+                    job["id"], job["attempt"])
     except AttemptFailed as e:
         _fail_unless_disconnected(conn, job, e.args[0], e, o)
     except Exception as e:

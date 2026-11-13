@@ -543,3 +543,48 @@ def test_worker_connection_has_database_timeouts(prod):
         assert shown == {"statement_timeout": "1min", "lock_timeout": "10s",
                          "idle_in_transaction_session_timeout": "1min"}
         assert extraction.claim(conn) is None
+
+
+def test_a_lease_that_expires_while_reading_images_stops_before_the_engine(prod, monkeypatch, caplog):
+    doc_id = upload(prod, patient(prod))
+    engine_calls, seen = [], []
+    real_read = documents.read_image
+
+    def read_then_lose_the_lease(conn, document_id, n):
+        data = real_read(conn, document_id, n)
+        if not seen:  # the upload has one image; record the first read only
+            with prod.connect() as other:
+                seen.append(claim_row(other, doc_id))   # claimed, lease still running
+                expire_lease(other, doc_id)             # the lease runs out during reading
+                seen.append(claim_row(other, doc_id))
+        return data
+
+    def engine(pages, doc_type):
+        engine_calls.append(1)
+        return ocr(pages, doc_type)
+
+    with prod.connect() as conn, monkeypatch.context() as patched, \
+            caplog.at_level("WARNING", logger=extraction.log.name):
+        patched.setattr(documents, "read_image", read_then_lose_the_lease)
+        # True means a job was claimed and an attempt ran; it says nothing about OCR success
+        assert extraction.extract(conn, doc_id, 1, engine) is True
+
+    with prod.connect() as check:   # independent verification before anything else runs
+        before, after = seen
+        assert before[:2] == ("extracting", 1) and before[2] is not None and before[3] is True
+        assert after == (before[0], before[1], before[2], False)                 # same token, lease now expired
+        assert engine_calls == []                                                # the engine never started
+        assert extractions(check) == []                                          # no extraction row
+        assert claim_row(check, doc_id) == ("extracting", 1, before[2], False)   # still claimed, attempt counted
+        assert job(check, doc_id) == ("extracting", 1, None, False)              # no failure recorded
+        assert check.execute("SELECT count(*) FROM events").fetchone()[0] == 0
+        assert check.execute(f"SELECT count(*) FROM documents WHERE id = %s AND {extraction._DUE}",
+                             [doc_id]).fetchone()[0] == 1                        # due: eligible for recovery
+    assert [r.getMessage() for r in caplog.records if "lease lost" in r.getMessage()] == [
+        f"ocr attempt lease lost: code=LeaseLost stage=attempt document={doc_id} attempt=1"]
+
+    with prod.connect() as conn:    # only now: recovery
+        assert extraction.run_due(conn, ocr) == 1
+        assert job(conn, doc_id) == ("needs_review", 2, None, None)
+        assert claim_row(conn, doc_id)[2] is None
+        assert extractions(conn) == [(doc_id, 1, "fake-ocr")]
