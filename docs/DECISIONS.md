@@ -1067,6 +1067,10 @@ verified by running code: the runner does not exist yet.
   parser rejected both malformed strings used in the tests. The audit-hook event names used for
   process creation on Linux come from documentation; the probe passed on Linux CI but its coverage
   of those names was not independently confirmed.
+- **CI run #32 (`d629b94`, the documentation commit recording #31).** Completed successfully on
+  `main` (job `test`, 2m 9s), read from the run page; the same Node.js 20 warning and Ubuntu 26
+  notice as before. The job log was not opened, so no pytest total is recorded for this run; the
+  commit changes documentation only. The last verified count remains run #31's 678 passed.
 - **Interpretations made in the implementation, for the owner to confirm or change.**
   "Boolean-like" poll values are read as non-numeric words (`true`, `false`, `yes`), so a plain `1`
   is accepted as one second; underscores (`1_0`) are refused. The diagnostic format
