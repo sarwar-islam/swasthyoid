@@ -299,7 +299,17 @@ Approved requirements from the owner on 2026-11-12; code in
   claimed, the OCR child killed, recovery after real lease expiry, attempt 2 completes.
 - **Linux CI on the fix** (`cc836f5`, run #14, `43260900552`), same environment: **259 passed, 0
   failed, 0 skipped, 0 errors.**
-- **Remaining from the review (not fixed, not approved for fixing):** S2 a Windows-only pipe error
+- **S2 and S3 — fixed, owner-approved (2026-11-13), commit `94210d9`.** `_run_engine` now maps a
+  `BrokenPipeError` raised by `poll()` (Windows) to `AttemptFailed("WorkerDied")`, and a new
+  `_release()` stops the child and gives both pipe ends a close attempt even when `child.start()` or
+  an earlier cleanup step fails. Cleanup policy: an ordinary cleanup error never replaces a primary
+  exception (logged by type only, never its message); `KeyboardInterrupt` and `SystemExit` during
+  cleanup are never suppressed; a cleanup failure after a good result propagates. Tests:
+  `swasthyoid/tests/test_run_engine.py` (25, no database). S4–S8 stay deferred by the owner: S4
+  validation rules and tests before Step 8; S5 before cloud AI (FRD Q5); S6 guard and a real spawn
+  test in Step 8; S7 after the D18 model runtime specification; S8 needs `EXPLAIN` evidence on
+  PostgreSQL before any index is proposed.
+- **Remaining from the review (S2 and S3 below are now fixed; the rest not fixed, not approved for fixing):** S2 a Windows-only pipe error
   may be recorded as `BrokenPipeError` instead of `WorkerDied`; S3 a child that fails to start
   leaks pipe handles and uses an attempt; S4 option values are not validated; S5 image reading
   and field shaping run outside the heartbeat; S6 the future runner needs a main-module guard for

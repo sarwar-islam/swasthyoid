@@ -65,8 +65,8 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
   connection drops during the failure write itself; one green run per commit does not rule out
   timing flakiness; CI warns that `actions/checkout@v4` and `actions/setup-python@v5` target
   Node 20, and `ubuntu-latest` is now Ubuntu 26 (workflow unchanged).
-- **Tests on this machine:** without a database, 38 passed and 221 skipped on `main`; 202 passed
-  and 242 skipped on `4a/ocr-infrastructure` at `e9253e7`. No PostgreSQL, Docker or WSL here; do not install
+- **Tests on this machine:** without a database, 38 passed and 221 skipped on `main`; 227 passed
+  and 242 skipped on `main` at `94210d9` (S2/S3 fix, 25 new tests). 4A is merged into `main`. No PostgreSQL, Docker or WSL here; do not install
   `pgserver`, Docker or WSL without the owner's OK.
 - **Test mode (4A, Option C):** needs `APP_ENV=test` **and** `SWASTHYOID_TEST_MODE_CONFIRM=1`.
   Exporting `APP_ENV=test` alone makes the API and the worker refuse to start (intended).
