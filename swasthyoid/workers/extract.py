@@ -62,7 +62,8 @@ def _parser():
         prog="python -m swasthyoid.workers.extract",
         description="Extraction runner (slice 8.1: startup checks only).")
     parser.add_argument("--once", action="store_true",
-                        help=f"one polling cycle instead of the loop; {POLL_VARIABLE} is not needed")
+                        help=f"accepted; skips the loop-mode requirement for {POLL_VARIABLE}. "
+                             "This slice does not call run_due(), process documents or run a polling cycle")
     return parser
 
 
