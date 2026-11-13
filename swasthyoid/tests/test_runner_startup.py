@@ -1,9 +1,10 @@
-"""Step 8 slice 8.1: the runner's startup skeleton (swasthyoid/workers/extract.py).
+"""Step 8 slices 8.1 and 8.2: the runner (swasthyoid/workers/extract.py).
 
-Covers only what 8.1 owns: the main-module guard, import purity, the first runtime safety
-check and its ordering, configuration validation, read-only schema validation, and that nothing
-is claimed or processed. Spawn proof, the processing cycle, signals and recovery belong to later
-runner slices and are not claimed here.
+Slice 8.1: the main-module guard, import purity, the first runtime safety check and its
+ordering, configuration validation and read-only schema validation. Slice 8.2: the --once cycle,
+the polling loop, the stop signals and the queue statistics, with fakes for the cycle and, in
+the PostgreSQL tests, the real run_due(). Signal delivery to a real process, spawn failure on
+Linux and hard-kill recovery are not claimed here.
 
 A local TCP "tripwire" stands in for the database: any connection attempt, including one made
 inside the C library (which raises no Python audit event), is counted. Synthetic data only.
@@ -120,7 +121,7 @@ def test_top_level_holds_only_definitions_and_the_guarded_call():
     assert any(isinstance(n, ast.FunctionDef) and n.name == "main" for n in body)
 
 
-def test_runner_has_no_reference_to_the_processing_cycle_or_schema_application():
+def test_runner_never_applies_the_schema_and_has_no_bypass_around_the_cycle_controls():
     names = set()
     for node in ast.walk(ast.parse(MODULE.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Name):
@@ -131,7 +132,9 @@ def test_runner_has_no_reference_to_the_processing_cycle_or_schema_application()
             names.update(alias.name.split(".")[-1] for alias in node.names)
             if isinstance(node, ast.ImportFrom) and node.module:
                 names.update(node.module.split("."))
-    assert not names & {"run_due", "extract", "claim", "apply_schema", "extraction", "ocr"}
+    # run_due (through the extraction module) is the only way in: no direct claim, no schema DDL,
+    # no engine or adapter handling of the runner's own
+    assert not names & {"extract", "claim", "apply_schema", "ocr", "check_available", "_engine"}
 
 
 # ---- AC2: importing the runner does nothing
@@ -323,7 +326,8 @@ def test_the_complete_schema_passes_with_exit_0_and_changes_nothing(blank_databa
     for env in (clean_env(DATABASE_URL=blank_database),
                 clean_env(APP_ENV="test", SWASTHYOID_TEST_MODE_CONFIRM="1", DATABASE_URL=blank_database)):
         done = run_runner("--once", env=env)
-        assert done.returncode == 0 and done.stdout == "" and "code=startup_checks_passed" in done.stderr
+        assert done.returncode == 0 and done.stdout == "" and "code=runner_started mode=once" in done.stderr
+        assert "code=cycle_done attempts=0 due=0" in done.stderr  # an empty queue and no adapter: nothing to do
     assert catalog(blank_database) == before
 
 
@@ -337,12 +341,155 @@ def test_a_missing_column_is_named_and_the_schema_is_left_as_it_is(blank_databas
     assert catalog(blank_database) == before  # the runner did not repair it
 
 
-def test_the_runner_claims_and_processes_nothing_even_with_a_due_document_and_a_test_adapter(prod):
-    doc_id = upload(prod, patient(prod))  # an uploaded document that is due
-    env = clean_env(DATABASE_URL=os.environ["DATABASE_URL"], APP_ENV="test", SWASTHYOID_TEST_MODE_CONFIRM="1",
+def run_once(app_env="test"):
+    env = clean_env(DATABASE_URL=os.environ["DATABASE_URL"],
                     OCR_ADAPTER="swasthyoid.tests.adapters.fake_adapters:good")
-    done = run_runner("--once", env=env)
-    assert done.returncode == 0 and "code=startup_checks_passed" in done.stderr
+    if app_env == "test":
+        env.update(APP_ENV="test", SWASTHYOID_TEST_MODE_CONFIRM="1")
+    elif app_env:
+        env["APP_ENV"] = app_env
+    return run_runner("--once", env=env)
+
+
+def test_once_in_test_mode_extracts_a_due_document_and_exits_0(prod):
+    doc_id = upload(prod, patient(prod))
+    done = run_once()
+    assert done.returncode == 0, done.stderr
+    assert done.stderr.count("code=runner_started") == 1  # AC3: the started line appears exactly once
+    assert "code=cycle_done attempts=1 due=0 in_flight=0 lease_expired=0 failed=0" in done.stderr
     with prod.connect() as conn:
-        assert job(conn, doc_id) == ("uploaded", 0, None, None)  # not claimed, no attempt counted
+        assert job(conn, doc_id)[:2] == ("needs_review", 1)
+        assert conn.execute("SELECT count(*) FROM extractions WHERE document_id = %s", [doc_id]).fetchone()[0] == 1
+
+
+def test_a_second_once_run_finds_nothing_and_adds_no_second_result(prod):
+    doc_id = upload(prod, patient(prod))
+    assert run_once().returncode == 0
+    again = run_once()
+    assert again.returncode == 0 and "code=cycle_done attempts=0" in again.stderr
+    with prod.connect() as conn:
+        assert conn.execute("SELECT count(*) FROM extractions WHERE document_id = %s", [doc_id]).fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("app_env", [None, "production"])
+def test_outside_test_mode_once_exits_0_and_claims_nothing(prod, app_env):
+    doc_id = upload(prod, patient(prod))
+    done = run_once(app_env)
+    assert done.returncode == 0 and "code=cycle_done attempts=0 due=1" in done.stderr, done.stderr
+    with prod.connect() as conn:
+        assert job(conn, doc_id) == ("uploaded", 0, None, None)  # still due, no attempt counted
         assert conn.execute("SELECT count(*) FROM extractions").fetchone()[0] == 0
+
+
+def test_queue_stats_count_due_in_flight_expired_and_failed(prod):
+    headers = patient(prod)
+    ids = [upload(prod, headers) for _ in range(4)]
+    with prod.connect() as conn:
+        conn.execute("UPDATE documents SET status = 'extracting', extraction_claim = gen_random_uuid(), "
+                     "next_extraction_at = clock_timestamp() + interval '1 hour' WHERE id = %s", [ids[0]])
+        conn.execute("UPDATE documents SET status = 'extracting', extraction_claim = gen_random_uuid(), "
+                     "next_extraction_at = clock_timestamp() - interval '1 minute' WHERE id = %s", [ids[1]])
+        conn.execute("UPDATE documents SET status = 'extraction_failed' WHERE id = %s", [ids[2]])
+        # ids[3] is still uploaded; the expired claim is due as well
+        assert extract.queue_stats(conn) == {"due": 2, "in_flight": 1, "lease_expired": 1, "failed": 1}
+
+
+# ---- slice 8.2 without a database: the loop, the stop signals and the statistics line
+
+class FakeConn:
+    pass
+
+
+def scripted(results, stop_after=None):
+    """A run_due() stand-in that returns scripted results; stop_after raises the stop flag."""
+    stop, calls = extract.Stop(), []
+
+    def run(conn, **kwargs):
+        calls.append(kwargs)
+        if stop_after is not None and len(calls) >= stop_after:
+            stop.requested = True
+        return results.pop(0)
+
+    return stop, calls, run
+
+
+def test_once_makes_exactly_one_run_due_call_with_its_normal_limit(monkeypatch):
+    monkeypatch.setattr(extract, "queue_stats", lambda conn: {"due": 0})
+    stop, calls, run = scripted([3])
+    assert extract.serve(FakeConn(), once=True, poll=None, stop=stop, run=run) == extract.EXIT_OK
+    assert calls == [{}]  # no limit argument: run_due's own default
+
+
+def test_loop_claims_one_document_per_call_and_waits_only_when_idle(monkeypatch):
+    monkeypatch.setattr(extract, "queue_stats", lambda conn: {"due": 0})
+    stop, calls, run = scripted([1, 1, 0, 0], stop_after=4)
+    waited = []
+    code = extract.serve(FakeConn(), once=False, poll=7.0, stop=stop, run=run, wait=lambda s, st: waited.append(s))
+    assert code == extract.EXIT_OK
+    assert calls == [{"limit": 1}] * 4
+    assert waited == [7.0, 7.0]  # none between the two busy calls; one per idle call (the last returns at once on stop)
+
+
+def test_a_stop_request_ends_the_loop_before_the_next_claim_and_reports(monkeypatch, capsys):
+    monkeypatch.setattr(extract, "queue_stats", lambda conn: {"due": 0})
+    stop, calls, run = scripted([1, 1, 1], stop_after=2)
+    assert extract.serve(FakeConn(), once=False, poll=1.0, stop=stop, run=run) == extract.EXIT_OK
+    assert len(calls) == 2  # the third document is never claimed
+    err = capsys.readouterr().err
+    assert "code=cycle_done attempts=2" in err and err.rstrip().endswith("code=graceful_shutdown")
+
+
+def test_the_wait_ends_as_soon_as_a_stop_is_requested():
+    stop, slept = extract.Stop(), []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        stop.requested = True
+
+    extract._wait(60, stop, sleep=sleep)
+    assert slept == [extract.WAIT_SLICE]  # one slice, not 60 seconds
+
+
+def test_the_first_signal_only_requests_a_stop_and_the_second_aborts_with_code_3(monkeypatch, capsys):
+    stop, exits = extract.Stop(), []
+    monkeypatch.setattr(extract.os, "_exit", lambda code: exits.append(code))
+    stop.handler(2, None)
+    assert stop.requested and exits == []
+    stop.handler(2, None)
+    assert exits == [3]
+    err = capsys.readouterr().err
+    assert "code=stop_requested" in err and "code=second_signal_abort" in err
+
+
+def test_handlers_are_installed_for_the_interrupt_and_terminate_signals(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(extract.signal, "signal", lambda number, handler: seen.update({number: handler}))
+    stop = extract.Stop()
+    extract.install_handlers(stop)
+    assert extract.signal.SIGINT in seen and extract.signal.SIGTERM in seen
+    assert all(handler == stop.handler for handler in seen.values())
+
+
+@pytest.mark.parametrize("failure, code", [
+    (extract.extraction.WorkerConnectionLost(), "connection_lost"),
+    (psycopg.OperationalError("secret detail"), "connection_lost"),
+    (ValueError("secret detail"), "runtime_failed")])
+def test_main_maps_connection_loss_and_other_cycle_failures_to_exit_1(monkeypatch, capsys, failure, code):
+    closed = []
+
+    class Conn:
+        def close(self):
+            closed.append(True)
+
+    def fail(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u@localhost/db")
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setattr(extract.db, "connect_worker", lambda: Conn())
+    monkeypatch.setattr(extract, "missing_schema", lambda conn: [])
+    monkeypatch.setattr(extract.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(extract, "serve", fail)
+    assert extract.main(["--once"]) == extract.EXIT_INFRASTRUCTURE
+    err = capsys.readouterr().err
+    assert f"code={code}" in err and "secret detail" not in err and closed == [True]

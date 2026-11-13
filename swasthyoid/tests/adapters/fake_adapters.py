@@ -66,6 +66,15 @@ class HangsReading(Good):
         time.sleep(3600)
 
 
+class SlowReading(Good):
+    """Reads for FAKE_ADAPTER_SECONDS, recording that it started and its process id, then succeeds."""
+    def read(self, document):
+        note("read-start")
+        note(f"child:{os.getpid()}")
+        time.sleep(float(os.environ["FAKE_ADAPTER_SECONDS"]))
+        return super().read(document)
+
+
 class HangsIdentity(Good):
     def identity(self):
         time.sleep(3600)
@@ -143,4 +152,5 @@ good, empty, malformed, boom, dies = Good, Empty, Malformed, Boom, Dies
 patches_validator, extra_checksum = PatchesValidator, ExtraChecksum
 hangs_reading, hangs_identity, network = HangsReading, HangsIdentity, Network
 spawns, spawns_new_session = Spawns, SpawnsNewSession
+slow_reading = SlowReading
 wrong_identity_in_result, not_test_only, flips_identity = WrongIdentityInResult, NotTestOnly, FlipsIdentity

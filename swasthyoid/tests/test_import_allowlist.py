@@ -14,7 +14,7 @@ PACKAGE = Path(__file__).resolve().parents[1]
 REPO = PACKAGE.parent
 ADAPTERS = ("capture", "adapters")  # swasthyoid/capture/adapters/: owner-approved adapters only
 # distribution name in pyproject.toml -> import name, where they differ
-IMPORT_NAMES = {"psycopg[binary]": "psycopg", "pyjwt": "jwt", "python-multipart": "multipart"}
+IMPORT_NAMES = {"psycopg[binary]": "psycopg", "pyjwt": "jwt", "python-multipart": "multipart", "pillow": "PIL"}
 VIA_FASTAPI = {"pydantic", "starlette"}
 
 
