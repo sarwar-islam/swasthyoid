@@ -957,7 +957,7 @@ runner-level failures only.
   extraction per document version are whole-runner requirements that 8.1 does not complete. S6
   AC1–AC6 stay mandatory for the completed runner. The later runner slices (8.2–8.5) are not yet
   written out, so no per-requirement slice ownership is recorded.
-- **No `--once` execution in 8.1.** Slice 8.1 does not execute `run_due()`, a `--once` processing
+- **No `--once` execution in 8.1 (historical: slice 8.2, commit `553c3db`, added it).** Slice 8.1 did not execute `run_due()`, a `--once` processing
   cycle or the long-running polling loop; the `--once` execution path belongs to a later
   runner-execution slice. Slice 8.1 may test argument and configuration parsing but must not claim
   or process documents. The meaning of `--once` is unchanged: exactly one `run_due()` call with its
@@ -1077,7 +1077,7 @@ verified by running code: the runner does not exist yet.
   "Boolean-like" poll values are read as non-numeric words (`true`, `false`, `yes`), so a plain `1`
   is accepted as one second; underscores (`1_0`) are refused. The diagnostic format
   `runner: code=<code> key=value` is the implementation's.
-- **Open points, not decided by the implementation.** (1) A successful run exits `0` after logging
+- **Open points, not decided by the implementation.** (1) [Superseded by slice 8.2: `--once` now runs `run_due()` and exits `0` after a completed cycle] A successful 8.1 run exited `0` after logging
   `startup_checks_passed` although no polling cycle ran, while decision 2 defines `0` as a completed
   cycle or a graceful shutdown. (2) The runner sets no `connect_timeout`, so a blackholed host could
   delay its exit; the tests set the timeout in the URL. (3) Validating `DOCUMENT_STORE` and
@@ -1090,6 +1090,57 @@ verified by running code: the runner does not exist yet.
   recovery and child bootstrap-failure behavior (AC5), and recovery by a later runner. The scopes
   of slices 8.2–8.5 are still not written out. D10, D12, D14, Q4 and the D13 alert mechanism stay
   open, slice 8.6 stays blocked, and the production prerequisites (4B, D2, Q4) are unchanged.
+
+## Runner slices 8.2–8.4, step 5A and step 3A: implementation record (commit `553c3db`, local, 2026-11-13)
+
+Written on the owner's instruction to work in larger batches. **Not pushed; no CI run exists for this
+commit.** Evidence so far is local on Windows without PostgreSQL: 456 passed, 257 skipped, 0 failed.
+Nothing below is verified on Linux or against PostgreSQL until CI runs it.
+
+- **Runner (`swasthyoid/workers/extract.py`).** After the 8.1 startup checks, `--once` makes exactly
+  one `run_due()` call with its normal limit and exits `0` with a `cycle_done` line. Loop mode calls
+  `run_due(limit=1)` repeatedly and waits `EXTRACTION_POLL_SECONDS` (in 0.5 s slices) when nothing is
+  due. The first signal (SIGINT, SIGTERM, SIGBREAK) stops the loop before the next claim and lets
+  the running attempt finish; the second logs one line and calls `os._exit(3)`. A lost connection or
+  `psycopg.Error` exits `1` with no reconnect; any other cycle failure exits `1` with the exception
+  type only. Exit codes are unchanged from the decisions of 2026-11-13. The "exit `0` without a
+  cycle" open point of 8.1 no longer applies: `0` now follows a completed cycle or graceful shutdown.
+  The `startup_checks_passed` line no longer exists; it is `runner_started` then `cycle_done`.
+- **Owner decision, 2026-11-13: keep `limit=1`; no stop hook in `run_due()`.** **Known performance
+  limitation:** every `run_due()` call runs the availability probe (a child process), so loop mode
+  costs one probe per document and one per idle poll.
+- **Queue statistics.** `queue_stats()` is one read-only query: `due`, `in_flight` (live lease),
+  `lease_expired` (also counted as due) and `failed`. Counts only, no document text.
+- **Tests.** DB-free (ran): the loop, the stop request, the wait, both signal paths, the handlers and
+  the exit-1 mappings. PostgreSQL-backed (written, **not run**): `--once` extracts a due document to
+  `needs_review` with `runner_started` exactly once; a second run adds no second result; outside test
+  mode nothing is claimed; the statistics against constructed database states. Real-process
+  (`tests/test_runner_process.py`, written, **not run**; Linux for signals): the first SIGTERM does
+  not interrupt the running attempt; a second SIGTERM (exit `3`) and a SIGKILL each leave a claim
+  that a runner started before the lease ends respects, that expires, and that a later runner
+  recovers with exactly one extraction; the OCR child ends through the parent-gone watchdog; no
+  transaction is left open; a child that dies is recorded as `WorkerDied` within 20 s (an
+  AC5 measurement, the bound is the implementation's guess); an adapter that cannot be imported claims
+  nothing; two runners at once attempt each of six documents once. One 8.1 PostgreSQL test that
+  expected the removed `startup_checks_passed` line was corrected; the 8.1 test that forbade
+  `run_due` references was narrowed (it still forbids `claim`, `apply_schema`, adapter handling).
+- **Not covered.** Bootstrap failure of the spawned runner process itself (the import-failure test
+  exercises the availability probe only); connection close on kill is not asserted; real signal delivery
+  on Windows. S6 AC5 stays unmeasured until CI runs these tests on Linux.
+- **Step 5A: `capture/imaging.py`.** Decodes for real (JPEG and PNG only, pixel cap checked from the
+  header), measures sharpness (Laplacian variance) and blown-out share, returns reason codes
+  `image_blurry`, `image_glare`, `image_too_small`, or raises `ImageRejected`. **Not called by the
+  upload path** (owner decision: provisional thresholds are not integrated into uploads; D5 and D11
+  decide the policy and pass marks). The `LIMITS` are provisional engineering values. Measured on the
+  synthetic set (seed 1): no clean page refused; all blur and glare copies flagged; noise raises the
+  sharpness score (never read as blur) and sigma-30 noise is wrongly read as glare; mild low contrast
+  (0.3) is caught on 4 of 8 pages; rotation is not detected. **Dependencies added:** `pillow`,
+  `numpy` (the plan names both; the import-allowlist test maps `pillow` to `PIL`).
+- **Step 3A-data: `tests/evaluation/generate.py`.** Deterministic synthetic prescription pages from
+  the existing `tests/synthetic.py` placeholders, exact ground truth, five degradation types at two
+  amounts each recorded per copy, seeded development and held-out splits (disjoint, tested). English
+  labels only: no Bangla font has been chosen. No clinical content. The harness (3A-harness), the
+  handwritten set (3B, D3) and all of step 9 are not built.
 
 ## D13 clarification (D13 stays open as a whole)
 

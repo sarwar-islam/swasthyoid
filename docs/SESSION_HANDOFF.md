@@ -13,8 +13,11 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 2. Run `git status` and `git log origin/main..HEAD --oneline`.
 3. Step 1 and 4A are complete and merged into `main` (4A by fast-forward `33e2aa1..a9f2abc` on
    2026-11-13; the merge is historical, see `DECISIONS.md`, "4A implementation"). Write code only for
-   a slice the owner has authorized: Step 8 slice 8.1 (the runner's startup skeleton) is implemented
-   and CI-verified; slices 8.2–8.5 need their scopes written down and the owner's go-ahead.
+   a slice the owner has authorized: Step 8 slice 8.1 is implemented and CI-verified (run #31). Commit
+   `553c3db` (local, **not pushed, no CI run yet**) adds slices 8.2–8.4 (`--once`, the loop with `limit=1`,
+   signals, queue statistics, real-process tests), step 5A (`capture/imaging.py`, not wired into upload) and
+   step 3A-data (generator). Its PostgreSQL-backed and Linux tests have never run: push only on the owner's
+   word, then read the CI log. Known limitation: one availability probe per document and per idle poll.
 
 ## OCR model: facts and rules
 
@@ -100,11 +103,12 @@ Never commit or push without the owner's explicit instruction; "commit" and "pus
 5. Step 8 runner (2026-11-13): D9 and the five runner decisions (poll interval, exit codes, second
    signal, schema ownership, connection loss) are recorded in `DECISIONS.md` ("Step 8 runner — owner
    decisions"). **Slice 8.1 is implemented** (`2b8038f`, `c4be86d`; CI run #31: 678 passed, 0
-   skipped): a startup skeleton that does not run `run_due()` or `--once`; see `DECISIONS.md`,
-   "Slice 8.1 implementation record", for what exists, the evidence and the open points (exit `0`
-   without a cycle, no `connect_timeout`). The rest of the runner is not implemented. Its startup
-   error and ordering contract (exit code per failure category) is in `DECISIONS.md`. Slices 8.2–8.5
-   start only when the owner says so and their scopes are written; slice 8.6
+   skipped): a startup skeleton (it did not run `run_due()`; slice 8.2 in `553c3db` now does, and `--once`
+   exits `0` after a completed cycle). Open point left from 8.1: no `connect_timeout`. See `DECISIONS.md`,
+   "Slice 8.1 implementation record" and "Runner slices 8.2–8.4 ...". `553c3db` is local, unpushed and
+   has not been verified by PostgreSQL or Linux CI. Its startup
+   error and ordering contract (exit code per failure category) is in `DECISIONS.md`. Slices 8.2–8.4
+   are in `553c3db` (unverified by CI); 8.5 beyond the statistics line needs the owner's go-ahead; slice 8.6
    waits for D10, D12 and D14. A throwaway branch is approved for the Linux AC5 measurement only.
 
 **Other open decisions:** D2 and FRD Q8 (extraction privacy, retention); D3; D5–D8, D10, D11 (D9 decided 2026-11-13); D12, D14
