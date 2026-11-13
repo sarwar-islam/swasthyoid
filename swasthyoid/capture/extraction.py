@@ -311,6 +311,20 @@ def _child(engine, pages, doc_type, out, limit):
         out.send(("failed", _code(e)))  # a code or type name, never the message
 
 
+def _release(child, out, results):
+    """Stop the child and close both pipe ends; every step runs even if one fails, an interrupt
+    included. Returns the most serious failure (an interrupt such as KeyboardInterrupt outranks an
+    ordinary error, otherwise the first), or None. The caller decides what to raise."""
+    worst = None
+    for step in (lambda: ocr.stop_child(child), out.close, results.close):
+        try:
+            step()
+        except BaseException as e:  # deferred, never dropped: re-raised by the caller
+            if worst is None or (isinstance(worst, Exception) and not isinstance(e, Exception)):
+                worst = e
+    return worst
+
+
 def _run_engine(engine, pages, doc_type, hard_timeout, heartbeat, renew):
     """The engine's result. Raises AttemptFailed (engine error, child died, hard timeout) or
     LeaseLost. With a hard timeout the engine runs in a child process whose process group is
@@ -324,27 +338,37 @@ def _run_engine(engine, pages, doc_type, hard_timeout, heartbeat, renew):
     results, out = spawn.Pipe(duplex=False)
     child = spawn.Process(target=_child, args=(engine, pages, doc_type, out, hard_timeout.total_seconds() + 5),
                           daemon=True)
-    child.start()
-    out.close()
-    deadline = time.monotonic() + hard_timeout.total_seconds()
     try:
+        child.start()
+        out.close()  # so that EOF arrives once the child exits
+        deadline = time.monotonic() + hard_timeout.total_seconds()
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AttemptFailed("HardTimeout")
-            if results.poll(min(heartbeat.total_seconds(), remaining)):
-                try:
+            try:
+                ready = results.poll(min(heartbeat.total_seconds(), remaining))
+                if ready:
                     outcome, value = results.recv()
-                except (EOFError, OSError):
-                    raise AttemptFailed("WorkerDied")
+            except (EOFError, OSError):  # includes BrokenPipeError from poll() on Windows
+                raise AttemptFailed("WorkerDied")
+            if ready:
                 if outcome != "ok":
                     raise AttemptFailed(value)
-                return value
+                break
             if not renew():
                 raise LeaseLost()
-    finally:
-        ocr.stop_child(child)
-        results.close()
+    except BaseException:
+        failure = _release(child, out, results)  # a primary exception is in flight: it wins
+        if failure is not None:
+            if not isinstance(failure, Exception):
+                raise failure  # an interrupt during cleanup is never suppressed; the primary stays as its context
+            log.warning("ocr child cleanup failed: code=%s stage=cleanup", type(failure).__name__)
+        raise
+    failure = _release(child, out, results)
+    if failure is not None:
+        raise failure  # an otherwise successful result is not returned over a failed cleanup
+    return value
 
 
 def _fail(conn, job, reason, max_attempts, backoff):
