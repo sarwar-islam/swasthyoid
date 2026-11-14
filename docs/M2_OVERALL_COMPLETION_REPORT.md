@@ -59,7 +59,7 @@ From `docs/M2_COMPLETION_PLAN.md`:
 | D10: patient only | `require("patient")` on both endpoints; staff roles get 403 (audited by the gateway chain); other patients 404 |
 | D12: manual entry always allowed | allowed from `uploaded`, `extracting` without a live claim, `extraction_failed`, also with an adapter configured |
 | D14: no audit of 409; audit successes | conflicts raise before any write; `document.manual_entry` and `document.retry` written in the same transaction |
-| Retry cap 5 | `MAX_RETRIES = 5`, counted from the audit entries of successful retries (no column); interpreted as patient-initiated retries (to confirm); 6th gives 409 `retry_limit_reached`; manual entry stays possible |
+| Retry cap 5 | `MAX_RETRIES = 5`, counted from the audit entries of successful retries (no column); **owner-approved Option A**: 1 initial run + 5 patient-triggered retries, each run with up to 3 automatic attempts, so at most 18 claimed attempts (`MAX_TOTAL_ATTEMPTS`, a documented bound); 6th retry gives 409 `retry_limit_reached`; manual entry stays possible |
 | D7: approved field list, no required fields, `printed_patient_name`, `allergy_text` | `SCHEMAS` equals `tests/approved_fields.py`; all optional; `allergy_text` on prescription and discharge summary and `printed_patient_name` on all three (placement chosen where the approval was silent) |
 | D7 Q4: `diagnosis_text` never promoted | no code outside the extraction modules may name it (guard test); no event is created by any extraction path (asserted by tests) |
 | D7 Q5: dose and duration free text | stay text fields, never split |
@@ -139,7 +139,7 @@ non-commercial use), detector weights and license, permitted Bengali sample imag
 | pyflakes (throwaway venv, since removed) | one pre-existing unused variable (`capture/documents.py:55`); the rest is the repository's deliberate pytest-fixture import pattern |
 | `git diff --check` | clean |
 
-1002 tests in all (992 + 10 = 688 + 314). The one warning is the existing `httpx` deprecation. Last CI run (#42, Linux,
+1002 tests in all when those two runs were made (992 + 10 = 688 + 314). The retry-boundary test (Option A: 18 attempts) was added afterwards, so the suite is now **1003 tests**: without a database 688 passed, 315 skipped (179 s); the retry, extraction and privacy tests including the new one passed on a disposable PostgreSQL (201 passed, 0 failed); the full PostgreSQL run was not repeated for one added test. The one warning is the existing `httpx` deprecation. Last CI run (#42, Linux,
 PostgreSQL 16, before this campaign): **907 passed, 0 skipped**, summary line supplied by the owner. **This campaign has not
 been through CI.**
 
@@ -166,7 +166,7 @@ run. Timing-sensitive tests have passed in several CI runs, which does not rule 
 - No known failing test. Pre-existing: an unused variable at `capture/documents.py:55`.
 - Residual risks R1 to R6 in `docs/M2_OWNER_DECISIONS.md` (time of check versus use, hard links, network not blocked, runner
   reading outside the verified directories, unit case-folding, never-executed checks).
-- Retry cap interpreted as patient-initiated retries (to confirm); allergy and printed-name placement chosen where silent.
+- Retry cap: owner-approved Option A (up to 18 claimed attempts per document); allergy and printed-name placement chosen where the approval was silent.
 - No key rotation; legacy plain rows; the key is the root of the protection.
 - Blockers: reviewer identity (FRD Q7) and vocabularies; D8 and FRD Q1; D18 and 4B with a schema approval; Jonaki access,
   license, detector, data; D5, D6, D11; D13 alert mechanism; D3; hosting provider, supervisor product, poll interval value,
@@ -187,7 +187,7 @@ unreviewed by a lawyer; synthetic data only. Passing tests do not change this.
 | Transcription parsers | yes | yes | owner yes | `test_parsers.py`, `test_parsers_e2e.py` |
 | Row splitting (strength, dose, unit, range) | no | n/a | BLOCKED: vocabularies | none by design |
 | Manual entry endpoint | yes | yes | D10, D12, D14 yes | `test_manual_entry_retry.py` |
-| Retry endpoint and cap 5 | yes | yes | yes (reading to confirm) | `test_manual_entry_retry.py` |
+| Retry endpoint and cap 5 (Option A, at most 18 attempts) | yes | yes | yes | `test_manual_entry_retry.py` (boundary test: 18 attempts, 6th retry refused) |
 | `fields` encrypted | yes | yes | D2 yes | `test_extraction_privacy_pg.py`, `test_extraction_crypto.py` |
 | Raw text in deletable store, hash in row | yes | yes | yes | same |
 | Deletion at verification or rejection | yes (database trigger) | yes | Q8 yes | same |
@@ -205,7 +205,7 @@ unreviewed by a lawyer; synthetic data only. Passing tests do not change this.
 ## 16. Recommended next steps (no M3 or M4 work)
 
 1. Review and commit this campaign (suggested grouping in the terminal summary), push, and read the CI log: first Linux run
-   with the new tests; expect `1002 passed, 0 skipped` if all pass.
+   with the new tests; expect `1003 passed, 0 skipped` if all pass.
 2. Name the clinical reviewer; obtain vocabularies and non-English label lists; confirm the retry-cap reading.
 3. Decide D8 and FRD Q1, D18 and 4B with the schema approval, D5, D6, D11, and the key-management and rotation approach.
 4. Request Jonaki access, decide the license question, provision the detector, and supply permitted Bengali data; only then

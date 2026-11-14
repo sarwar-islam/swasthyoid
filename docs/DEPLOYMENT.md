@@ -58,6 +58,13 @@ RestartPreventExitStatus=2
 TimeoutStopSec=660
 ```
 
+## Retry policy (owner-approved Option A)
+
+A patient can start at most **5 manual retries** of a failed extraction per document. Every run, the first and each retry,
+gets up to **3 automatic attempts** (with a doubling delay between them). A document is therefore claimed at most **18 times**
+(`MAX_TOTAL_ATTEMPTS`); a crashed or timed-out attempt counts. After the cap the patient can still enter the document by
+hand. Operators can expect up to 18 OCR runs for one stubbornly failing document.
+
 ## What operators can see
 
 One line per cycle on stderr, counts only: `runner: code=cycle_done attempts=N due=N in_flight=N lease_expired=N failed=N`.

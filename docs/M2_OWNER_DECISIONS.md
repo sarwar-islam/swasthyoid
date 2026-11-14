@@ -10,8 +10,9 @@ policy was invented.
 - **D2 (b), Q8, Q4:** encrypt `fields`; move `raw_text` to a deletable encrypted store with only its hash in the
   append-only row; delete `raw_text` at verification or rejection; key `EXTRACTION_KEY` (environment-held Fernet);
   supervisor plus `EXTRACTION_POLL_SECONDS`, migrations stay with the API. **Implemented locally 2026-11-14** (not pushed, no CI).
-- **D10 patient only, D12 yes, D14 no, retry cap 5 attempts per document** (interpretation to confirm: patient-initiated
-  retries). **Implemented locally 2026-11-14**, with the retry cap implemented as patient-initiated retries (still to confirm).
+- **D10 patient only, D12 yes, D14 no, retry cap 5 attempts per document, approved as Option A:** at most 1 initial run plus
+  5 patient-triggered retries, each run with up to 3 automatic attempts (a documented bound of 18 claimed attempts).
+  **Implemented 2026-11-14.**
 - **D7:** the proposed list approved by the owner, plus `printed_patient_name` and `allergy_text`, with the five answers.
   **The clinical reviewer is not named (the message held a placeholder): FRD Q7 and reviewer sign-off stay open.**
   **Implemented locally 2026-11-14:** `SCHEMAS` holds the approved list and the parsers transcribe labelled lines; the reviewer's
@@ -20,7 +21,7 @@ policy was invented.
   "Implementation record of the 2026-11-14 decisions").
 
 Still open after this: D8 and FRD Q1, D18 / 4B and the schema approval, the external model items, D5/D6/D11, the
-residual risks, D13, D3, the reviewer's name, and the points marked "to confirm" above.
+residual risks, D13, D3, and the reviewer's name.
 
 ## Priority order (items 1, 3, 4 and 5 were approved on 2026-11-14 and implemented locally; what is still open in each is stated)
 
@@ -32,8 +33,8 @@ residual risks, D13, D3, the reviewer's name, and the points marked "to confirm"
 3. **D7 (clinical field list): approved and implemented locally; a named clinical reviewer (FRD Q7) is still missing.**
    Transcription parsers run; rows are not split into strength, form, dose, duration, result, unit or range until the
    reviewer supplies vocabularies, so those fields are left for manual entry.
-4. **D10, D12, D14 (manual entry and retry): approved and implemented locally.** Still to confirm: the retry cap is
-   implemented as 5 patient-initiated retries per document. No CI run.
+4. **D10, D12, D14 (manual entry and retry): approved and implemented.** The retry cap is Option A (1 initial run + 5
+   patient-triggered retries, up to 18 claimed attempts). Open: CI verification.
 5. **Q4 (deployment): approved; the guide is in `docs/DEPLOYMENT.md`.** Still open: hosting provider, supervisor product,
    interval value, `connect_timeout`, alerts (D13). The worker still idles outside test mode (D18, 4B).
 6. **D8 and FRD Q1 (drug matching and catalog).** The matcher runs only on synthetic fixtures; with no catalog every
@@ -108,7 +109,7 @@ available ... Proposed design"): one endpoint moving a document to `needs_review
 from `extracting` with no live claim, or from `extraction_failed`; 409 `extraction_in_progress` while a live claim
 is held; one transaction; audit entry `document.manual_entry`; and an endpoint for the existing retry path.
 
-- **APPROVED 2026-11-14:** D10 patient only; D12 yes; D14 no; retry cap 5 attempts per document (interpretation to confirm).
+- **APPROVED 2026-11-14:** D10 patient only; D12 yes; D14 no; retry cap 5 attempts per document, Option A (1 initial run + 5 patient-triggered retries, up to 18 claimed attempts).
 - **D10 — who may start manual entry or a retry.** Options: patient only; patient and caregiver; plus verifiers
   (waits on FRD Q3). Recommended: patient only, like viewing the extraction. Approval: the allowed roles.
 - **D12 — manual entry while an adapter is configured.** Options: always allowed; only when no adapter is available.
@@ -211,7 +212,7 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | Drug catalog matching | catalog-independent matcher | DB-free | D8, FRD Q1 | IMPLEMENTED AND TESTED (synthetic fixture); real catalog BLOCKED BY OWNER DECISION |
 | Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41) |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED locally; no CI run |
-| Retry endpoints | endpoint and function, cap 5, audited | PostgreSQL | D10 and retry cap approved 2026-11-14 (cap interpretation to confirm) | IMPLEMENTED AND TESTED locally; no CI run |
+| Retry endpoints | endpoint and function, cap 5, audited | PostgreSQL | D10 and retry cap approved 2026-11-14 (Option A) | IMPLEMENTED AND TESTED locally; no CI run |
 | Provenance | engine id, model version, checksum, adapter and interface versions | PostgreSQL | confidence, boxes, preprocessing not persisted: schema approval | IMPLEMENTED AND TESTED for what v0 stores |
 | Evaluation harness | field scoring, integrity, confidence analysis, CER, WER, failure and empty rates | DB-free | no threshold approved | IMPLEMENTED AND TESTED |
 | Real OCR evaluation | none | none | data, model | BLOCKED BY EXTERNAL ACCESS/LICENSE |

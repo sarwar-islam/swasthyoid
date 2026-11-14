@@ -1261,8 +1261,9 @@ These are APPROVED decisions. **Implemented locally on 2026-11-14 in the agreed 
 ### Slice 8.6 (manual entry and retry)
 - **D10:** patient only. **D12:** yes, manual entry is always allowed, also when an adapter is configured.
   **D14:** no, do not audit 409 state conflicts; keep auditing successful actions.
-- **Retry cap: 5 attempts per document.** Interpretation to confirm before the endpoints are built: 5 patient-initiated
-  retries per document, separate from the worker's automatic attempts per run (`MAX_ATTEMPTS`, 3), which are unchanged.
+- **Retry cap: 5 attempts per document.** **Clarified and approved by the owner on 2026-11-14 as Option A:** at most 1 initial
+  run plus 5 patient-triggered manual retries, each run with up to `MAX_ATTEMPTS` = 3 automatic attempts, a documented upper
+  bound of 18 claimed attempts per document (`MAX_TOTAL_ATTEMPTS`). Not a lifetime cap of 5 attempts (Option B was not chosen).
 - The proposed design in "No OCR adapter available ... Proposed design" otherwise stands as written there.
 
 ### D7 and FRD Q7 (clinical field list)
@@ -1280,7 +1281,7 @@ These are APPROVED decisions. **Implemented locally on 2026-11-14 in the agreed 
 ## Implementation record of the 2026-11-14 decisions (local, uncommitted, not pushed, no CI run)
 
 **Evidence.** Windows, disposable PostgreSQL (pgserver in a venv outside the repository, since removed): **992 passed,
-10 skipped, 0 failed** in 607 s; without a database 688 passed, 314 skipped, 0 failed in 126 s. Full detail:
+10 skipped, 0 failed** in 607 s; without a database 688 passed, 314 skipped, 0 failed in 126 s (before the retry-boundary test, which brings the suite to 1003 tests; it passed with its neighbors on PostgreSQL, 201 passed). Full detail:
 `docs/M2_OVERALL_COMPLETION_REPORT.md`. The 10 skips are platform-bound (3 Linux-only process-group kill tests, 4 Linux-only
 runner signal and kill tests, 3 symlink tests that need privileges this machine lacks). Nothing here has been through CI.
 
@@ -1313,8 +1314,10 @@ runner signal and kill tests, 3 symlink tests that need privileges this machine 
   (failed extraction only).
 - `retry_extraction`: `extraction_failed -> extracting` from the first attempt, audit entry `document.retry`. **Cap: 5
   retries per document, implemented as patient-initiated retries counted from the audit entries of successful retries**
-  (no column); the worker's automatic attempts (`MAX_ATTEMPTS`, 3) are separate. This is the interpretation recorded as "to
-  confirm" above. A 6th retry gives 409 `retry_limit_reached`; manual entry stays available.
+  (no column); the worker's automatic attempts (`MAX_ATTEMPTS`, 3) are separate. **This is the owner-approved Option A** (see
+  "Slice 8.6" above): at most 18 claimed attempts per document, `MAX_TOTAL_ATTEMPTS`, a documented bound and not a separate
+  counter. A boundary test shows exactly 18 attempts across 1 run + 5 retries. A 6th retry gives 409 `retry_limit_reached`;
+  manual entry stays available.
 - 409 refusals are not audited (D14); successful actions are. Races: a worker whose lease ran out stores nothing after a
   manual entry; two simultaneous retries use exactly one.
 
