@@ -1197,6 +1197,34 @@ Behavior changes only; details are in the code docstrings and tests.
   not proof against timing flakiness; the 20 s `WorkerDied` bound remains the implementation's own
   choice.
 
+## M2 completion batch (2026-11-14, local, uncommitted)
+
+All M2 work that needs no owner decision or external access; the open decisions are in ONE sheet,
+`docs/M2_OWNER_DECISIONS.md` (D2, Q4, D7, D8, D10, D12, D14, D18/4B, D13, the external model). Added:
+
+- **Drug matching infrastructure** (`capture/drugmatch.py`): catalog-independent; never selects a drug, never infers
+  a strength or form, reports conflicts as ambiguous, similarity suggestions only with explicit parameters (no
+  defaults: they are D8 values). No catalog or drug entry exists in the code.
+- **Jonaki artifact linkage** (`capture/adapters/jonaki.py`): with an approved-adapter entry the factory requires
+  both model directories to lie under its root and every file in them to be listed; a helper prints an entry for
+  exactly those files. Synthetic files only; never run on real weights.
+- **Review fixes (same batch):** a gap inside a number is no longer removed when comparing strengths (`1 0 mg` is not
+  `10 mg`); an exact drug match lists the strength or form the written text did not state (`unconfirmed`); the runner
+  is pointed at the resolved, verified model directories and a symlinked directory is refused; scoring refuses
+  non-text input.
+- **Text metrics** (`tests/evaluation/harness.py`): CER, WER, exact match, empty-output and failure rates, optional
+  time and memory fields; micro-averaged; no script-specific folding.
+- **Static privacy guards** (`tests/test_privacy_guards.py`): no temporary files or traceback handling in
+  `capture/` and `workers/`, constant log messages with no exception values, no file writes outside the encrypted store.
+- **Not implemented, by decision:** manual-entry and retry endpoints (D10, D12, D14), clinical parsers (D7), encryption
+  of extracted text (D2), persistence of confidence and boxes (D18, schema), any real OCR execution or evaluation.
+- **CI evidence recorded elsewhere:** run #41 (`72589e8`, Linux, PostgreSQL 16): 812 passed, 0 failed, 0 skipped, 1
+  existing `httpx` deprecation warning, 149.45 s; the first Linux run including the Jonaki adapter tests (inferred
+  from totals; see `docs/OCR_JONAKI.md`). Local evidence for this batch (Windows, disposable PostgreSQL via
+  pgserver, since removed): **897 passed, 10 skipped, 0 failed** in 582 s. The 10 skips are platform-bound: 3 Linux-only
+  process-group kill tests, 4 Linux-only runner signal and kill tests, and 3 symlink tests that need privileges this
+  machine lacks (one in `test_ocr_config.py`, two in `test_jonaki_linkage.py`). None of this batch has been through CI.
+
 ## D13 clarification (D13 stays open as a whole)
 
 The behavior already accepted on 2026-11-12 and implemented in 4A is unchanged: before any claim, an

@@ -310,7 +310,7 @@ Planned work, in order, after those conditions are met:
 
 ## Step 7 — Drug catalog matching (your area 5)
 
-- **Status.** Plan only. Not implemented.
+- **Status.** Partly implemented (2026-11-14, local): the catalog-independent matcher `capture/drugmatch.py` (exact and normalised matching, ambiguity, no-match, catalog provenance, deterministic; it never selects a drug and its similarity parameters have no defaults), tested on a synthetic fixture. **Not implemented:** any real catalog (FRD Q1), the matching-rule parameters (D8), catalog tables and the `pg_trgm` path, wiring into extraction. See `docs/M2_OWNER_DECISIONS.md`.
 - **FRD requirement.** M2: "fuzzy-match drug names to the catalog", "keep top suggestions". M3: names resolve to generic ingredients "with suggestions". M6: an unrecognised drug is flagged, "never silently passed". Section 12: trigram brand matching may be borrowed as an idea.
 - **Proposed implementation.**&#x20;
   - Catalog tables for brands and generics, and an import command that records the source and its licence with every import.
