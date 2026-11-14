@@ -101,7 +101,8 @@ The record of what was built is `docs/DECISIONS.md`, "Worker reliability (M2 ste
 
 **Open risks (unchanged):**
 
-- OCR descendants survive the timeout.
+- ~~OCR descendants survive the timeout.~~ **Fixed locally 2026-11-14** (process-tree termination by walking parent ids, a subreaper OCR child, `taskkill /T` on Windows; `docs/DECISIONS.md`, "Worker reliability fix"). Linux-only tests are written and not yet run on Linux. Remaining limit: a descendant orphaned to init before cleanup (the OCR child killed from outside).
+- **Retry bound changed 2026-11-14 (owner decision):** at most 5 actual OCR executions per document in its lifetime (`extraction_lifetime_attempts`), shared by automatic and patient-triggered runs; permanent failures are not retried; one additive schema column, applied before the worker starts.
 - An engine that cannot be sent to a child process uses up a document's attempts.
 - Review findings (`docs/DECISIONS.md`): S2, S3, S4 are fixed and S5 Part A is implemented; all CI-verified in runs #21–#25 (620 passed, 0 skipped on `7b8e929`; `docs/DECISIONS.md`). Deferred by the owner: S5 Parts B and C (cloud AI, FRD Q5), per-image renewal and storage-read timeouts (FRD Q4), S6 (Step 8), S7 (D18), S8 (needs PostgreSQL `EXPLAIN`).
 - The timing-sensitive recovery tests passed in one run per commit; occasional flakiness is not ruled out.

@@ -1413,3 +1413,96 @@ deviation, with each open question tied to the work it blocks:
 | Q4 hosting and residency | Pilot; any real patient data |
 | Q5 cloud AI | Cloud AI stays off (`CLOUD_AI_THRESHOLD` unset) until decided |
 | Q7 clinical reviewer | Plan steps 6B, 7, 9B; P3 safety rules; every clinical threshold |
+
+## Worker reliability fix: process trees, crash recovery and the lifetime attempt budget (2026-11-14, local, uncommitted)
+
+Owner-directed, M2 worker reliability only. The owner's decision on the retry policy is explicit: **a document gets at most
+5 actual OCR executions in its whole life**, shared by every path. This **supersedes** the "Option A" bound of 18 claimed attempts
+recorded above ("Owner decisions of 2026-11-14", the retry cap, and the slice 8.6 record); those paragraphs stay as the history of the
+earlier decision and are not edited.
+
+### Root causes
+
+1. **Descendants survived the timeout.** The OCR child killed its process group, but a descendant that started a session of its own
+   (`setsid()`, `start_new_session=True`, a double-forked daemon) left the group and survived. The Jonaki adapter itself starts its
+   runner with `start_new_session=True`, so the real engine process was exactly such a descendant. A descendant left running after
+   the engine returned normally, or after the worker died, was not ended either. Windows killed only the child. The old test
+   `test_a_child_in_its_own_session_escapes_as_documented` pinned the gap as a documented limit.
+2. **No lifetime bound on OCR runs.** `extraction_attempts` counted claims of the current run and was reset to 0 by every patient retry,
+   and the cap of 5 retries was counted from audit entries. That bounded the total only indirectly, at 18 claimed attempts, and a claim
+   was counted even when OCR never started (a crash straight after the claim, a failed read of the images).
+3. **No distinction between failures.** A failure that retrying cannot fix (changed model files, malformed engine output, an
+   undecodable or corrupted original) was retried automatically and offered to the patient again.
+
+### Process-tree termination (`capture/ocr.py`, `capture/extraction.py`)
+
+- `descendants(pid)` walks parent ids through `/proc` (a new session or group does not change a parent id), so it finds
+  descendants wherever they went. `kill_descendants(pid, freeze_root=...)` stops everything found with SIGSTOP (a stopped process
+  cannot fork), repeats the walk until it finds nothing new, then SIGKILLs it all, then makes one last pass. Races are expected: a
+  process that exits first is skipped (`ProcessLookupError`), a refused signal is logged by code only (`code=kill_permission`).
+  It never signals pid 0 or 1 or a non-integer, and only processes reachable from the given pid.
+- `stop_child` (the worker side) freezes the OCR child, kills its descendants, then kills the child's process group and the child,
+  all **before** the child is reaped (so its id cannot have been reused), then joins. On Windows it ends the whole tree with
+  `taskkill /PID <n> /T /F` (fixed command, a number as argument, no shell).
+- The OCR child makes itself a **subreaper** (`PR_SET_CHILD_SUBREAPER`), so a grandchild whose parent exits is adopted by the child,
+  not by init, and stays reachable. When the engine returns (or fails) the child ends its own descendants before it exits
+  (`_child`, and the probe child). The watchdog (the worker died, or the limit passed) also ends them, then the group.
+- Covered paths: hard timeout, lost lease, an interrupt or cancellation while the engine runs (`_release` runs on any exception),
+  a normal return, the worker killed by SIGKILL or SIGTERM (the child's watchdog), repeated timeouts.
+- **Remaining limits (stated, not hidden):** a descendant that was already orphaned to init before the cleanup runs (the OCR child
+  itself killed from outside, for example by the OOM killer, with a new-session descendant alive) is not found; Windows relies on
+  `taskkill` and has no normal-exit cleanup; the walk is by process id and not by cgroup, so it is only as good as `/proc`.
+
+### Crash and hang recovery (no new mechanism; the existing lease and fence)
+
+Unchanged and re-verified by tests: a claim carries a fresh token and a lease; the heartbeat renews it; a dead worker stops renewing
+and the document becomes due again; every write (result, failure, renewal, the new execution counter) is fenced by the token and the
+lease; a stale worker writes nothing. A hung engine is ended at the hard timeout and recorded as `HardTimeout`. A document in
+`extracting` is always due at some time (a table constraint), so none can be stranded; the run's claims (3) and the lifetime budget
+(5) both end in `extraction_failed`. New in this fix: a crash after the OCR finished but before the result was stored is tested
+(one result, version 1, no duplicate after recovery), and the attempt budget is tested across crashes.
+
+### The lifetime attempt budget (decision 2026-11-14)
+
+- **Limit:** `MAX_LIFETIME_ATTEMPTS = 5` in `capture/extraction.py`, persisted per document in `documents.extraction_lifetime_attempts`.
+  Never raised or reset by anything.
+- **What counts:** one **actual OCR execution**, counted by one guarded `UPDATE ... RETURNING` (`_begin_execution`) immediately
+  before the engine starts, behind the claim fence and the lease. It is atomic, so any number of workers or retry requests cannot
+  reserve more than remain. An execution that crashes, hangs or times out has been counted.
+- **What does not count:** a retry request; a claim; reading the images; a failed read or integrity check; an image that cannot be
+  decoded; a lost lease before the engine starts; the availability probe (it runs before any claim and writes nothing).
+- **One counter, no second budget.** The old per-document cap of 5 retries (`MAX_RETRIES`) and the derived `MAX_TOTAL_ATTEMPTS` are
+  removed. `extraction_attempts` remains the **per-run claim counter** (reset by a patient retry, as before): it only bounds the
+  claims of one run to `MAX_ATTEMPTS = 3` and the backoff; it is not a budget of OCR executions.
+- **Allocation:** every run (the first at upload, and each patient-triggered run) may make up to 3 automatic executions, always
+  limited by what remains of the 5. Example: first run 3 executions that fail; the patient retries; the new run can make at most 2.
+  Why: the first run absorbs transient infrastructure faults (a stuck engine, a restart) without the patient; keeping at least two
+  executions for a deliberate patient retry makes a retry meaningful; nothing can run longer than 5 in total.
+- **Backoff:** unchanged and now documented: `BACKOFF` = 1 minute before the second execution of a run and 2 minutes before the third
+  (`BACKOFF * 2^(n-1)`), counted from the run's claim number. A lease that ran out is its own delay.
+- **Permanent failures** (`PERMANENT_CODES`: `model_integrity_failed`, `malformed_output`, `ImageRejected`, `Corrupted`,
+  `AttemptBudgetExhausted`) close the document at once: no automatic retry, and the patient's retry is refused with 409
+  `not_retryable` (manual entry stays possible). Everything else (timeouts, a dead worker, `engine_error`, `engine_unavailable`,
+  other errors, a lost lease) is treated as transient. An unknown error type is transient on purpose: the budget bounds it.
+  The set is a conservative engineering list, not a clinical rule; it can be changed in one place.
+- **Exhausted budget:** `claim` closes a due document as `extraction_failed` with error `AttemptBudgetExhausted` and starts nothing;
+  `_begin_execution` refuses a sixth execution even for a claim that is already held; `retry_extraction` answers 409
+  `retry_limit_reached` and changes and audits nothing. The patient can always enter the document by hand.
+- **API change (documented, tested):** the retry response keeps `retries_used` and replaces `retries_allowed` by
+  `attempts_used` and `attempts_allowed` (5). New error `not_retryable`; `retry_limit_reached` now means "all 5 attempts used".
+  The audit reason of `document.retry` is `retry <n>; <executions> of 5 attempts used`.
+
+### Migration
+
+One additive statement block in `capture/schema.sql`, applied by `db.apply_schema` like every earlier column (at API start, or by the
+operator): `extraction_lifetime_attempts int NOT NULL DEFAULT 0 CHECK (>= 0)`, created once; when it is created, existing documents
+start from their current run's claim count (the only history kept); applying the schema again never changes a counter (tested).
+**The worker never migrates:** it only checks that the column exists (`REQUIRED_SCHEMA`) and exits 1 with `schema_unavailable` if not.
+**Deployment order: apply the schema before starting a new worker.** The synthetic-data development databases need no manual step.
+
+### Linux behavior and verification status
+
+Tests that need Linux (sessions, groups, `/proc`, subreaper, signals) are marked and skipped elsewhere; the rest, including a fake
+`/proc` for the walk and the kill order, runs everywhere. **Not executed on Linux in this work:** no Linux, WSL, Docker or runner was
+available and none was started (remote CI was not triggered, by instruction). The Linux-only tests and the PostgreSQL-backed tests
+are written and reviewed but unrun until CI or a Linux machine runs them; see the final report of this change for counts.

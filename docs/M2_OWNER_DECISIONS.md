@@ -7,6 +7,10 @@ policy was invented.
 
 ## Decisions recorded 2026-11-14 (approved by the owner; details in `docs/DECISIONS.md`, "Owner decisions of 2026-11-14")
 
+> **Update 2026-11-14 (later, owner decision): the retry bound below (Option A, 18 claimed attempts) is SUPERSEDED.** A document now gets at
+> most **5 actual OCR executions in its lifetime**, one persistent counter shared by the first run, automatic retries, patient
+> retries and crash recovery (`docs/DECISIONS.md`, "Worker reliability fix"). The text of the earlier decision is kept as history.
+
 - **D2 (b), Q8, Q4:** encrypt `fields`; move `raw_text` to a deletable encrypted store with only its hash in the
   append-only row; delete `raw_text` at verification or rejection; key `EXTRACTION_KEY` (environment-held Fernet);
   supervisor plus `EXTRACTION_POLL_SECONDS`, migrations stay with the API. **Implemented locally 2026-11-14** (not pushed, no CI).
@@ -216,7 +220,7 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | Drug catalog matching | matcher plus in-memory loader for the supplied CSV (Phase A) | DB-free, synthetic data only | D8, FRD Q1 | IMPLEMENTED AND TESTED locally; license/provenance, matching parameters and a generic-level index BLOCKED BY OWNER DECISION |
 | Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41) |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED locally; no CI run |
-| Retry endpoints | endpoint and function, cap 5, audited | PostgreSQL | D10 and retry cap approved 2026-11-14 (Option A) | IMPLEMENTED AND TESTED locally; no CI run |
+| Retry endpoints | endpoint and function, lifetime budget of 5 OCR executions (supersedes Option A), audited | PostgreSQL | D10 approved; budget decided by the owner 2026-11-14 | IMPLEMENTED locally; PostgreSQL and Linux tests written, NOT RUN on this machine; no CI run |
 | Provenance | engine id, model version, checksum, adapter and interface versions | PostgreSQL | confidence, boxes, preprocessing not persisted: schema approval | IMPLEMENTED AND TESTED for what v0 stores |
 | Evaluation harness | field scoring, integrity, confidence analysis, CER, WER, failure and empty rates | DB-free | no threshold approved | IMPLEMENTED AND TESTED |
 | Real OCR evaluation | none | none | data, model | BLOCKED BY EXTERNAL ACCESS/LICENSE |

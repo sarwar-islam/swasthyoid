@@ -59,7 +59,7 @@ From `docs/M2_COMPLETION_PLAN.md`:
 | D10: patient only | `require("patient")` on both endpoints; staff roles get 403 (audited by the gateway chain); other patients 404 |
 | D12: manual entry always allowed | allowed from `uploaded`, `extracting` without a live claim, `extraction_failed`, also with an adapter configured |
 | D14: no audit of 409; audit successes | conflicts raise before any write; `document.manual_entry` and `document.retry` written in the same transaction |
-| Retry cap 5 | `MAX_RETRIES = 5`, counted from the audit entries of successful retries (no column); **owner-approved Option A**: 1 initial run + 5 patient-triggered retries, each run with up to 3 automatic attempts, so at most 18 claimed attempts (`MAX_TOTAL_ATTEMPTS`, a documented bound); 6th retry gives 409 `retry_limit_reached`; manual entry stays possible |
+| Retry cap | **SUPERSEDED 2026-11-14 by the owner's lifetime budget: at most 5 actual OCR executions per document** (`MAX_LIFETIME_ATTEMPTS`, `documents.extraction_lifetime_attempts`; `docs/DECISIONS.md`, "Worker reliability fix"). The earlier Option A (18 claimed attempts) text is history. |
 | D7: approved field list, no required fields, `printed_patient_name`, `allergy_text` | `SCHEMAS` equals `tests/approved_fields.py`; all optional; `allergy_text` on prescription and discharge summary and `printed_patient_name` on all three (placement chosen where the approval was silent) |
 | D7 Q4: `diagnosis_text` never promoted | no code outside the extraction modules may name it (guard test); no event is created by any extraction path (asserted by tests) |
 | D7 Q5: dose and duration free text | stay text fields, never split |

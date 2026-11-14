@@ -58,12 +58,17 @@ RestartPreventExitStatus=2
 TimeoutStopSec=660
 ```
 
-## Retry policy (owner-approved Option A)
+## Retry policy (owner decision 2026-11-14: lifetime budget of 5 OCR executions)
 
-A patient can start at most **5 manual retries** of a failed extraction per document. Every run, the first and each retry,
-gets up to **3 automatic attempts** (with a doubling delay between them). A document is therefore claimed at most **18 times**
-(`MAX_TOTAL_ATTEMPTS`); a crashed or timed-out attempt counts. After the cap the patient can still enter the document by
-hand. Operators can expect up to 18 OCR runs for one stubbornly failing document.
+A document gets at most **5 actual OCR executions in its whole life** (`MAX_LIFETIME_ATTEMPTS`, stored in
+`documents.extraction_lifetime_attempts`). Automatic retries, patient-triggered retries and recovery after a crash share that one
+counter; asking for a retry, a claim and a failure before OCR starts are not counted, a crash or timeout during OCR is. Each run (the
+first, and each patient retry) may make up to 3 automatic executions, with 1 then 2 minutes of waiting between them, always limited by
+what remains of the 5. Failures that retrying cannot fix are not retried (the patient is told to enter the document by hand). After the
+5th execution the document ends in `extraction_failed` and the retry endpoint answers 409 `retry_limit_reached`; manual entry always
+works. **Apply the schema (it adds one column) before starting a worker that has this change;** the worker never migrates and refuses to
+run (exit 1, `schema_unavailable`) if the column is missing. Operators can expect at most 5 OCR runs for one stubbornly failing document
+(previously up to 18; see `docs/DECISIONS.md`, "Worker reliability fix").
 
 ## What operators can see
 
