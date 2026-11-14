@@ -292,16 +292,19 @@ def test_same_key_uploads_once(d):
 def test_document_state_machine(d):
     allowed = {(s, t) for s, targets in documents.TRANSITIONS.items() for t in targets}
     assert allowed == {
-        ("uploaded", "extracting"), ("extracting", "needs_review"), ("extracting", "extraction_failed"),
+        ("uploaded", "extracting"), ("uploaded", "needs_review"),  # needs_review: the patient's manual entry (D12)
+        ("extracting", "needs_review"), ("extracting", "extraction_failed"),
         ("extraction_failed", "extracting"), ("extraction_failed", "needs_review"),
         ("needs_review", "verified"), ("needs_review", "rejected"),
     }
     doc_id = upload(d).json()["id"]
-    for bad in ("verified", "needs_review", "rejected", "uploaded"):  # nothing skips extraction or review
+    for bad in ("verified", "rejected", "uploaded"):  # nothing skips review; only manual entry skips extraction
         with pytest.raises(ValueError):
             documents.set_status(d.conn, doc_id, bad)
     for step in ("extracting", "extraction_failed", "extracting", "needs_review", "rejected"):
         documents.set_status(d.conn, doc_id, step)
+    skipped = upload(d).json()["id"]
+    documents.set_status(d.conn, skipped, "needs_review")  # uploaded -> needs_review is the manual-entry move
     for final in documents.TRANSITIONS:
         with pytest.raises(ValueError):
             documents.set_status(d.conn, doc_id, final)

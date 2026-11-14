@@ -12,7 +12,8 @@ Startup order (docs/DECISIONS.md, "Startup error and ordering contract"):
   1. the main-module guard at the bottom of this file; importing this module does nothing;
   2. side-effect-free argument parsing (a usage error exits 2);
   3. runtime_mode.check_test_mode_config(), the first runtime safety check;
-  4. required configuration: EXTRACTION_POLL_SECONDS in loop mode, then DATABASE_URL;
+  4. required configuration: EXTRACTION_POLL_SECONDS in loop mode, then DATABASE_URL, then EXTRACTION_KEY
+     (a Fernet key: extracted text is stored sealed, D2);
   5. connect with db.connect_worker() and check, read-only, that the tables and columns the
      worker uses exist;
   6. only then run_due() (availability probe, then claiming) is called.
@@ -36,7 +37,7 @@ import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
 from swasthyoid import db, runtime_mode
-from swasthyoid.capture import extraction
+from swasthyoid.capture import extraction, extraction_crypto
 
 EXIT_OK = 0
 EXIT_INFRASTRUCTURE = 1
@@ -57,8 +58,9 @@ REQUIRED_SCHEMA = {
     "documents": ("id", "patient_id", "doc_type", "status", "created_at", "updated_at",
                   "extraction_attempts", "next_extraction_at", "extraction_error", "extraction_claim"),
     "document_images": ("document_id", "n", "storage_key", "content_type", "size_bytes", "sha256"),
-    "extractions": ("id", "document_id", "version", "engine", "fields", "raw_text", "engine_id",
+    "extractions": ("id", "document_id", "version", "engine", "fields", "raw_text", "raw_text_sha256", "engine_id",
                     "model_version", "model_checksum", "adapter_interface_version", "adapter_version"),
+    "extraction_raw_texts": ("extraction_id", "document_id", "ciphertext"),
 }
 
 
@@ -218,6 +220,11 @@ def main(argv=None):
         check_database_url()
     except ValueError as reason:
         _say("invalid_configuration", setting="DATABASE_URL", reason=reason)
+        return EXIT_CONFIG
+    try:
+        extraction_crypto.check_key()  # no document is claimed that could not be stored sealed
+    except extraction_crypto.KeyError_ as reason:
+        _say("invalid_configuration", setting="EXTRACTION_KEY", reason=reason.args[0])
         return EXIT_CONFIG
 
     try:

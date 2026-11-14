@@ -332,7 +332,9 @@ def test_capture_code_cannot_write_events():
 def test_extractions_are_append_only(x):
     new_doc(x)
     extraction.run_due(x.conn, engine_returning(GOOD))
-    for sql in ("UPDATE extractions SET fields = '{}'", "DELETE FROM extractions", "TRUNCATE extractions"):
+    # extraction_raw_texts references extractions (D2), so a TRUNCATE must name both tables to reach the trigger
+    for sql in ("UPDATE extractions SET fields = '{}'", "DELETE FROM extractions",
+                "TRUNCATE extractions, extraction_raw_texts"):
         with pytest.raises(psycopg.Error, match="append-only"):
             x.conn.execute(sql)
 

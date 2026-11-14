@@ -114,6 +114,34 @@ ALTER TABLE extractions ADD CONSTRAINT extraction_identity CHECK (
      AND (adapter_version IS NULL OR length(adapter_version) BETWEEN 1 AND 64))
 );
 
+-- D2 (owner decision 2026-11-14, option b): `fields` is stored sealed ({"v": 1, "enc": <Fernet token>}) and the
+-- append-only row keeps only the SHA-256 of the raw text; the text itself is a Fernet token in the table below,
+-- whose rows the trigger extraction_raw_texts_retention (below) deletes when the document is verified or rejected.
+-- Rows from before this change keep plain fields and raw_text (the table is append-only); raw_text_sha256 NULL.
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS raw_text_sha256 text;
+ALTER TABLE extractions DROP CONSTRAINT IF EXISTS extraction_raw_hash;
+ALTER TABLE extractions ADD CONSTRAINT extraction_raw_hash
+    CHECK (raw_text_sha256 IS NULL OR raw_text_sha256 ~ '^[0-9a-f]{64}$');
+
+CREATE TABLE IF NOT EXISTS extraction_raw_texts (
+    extraction_id uuid PRIMARY KEY REFERENCES extractions (id),
+    document_id   uuid NOT NULL REFERENCES documents (id),
+    ciphertext    text NOT NULL,   -- a Fernet token, never the text
+    created_at    timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS extraction_raw_texts_document ON extraction_raw_texts (document_id);
+
+-- Retention (D2, Q8): the raw text goes when a document becomes verified or rejected, whoever makes it so.
+CREATE OR REPLACE FUNCTION extraction_raw_texts_retention() RETURNS trigger AS $$
+BEGIN
+    DELETE FROM extraction_raw_texts WHERE document_id = NEW.id;
+    RETURN NULL;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS extraction_raw_texts_retention ON documents;
+CREATE TRIGGER extraction_raw_texts_retention AFTER UPDATE OF status ON documents
+    FOR EACH ROW WHEN (NEW.status IN ('verified', 'rejected') AND OLD.status IS DISTINCT FROM NEW.status)
+    EXECUTE FUNCTION extraction_raw_texts_retention();
+
 DROP TRIGGER IF EXISTS extractions_no_change ON extractions;
 CREATE TRIGGER extractions_no_change BEFORE UPDATE OR DELETE ON extractions
     FOR EACH ROW EXECUTE FUNCTION append_only();

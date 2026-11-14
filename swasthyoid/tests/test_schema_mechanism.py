@@ -82,5 +82,6 @@ def test_check_spec_accepts_a_valid_spec_and_refuses_unknown_kinds_and_rules():
         extraction.check_spec({"g": [{"y": {"kind": "number", "rules": ["made_up"]}}]})
 
 
-def test_the_clinical_field_list_is_still_empty():
-    assert extraction.SCHEMAS == {}
+def test_the_clinical_field_list_is_the_approved_one():
+    from swasthyoid.tests.approved_fields import APPROVED
+    assert extraction.SCHEMAS == APPROVED  # D7 approved by the owner 2026-11-14; reviewer sign-off pending

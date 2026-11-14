@@ -16,7 +16,7 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 # Document state machine, FRD M2/M3. verified and rejected are terminal.
 TRANSITIONS = {
-    "uploaded": {"extracting"},
+    "uploaded": {"extracting", "needs_review"},  # needs_review: manual entry before any extraction (D12)
     "extracting": {"needs_review", "extraction_failed"},
     "extraction_failed": {"extracting", "needs_review"},
     "needs_review": {"verified", "rejected"},

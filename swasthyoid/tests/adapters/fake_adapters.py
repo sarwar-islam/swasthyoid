@@ -41,6 +41,26 @@ class Good:
         note("release")
 
 
+class Labelled(Good):
+    """Reads labelled prescription-style lines with per-line confidence (synthetic text), for the parsers."""
+    LINES = [("Date: 12/03/2024", 0.97), ("Dr: Synth Doctor", 0.9), ("Allergy: synthetic note", 0.5), ("Rx:", 0.9),
+             ("SYNTH-DRUG-001 500 mg", 0.93), ("Advice: rest", 0.91)]
+
+    def page(self, page):
+        return {"page_number": page["page_number"],
+                "items": [{"text": t, "confidence": c, "position": [[0, i], [1, i], [1, i + 1], [0, i + 1]]}
+                          for i, (t, c) in enumerate(self.LINES)]}
+
+
+class LabelledSamePatient(Labelled):
+    """Labelled lines whose printed patient name equals the test patient's, up to case and spacing."""
+    LINES = Labelled.LINES + [("Patient:  SYNTHETIC   patient", 0.96)]
+
+
+class LabelledOtherPatient(Labelled):
+    LINES = Labelled.LINES + [("Patient: Somebody Else", 0.96)]
+
+
 class Empty(Good):
     def page(self, page):
         return {"page_number": page["page_number"], "items": []}
@@ -149,6 +169,8 @@ class ExtraChecksum(Good):
 
 
 good, empty, malformed, boom, dies = Good, Empty, Malformed, Boom, Dies
+labelled = Labelled
+labelled_same_patient, labelled_other_patient = LabelledSamePatient, LabelledOtherPatient
 patches_validator, extra_checksum = PatchesValidator, ExtraChecksum
 hangs_reading, hangs_identity, network = HangsReading, HangsIdentity, Network
 spawns, spawns_new_session = Spawns, SpawnsNewSession

@@ -11,8 +11,9 @@ import psycopg
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
-from swasthyoid.api.deps import Actor, ApiError, actor, authorize_patient_access, get_conn, idempotent, patient_read, require
-from swasthyoid.capture import documents, extraction
+from swasthyoid.api.deps import (Actor, ApiError, actor, authorize_patient_access, client_info, get_conn, idempotent,
+                                 patient_read, require)
+from swasthyoid.capture import documents, extraction, extraction_crypto
 
 router = APIRouter()
 
@@ -101,7 +102,7 @@ def get_extraction(document_id: UUID, conn=Depends(get_conn), a: Actor = Depends
     if doc is None or doc["patient_id"] != a.id:
         raise ApiError(404, "not_found", "No document with this id.")
     return {"document_id": doc["id"], "status": doc["status"], "threshold": extraction.CONFIDENCE_THRESHOLD,
-            "extraction": extraction.latest(conn, document_id)}
+            "extraction": _latest(conn, document_id)}
 
 
 @router.get("/documents/{document_id}/images/{n}")
@@ -114,3 +115,63 @@ def get_image(document_id: UUID, n: int, request: Request, conn=Depends(get_conn
     if image is None:
         raise ApiError(404, "not_found", "No such image.")
     return Response(image[1], media_type=image[0], headers={"Cache-Control": "no-store"})
+
+
+# ---- manual entry and retry: the patient only (D10), always allowed for manual entry (D12), conflicts not audited (D14)
+
+_CONFLICTS = {
+    "not_allowed_state": "The document is not in a state that allows this.",
+    "extraction_in_progress": "A worker is extracting this document right now; try again shortly.",
+    "retry_limit_reached": f"This document has used all {extraction.MAX_RETRIES} retries; enter it by hand instead.",
+}
+
+
+def _latest(conn, document_id):
+    """The decrypted extraction, or a controlled 500 that says nothing about its content (wrong or lost key)."""
+    try:
+        return extraction.latest(conn, document_id)
+    except extraction_crypto.Undecryptable:
+        raise ApiError(500, "extraction_unreadable", "The stored extraction could not be read.")
+
+
+def _own_document(conn, a, document_id):
+    """The patient's own document. Unknown and someone else's look the same (404)."""
+    doc = documents.get(conn, document_id)
+    if doc is None or doc["patient_id"] != a.id:
+        raise ApiError(404, "not_found", "No document with this id.")
+    return doc
+
+
+@router.post("/documents/{document_id}/manual-entry")
+def start_manual_entry(document_id: UUID, request: Request, conn=Depends(get_conn),
+                       a: Actor = Depends(require("patient"))):
+    """Move a document to review with every field empty, to be typed in by hand. 409
+    extraction_in_progress while a worker holds it; 409 not_allowed_state once it is in review or closed."""
+    _own_document(conn, a, document_id)
+
+    def work():
+        try:
+            extraction.start_manual_entry(conn, document_id, actor=a, context=client_info(request))
+        except extraction.Conflict as e:
+            raise ApiError(409, e.args[0], _CONFLICTS[e.args[0]])
+        return {"document_id": document_id, "status": "needs_review", "extraction": _latest(conn, document_id)}
+
+    return idempotent(conn, request, a, f"manual-entry:{document_id}", work)
+
+
+@router.post("/documents/{document_id}/retry-extraction")
+def retry_extraction(document_id: UUID, request: Request, conn=Depends(get_conn),
+                     a: Actor = Depends(require("patient"))):
+    """Try a failed extraction again, at most MAX_RETRIES times per document. 409 not_allowed_state unless
+    the extraction failed; 409 retry_limit_reached past the cap."""
+    _own_document(conn, a, document_id)
+
+    def work():
+        try:
+            used = extraction.retry_extraction(conn, document_id, actor=a, context=client_info(request))
+        except extraction.Conflict as e:
+            raise ApiError(409, e.args[0], _CONFLICTS[e.args[0]])
+        return {"document_id": document_id, "status": "extracting", "retries_used": used,
+                "retries_allowed": extraction.MAX_RETRIES}
+
+    return idempotent(conn, request, a, f"retry:{document_id}", work)

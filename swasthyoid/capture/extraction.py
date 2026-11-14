@@ -36,6 +36,7 @@ import logging
 import multiprocessing
 import os
 import time
+import unicodedata
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
@@ -44,7 +45,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from swasthyoid import runtime_mode
-from swasthyoid.capture import documents, imaging, ocr
+from swasthyoid.capture import documents, extraction_crypto, imaging, ocr, parsers
 from swasthyoid.core import audit
 
 log = logging.getLogger(__name__)
@@ -76,10 +77,29 @@ PREPROCESS = ()
 # [{sub_field: entry}]. Fields an engine returns that are not listed here are dropped. A value
 # that breaks a rule is never accepted, whatever its confidence. "required" only makes
 # missing_required() report the field: M3's confirm step enforces it, M2 does not.
-# PENDING APPROVAL: the FRD says "typed schema" but lists no fields. Until the list in
-# docs/DECISIONS.md is approved this is empty, so every document goes to review with its
-# raw text only.
-SCHEMAS = {}
+# THE APPROVED FIELD LIST (owner decision D7, 2026-11-14; docs/DECISIONS.md, "Extraction field
+# list"): transcription only, every field optional at this stage. The clinical reviewer has not
+# been named, so reviewer sign-off is PENDING. tests/approved_fields.py holds the signed list and a
+# test fails on any field this table adds or drops. printed_patient_name: stored sealed (D2), advisory flag.
+_MEDICATIONS = [{"name_as_written": "text", "strength": "text", "form": "text", "dose_instruction": "text",
+                 "duration": "text"}]
+SCHEMAS = {
+    "prescription": {
+        "prescription_date": "date", "prescriber_name": "text", "prescriber_registration": "text",
+        "facility_name": "text", "diagnosis_text": "text", "medications": _MEDICATIONS, "advice_text": "text",
+        "follow_up_date": "date", "allergy_text": "text", "printed_patient_name": "text",
+    },
+    "lab_report": {
+        "report_date": "date", "lab_name": "text", "printed_patient_name": "text",
+        "tests": [{"test_name": "text", "result": "text", "unit": "text", "reference_range": "text"}],
+    },
+    "discharge_summary": {
+        "admission_date": "date", "discharge_date": "date", "follow_up_date": "date", "facility_name": "text",
+        "diagnosis_text": "text", "medications": _MEDICATIONS, "allergy_text": "text", "printed_patient_name": "text",
+    },
+    "other": {},
+}
+SCHEMA_VERSION = "1"  # bump with any change to SCHEMAS; not yet stored with each extraction (needs a column)
 
 # Technical checks only. Clinical rules (ranges, units, thresholds) are NOT defined here: they wait
 # for the approved field list and the clinical reviewer.
@@ -225,14 +245,21 @@ def _store(conn, document_id, version, engine, fields, raw_text, config=None):
     """config is the checked adapter (ocr.check_available) for an OCR result; None for manual
     entry and the legacy test path, whose identity columns stay NULL."""
     identity = config["identity"] if config else {}
+    extraction_id = uuid4()
+    # D2: the fields are sealed and the append-only row keeps only the raw text's hash; the text itself is a
+    # token in extraction_raw_texts, deleted when the document is verified or rejected
     conn.execute(
-        "INSERT INTO extractions (id, document_id, version, engine, fields, raw_text, engine_id, model_version, "
-        "model_checksum, adapter_interface_version, adapter_version) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        [uuid4(), document_id, version, engine, Jsonb(fields), raw_text, identity.get("engine_id"),
+        "INSERT INTO extractions (id, document_id, version, engine, fields, raw_text, raw_text_sha256, engine_id, "
+        "model_version, model_checksum, adapter_interface_version, adapter_version) "
+        "VALUES (%s, %s, %s, %s, %s, '', %s, %s, %s, %s, %s, %s)",
+        [extraction_id, document_id, version, engine, Jsonb(extraction_crypto.seal_fields(fields)),
+         extraction_crypto.sha256(raw_text), identity.get("engine_id"),
          identity.get("model_version"), config and config["model_checksum"], config and config["interface_version"],
          identity.get("adapter_version")],
     )
+    if raw_text:
+        conn.execute("INSERT INTO extraction_raw_texts (extraction_id, document_id, ciphertext) VALUES (%s, %s, %s)",
+                     [extraction_id, document_id, extraction_crypto.seal_text(raw_text)])
 
 
 def _next_version(conn, document_id):
@@ -308,6 +335,10 @@ def _working_copy(pages, operations):
 def _settings(given):
     """Per-call settings over the module constants, read now so they can be reconfigured."""
     runtime_mode.check_test_mode_config()  # fail closed before anything else
+    try:
+        extraction_crypto.check_key()  # nothing is claimed if the result could not be stored sealed (D2)
+    except extraction_crypto.KeyError_ as problem:
+        raise RuntimeError(f"EXTRACTION_KEY is {problem.args[0]}") from None
     unknown = set(given) - set(_DEFAULTS)
     if unknown:
         raise TypeError(f"unknown extraction options: {sorted(unknown)}")
@@ -531,8 +562,8 @@ def _attempt(conn, job, engine, ai, o, config=None):
             # validated again here: the child's own check ran next to adapter code that could change it
             got = ocr.validate_result(got, len(work), config["identity"])
             # fields come from parsers (step 6B), not from OCR; items and positions are never stored
-            fields, raw_text, name = structure(spec, {}, o["threshold"]), ocr.raw_text_v0(got), \
-                config["identity"]["engine_id"]
+            fields, raw_text, name = structure(spec, parsers.parse(job["doc_type"], got, patient_name=True), o["threshold"]), \
+                ocr.raw_text_v0(got), config["identity"]["engine_id"]
         _cloud_ai(conn, job, pages, spec, fields, ai, o["threshold"], o["ai_threshold"])
         with conn.transaction():
             # the fence: only the current claim, inside its lease, may store a result
@@ -608,19 +639,127 @@ def requeue(conn, document_id):
                      "next_extraction_at = clock_timestamp() WHERE id = %s", [document_id])
 
 
-def manual_entry(conn, document_id, *, threshold=CONFIDENCE_THRESHOLD):
-    """extraction_failed -> needs_review with every field empty, to be typed in by hand."""
+# ---- manual entry and retry by the patient (slice 8.6; owner decisions D10, D12, D14, 2026-11-14)
+
+MAX_RETRIES = 5  # patient-initiated retries per document (owner decision; the worker's own attempts are separate)
+_MANUAL_SOURCES = ("uploaded", "extracting", "extraction_failed")
+
+
+class Conflict(Exception):
+    """A state conflict: args[0] is the error code (not_allowed_state, extraction_in_progress or
+    retry_limit_reached). Nothing was changed. Refusals are not audited (D14)."""
+
+
+def _actor_fields(actor, context):
+    return {"actor_id": actor.id, "actor_role": actor.role, **(context or {})}
+
+
+def start_manual_entry(conn, document_id, *, actor, context=None, threshold=CONFIDENCE_THRESHOLD):
+    """The patient moves a document to needs_review with every field empty, to be typed in by hand.
+    Allowed from `uploaded`, from `extracting` with no live claim (also while an adapter is
+    configured: D12) and from `extraction_failed`; Conflict(extraction_in_progress) while a worker
+    holds a live claim, Conflict(not_allowed_state) from any other state. One transaction: the row is
+    locked, the claim and due time are cleared, the `manual` row is stored and the audit entry
+    `document.manual_entry` is written (an audit failure undoes everything). Returns the new version.
+    The caller must already have checked that `actor` is the document's patient."""
     with conn.transaction():
-        doc_type = conn.execute("SELECT doc_type FROM documents WHERE id = %s FOR UPDATE", [document_id]).fetchone()
-        if doc_type is None:
+        row = conn.execute(
+            "SELECT patient_id, doc_type, status, extraction_claim IS NOT NULL AND next_extraction_at > clock_timestamp() "
+            "FROM documents WHERE id = %s FOR UPDATE", [document_id]).fetchone()
+        if row is None:
             raise LookupError("document not found")
+        patient_id, doc_type, status, live = row
+        if status not in _MANUAL_SOURCES:
+            raise Conflict("not_allowed_state")
+        if status == "extracting" and live:
+            raise Conflict("extraction_in_progress")
+        documents.set_status(conn, document_id, "needs_review")
+        conn.execute("UPDATE documents SET extraction_claim = NULL, next_extraction_at = NULL, "
+                     "updated_at = clock_timestamp() WHERE id = %s", [document_id])
+        version = _next_version(conn, document_id)
+        _store(conn, document_id, version, "manual", structure(SCHEMAS.get(doc_type, {}), {}, threshold), "")
+        audit.append(conn, action="document.manual_entry", result="allow", patient_id=patient_id,
+                     resource_type="document", resource_id=document_id, reason=f"from:{status}",
+                     **_actor_fields(actor, context))
+        return version
+
+
+def retry_extraction(conn, document_id, *, actor, context=None):
+    """The patient asks for another try of a failed extraction: extraction_failed -> extracting from
+    the first attempt, at most MAX_RETRIES times per document (counted from the audit entries of
+    successful retries, so no column is needed). Conflict(not_allowed_state) from any other state,
+    Conflict(retry_limit_reached) past the cap. One transaction with the audit entry
+    `document.retry`. Returns how many retries the document has used, this one included."""
+    with conn.transaction():
+        row = conn.execute("SELECT patient_id, status FROM documents WHERE id = %s FOR UPDATE", [document_id]).fetchone()
+        if row is None:
+            raise LookupError("document not found")
+        patient_id, status = row
+        if status != "extraction_failed":
+            raise Conflict("not_allowed_state")
+        used = conn.execute("SELECT count(*) FROM audit_logs WHERE action = 'document.retry' AND resource_id = %s "
+                            "AND result = 'allow'", [document_id]).fetchone()[0]
+        if used >= MAX_RETRIES:
+            raise Conflict("retry_limit_reached")
+        requeue(conn, document_id)
+        audit.append(conn, action="document.retry", result="allow", patient_id=patient_id, resource_type="document",
+                     resource_id=document_id, reason=f"retry {used + 1} of {MAX_RETRIES}", **_actor_fields(actor, context))
+        return used + 1
+
+
+def manual_entry(conn, document_id, *, threshold=CONFIDENCE_THRESHOLD):
+    """extraction_failed -> needs_review with every field empty, to be typed in by hand. The narrow, original
+    contract (no actor, no claim check, no audit entry); the patient's flow, which also covers `uploaded` and
+    `extracting`, is start_manual_entry."""
+    with conn.transaction():
+        row = conn.execute("SELECT doc_type, status FROM documents WHERE id = %s FOR UPDATE", [document_id]).fetchone()
+        if row is None:
+            raise LookupError("document not found")
+        if row[1] != "extraction_failed":
+            raise ValueError("manual_entry() is for a failed extraction; use start_manual_entry()")
         documents.set_status(conn, document_id, "needs_review")
         _store(conn, document_id, _next_version(conn, document_id), "manual",
-               structure(SCHEMAS.get(doc_type[0], {}), {}, threshold), "")
+               structure(SCHEMAS.get(row[0], {}), {}, threshold), "")
 
 
 def latest(conn, document_id):
-    """The newest extraction of a document, or None."""
-    return conn.cursor(row_factory=dict_row).execute(
-        "SELECT version, engine, fields, raw_text, created_at FROM extractions "
-        "WHERE document_id = %s ORDER BY version DESC LIMIT 1", [document_id]).fetchone()
+    """The newest extraction of a document, decrypted, or None. `raw_text` is '' once the document is
+    verified or rejected (it is deleted then; `raw_text_available` says which case). Raises
+    extraction_crypto.Undecryptable, never returns garbage, if the key is wrong. `printed_name_check`
+    is advisory only (see name_check). Rows from before D2 are returned as they are."""
+    row = conn.cursor(row_factory=dict_row).execute(
+        "SELECT e.id, e.version, e.engine, e.fields, e.raw_text, e.raw_text_sha256, e.created_at, d.patient_id "
+        "FROM extractions e JOIN documents d ON d.id = e.document_id "
+        "WHERE e.document_id = %s ORDER BY e.version DESC LIMIT 1", [document_id]).fetchone()
+    if row is None:
+        return None
+    fields = extraction_crypto.open_fields(row["fields"])
+    if row["raw_text_sha256"] is None:  # written before D2: plain, in the row
+        raw_text, available = row["raw_text"], True
+    else:
+        token = conn.execute("SELECT ciphertext FROM extraction_raw_texts WHERE extraction_id = %s", [row["id"]]).fetchone()
+        raw_text = extraction_crypto.open_text(token[0]) if token else ""
+        # nothing read means nothing stored (and nothing to delete); otherwise a missing row means it was deleted
+        available = token is not None or row["raw_text_sha256"] == extraction_crypto.sha256("")
+    return {"version": row["version"], "engine": row["engine"], "fields": fields, "raw_text": raw_text,
+            "raw_text_available": available, "created_at": row["created_at"],
+            "printed_name_check": name_check(conn, row["patient_id"], fields)}
+
+
+def name_check(conn, patient_id, fields):
+    """ADVISORY flag for M3, never a block: "same_after_normalisation" if the printed patient name equals the
+    registered name after NFC, case-folding and collapsing spaces; "not_the_same" if it differs (a different
+    spelling or script also differs: that is why it is only a flag); "not_checked" if no printed name was
+    accepted. Transliteration, titles and spelling variants are NOT handled."""
+    printed = fields.get("printed_patient_name") if isinstance(fields, dict) else None
+    if not (isinstance(printed, dict) and printed.get("value")):
+        return "not_checked"
+    row = conn.execute("SELECT name_enc FROM patients WHERE id = %s", [patient_id]).fetchone()
+    if row is None:
+        return "not_checked"
+    from swasthyoid import pii
+
+    def norm(text):
+        return " ".join(unicodedata.normalize("NFC", text).casefold().split())
+
+    return "same_after_normalisation" if norm(printed["value"]) == norm(pii.decrypt(row[0])) else "not_the_same"

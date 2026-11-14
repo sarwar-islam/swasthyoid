@@ -3,6 +3,7 @@ weights): provenance on the extraction row, raw text in reading order, failure a
 original immutability, and no verified events. Needs DATABASE_URL (skips without it).
 
 Shows plumbing and safety boundaries only; nothing here measures Jonaki's accuracy. Synthetic data."""
+import json
 import logging
 from datetime import timedelta
 
@@ -36,8 +37,13 @@ def upload_png(c, data=PAGE):
 
 
 def rows(conn, doc_id):
-    return conn.execute("SELECT version, engine, engine_id, model_version, adapter_version, adapter_interface_version, "
-                        "raw_text, fields::text FROM extractions WHERE document_id = %s", [doc_id]).fetchall()
+    """Provenance columns plus raw_text and fields read through the decrypting reader (D2 stores them sealed)."""
+    got = extraction.latest(conn, doc_id)
+    if got is None:
+        return []
+    base = conn.execute("SELECT version, engine, engine_id, model_version, adapter_version, adapter_interface_version "
+                        "FROM extractions WHERE document_id = %s", [doc_id]).fetchall()
+    return [(*row, got["raw_text"], json.dumps(got["fields"])) for row in base]
 
 
 def test_a_page_is_extracted_with_jonaki_provenance_and_ordered_text(c):

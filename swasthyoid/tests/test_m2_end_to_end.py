@@ -77,8 +77,7 @@ def test_schema_rules_are_applied_to_what_is_stored_and_missing_required_is_repo
     doc_id = upload_png(c)
     with c.connect() as conn:
         extraction.run_due(conn, **CHILD)
-        stored = conn.execute("SELECT fields FROM extractions WHERE document_id = %s", [doc_id]).fetchone()[0]
-    fields = json.loads(stored) if isinstance(stored, str) else stored
+        fields = extraction.latest(conn, doc_id)["fields"]
     assert set(fields) == {"title", "issued"}  # every schema field present, nothing else kept
     assert all(f["manual_entry"] is True and f["value"] is None for f in fields.values())  # the adapter gives no fields
     assert extraction.missing_required(spec, fields) == ["title"]

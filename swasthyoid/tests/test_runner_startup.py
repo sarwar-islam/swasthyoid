@@ -314,7 +314,7 @@ def test_an_empty_database_exits_1_names_the_missing_tables_and_runs_no_ddl(blan
     assert catalog(blank_database) == []
     done = run_runner("--once", env=clean_env(DATABASE_URL=blank_database))
     assert done.returncode == 1 and done.stdout == ""
-    assert "code=schema_unavailable missing=document_images,documents,extractions" in done.stderr
+    assert "code=schema_unavailable missing=document_images,documents,extraction_raw_texts,extractions" in done.stderr
     assert catalog(blank_database) == []  # still empty: the runner created nothing
 
 
@@ -493,3 +493,20 @@ def test_main_maps_connection_loss_and_other_cycle_failures_to_exit_1(monkeypatc
     assert extract.main(["--once"]) == extract.EXIT_INFRASTRUCTURE
     err = capsys.readouterr().err
     assert f"code={code}" in err and "secret detail" not in err and closed == [True]
+
+
+# ---- D2: the runner needs EXTRACTION_KEY, as a configuration error (exit 2), before it connects to anything
+
+@pytest.mark.parametrize("value, reason", [(None, "missing"), ("", "empty"), ("   ", "empty"), ("not-a-key", "invalid")])
+def test_a_missing_or_invalid_extraction_key_exits_2_without_connecting(tripwire, value, reason):
+    done = run_runner("--once", env=clean_env(EXTRACTION_KEY=value, DATABASE_URL=tripwire.uri))
+    assert done.returncode == 2 and done.stdout == ""
+    assert f"code=invalid_configuration setting=EXTRACTION_KEY reason={reason}" in done.stderr
+    assert "not-a-key" not in done.stderr  # the reason is a fixed word, never the value
+    assert tripwire.count == 0  # decided before any connection
+
+
+def test_the_safety_check_still_comes_before_the_key_check(tripwire):
+    env = clean_env(APP_ENV="test", EXTRACTION_KEY=None, DATABASE_URL=tripwire.uri)  # test mode without its confirmation
+    done = run_runner("--once", env=env)
+    assert done.returncode == 2 and "code=test_mode_config_refused" in done.stderr and "EXTRACTION_KEY" not in done.stderr

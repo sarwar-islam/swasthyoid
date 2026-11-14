@@ -80,12 +80,18 @@ def job(conn, doc_id):
         "FROM documents WHERE id = %s", [doc_id]).fetchone()
 
 
+def blank(doc_type="prescription"):
+    """Every approved field of a document type, empty and marked for manual entry."""
+    return extraction.structure(extraction.SCHEMAS[doc_type], {}, extraction.CONFIDENCE_THRESHOLD)
+
+
 def make_due(conn):
     conn.execute("UPDATE documents SET next_extraction_at = clock_timestamp() WHERE status = 'extracting'")
 
 
 def test_real_schema_has_the_extraction_objects(prod):
-    assert extraction.SCHEMAS == {}  # the clinical field list is unapproved and must stay empty
+    from swasthyoid.tests.approved_fields import APPROVED
+    assert extraction.SCHEMAS == APPROVED  # the owner-approved list (D7, 2026-11-14), nothing more
     with prod.connect() as conn:
         def columns(table):
             return {r[0]: r[1:] for r in conn.execute(
@@ -99,7 +105,13 @@ def test_real_schema_has_the_extraction_objects(prod):
             "created_at": ("timestamp with time zone", "NO"),
             # 4A identity columns: nullable, no backfill
             "engine_id": ("text", "YES"), "model_version": ("text", "YES"), "model_checksum": ("text", "YES"),
-            "adapter_interface_version": ("integer", "YES"), "adapter_version": ("text", "YES")}
+            "adapter_interface_version": ("integer", "YES"), "adapter_version": ("text", "YES"),
+            # D2: the hash of the raw text; the text itself lives in extraction_raw_texts
+            "raw_text_sha256": ("text", "YES")}
+        raw = columns("extraction_raw_texts")  # deletable, unlike extractions: no append-only triggers
+        assert {k: v[:2] for k, v in raw.items()} == {
+            "extraction_id": ("uuid", "NO"), "document_id": ("uuid", "NO"), "ciphertext": ("text", "NO"),
+            "created_at": ("timestamp with time zone", "NO")}
         docs = columns("documents")
         assert docs["extraction_attempts"] == ("integer", "NO", "0")
         assert docs["next_extraction_at"][:2] == ("timestamp with time zone", "YES")
@@ -112,6 +124,7 @@ def test_real_schema_has_the_extraction_objects(prod):
         assert constraints["extractions_document_id_fkey"].startswith("FOREIGN KEY (document_id) REFERENCES documents")
         assert "version >= 1" in constraints["extractions_version_check"]
         assert "model_checksum ~ '^[0-9a-f]{64}$'" in constraints["extraction_identity"]
+        assert "raw_text_sha256 ~ '^[0-9a-f]{64}$'" in constraints["extraction_raw_hash"]
         triggers = {r[0] for r in conn.execute(
             "SELECT tgname FROM pg_trigger WHERE tgrelid = 'extractions'::regclass AND NOT tgisinternal")}
         assert triggers == {"extractions_no_change", "extractions_no_truncate"}
@@ -121,6 +134,7 @@ def test_schema_applies_twice_and_upgrades_a_slice_1_database(prod):
     with prod.connect() as conn:
         db.apply_schema(conn)  # a second start changes nothing and does not fail
         # put the database back to how slice 1 left it, then start again
+        conn.execute("DROP TABLE extraction_raw_texts")  # slice 1 had neither this nor extractions
         conn.execute("DROP TABLE extractions")
         conn.execute("ALTER TABLE documents DROP COLUMN extraction_attempts, DROP COLUMN next_extraction_at, "
                      "DROP COLUMN extraction_error, DROP COLUMN extraction_claim")
@@ -153,8 +167,8 @@ def test_pipeline_and_endpoint_on_the_real_schema(prod):
     body = prod.http.get(url, headers=headers).json()
     assert (body["status"], body["threshold"]) == ("needs_review", 0.85)
     ex = body["extraction"]
-    # with the product (empty) field list nothing the engine read becomes a field
-    assert (ex["version"], ex["engine"], ex["fields"], ex["raw_text"]) == (1, "fake-ocr", {}, "synthetic raw text")
+    # the engine's readings do not use the approved field names, so every approved field stays for manual entry
+    assert (ex["version"], ex["engine"], ex["fields"], ex["raw_text"]) == (1, "fake-ocr", blank(), "synthetic raw text")
 
     stranger = patient(prod, "+8801700000002")
     assert prod.http.get(url, headers=stranger).status_code == 404
@@ -191,7 +205,7 @@ def test_retry_state_transitions_on_the_real_schema(prod):
         extraction.manual_entry(conn, second)
         assert job(conn, second)[0] == "needs_review"
     manual = prod.http.get(f"{V1}/documents/{second}/extraction", headers=headers).json()["extraction"]
-    assert (manual["engine"], manual["fields"], manual["version"]) == ("manual", {}, 1)
+    assert (manual["engine"], manual["fields"], manual["version"]) == ("manual", blank(), 1)
 
 
 def test_concurrent_workers_on_the_real_schema(prod):

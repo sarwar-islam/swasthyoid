@@ -15,6 +15,7 @@ from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 
 from swasthyoid import db, pii, runtime_mode
+from swasthyoid.capture import extraction_crypto
 from swasthyoid.core import audit, consent_authz, notification
 from swasthyoid.identity import sessions
 
@@ -45,6 +46,10 @@ def check_config():
     if dev_codes_enabled() and os.environ.get("APP_ENV") != "development":
         raise RuntimeError("DEV_LOG_CODES=1 is only allowed with APP_ENV=development")
     runtime_mode.check_test_mode_config()
+    try:  # extracted text is stored sealed (D2): refuse to start without the key
+        extraction_crypto.check_key()
+    except extraction_crypto.KeyError_ as problem:
+        raise RuntimeError(f"EXTRACTION_KEY is {problem.args[0]}") from None
     if runtime_mode.confirm_without_test_env():
         # owner decision 4A §2.4 pending; option (ii), a warning, implemented as recommended
         logging.getLogger(__name__).warning("%s is set but APP_ENV is not test: test mode is off",

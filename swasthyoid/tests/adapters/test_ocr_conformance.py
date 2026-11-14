@@ -18,7 +18,7 @@ import pytest
 from swasthyoid import db
 from swasthyoid.capture import extraction, ocr
 from swasthyoid.tests.adapters import fake_adapters
-from swasthyoid.tests.test_extraction_integration import V1, job, patient, prod, upload  # noqa: F401
+from swasthyoid.tests.test_extraction_integration import V1, blank, job, patient, prod, upload  # noqa: F401
 
 FAKE = "swasthyoid.tests.adapters.fake_adapters:"
 EMPTY_SHA = hashlib.sha256(b"").hexdigest()
@@ -47,15 +47,24 @@ def documents_row(conn, doc_id):
 
 
 def extraction_rows(conn):
-    return conn.execute(
+    """The stored rows with fields and raw_text read through the decrypting reader (D2 stores them sealed)."""
+    rows = conn.execute(
         "SELECT engine, engine_id, model_version, model_checksum, adapter_interface_version, adapter_version, "
-        "fields::text, raw_text FROM extractions").fetchall()
+        "document_id FROM extractions").fetchall()
+    out = []
+    for *identity, doc_id in rows:
+        got = extraction.latest(conn, doc_id)
+        out.append((*identity, json.dumps(got["fields"]), got["raw_text"]))
+    return out
 
 
 def everything(conn):
-    """All stored text, for asserting what must never be stored."""
+    """All stored text, for asserting what must never be stored. D2 stores extraction fields and raw text sealed,
+    so the raw table rows are only ciphertext: the decrypted extractions are added, or an absence assertion
+    would pass without looking inside them."""
+    readable = [extraction.latest(conn, d) for (d,) in conn.execute("SELECT DISTINCT document_id FROM extractions")]
     return str([conn.execute("SELECT * FROM documents").fetchall(), conn.execute("SELECT * FROM extractions").fetchall(),
-                conn.execute("SELECT * FROM audit_logs").fetchall()])
+                conn.execute("SELECT * FROM audit_logs").fetchall(), readable])
 
 
 def logged(c):
@@ -110,9 +119,12 @@ def test_good_adapter_end_to_end_records_identity_and_stores_no_items(c, monkeyp
     with c.connect() as conn:
         assert extraction.run_due(conn, **CHILD) == 1
         assert job(conn, doc_id) == ("needs_review", 1, None, None)
-        assert extraction_rows(conn) == [("fake-v0", "fake-v0", "0.0-test", EMPTY_SHA, 0, "fake-1", "{}",
-                                          "synthetic line 1")]
+        rows = extraction_rows(conn)
+        assert [r[:6] + r[7:] for r in rows] == [("fake-v0", "fake-v0", "0.0-test", EMPTY_SHA, 0, "fake-1",
+                                                  "synthetic line 1")]
+        assert json.loads(rows[0][6]) == blank()  # the lines match no approved field name: all left for manual entry
         stored = everything(conn)
+        assert "synthetic line 1" in stored  # the helper sees the decrypted content, so the next line can fail
         assert "0.9" not in str(extraction_rows(conn)) and "[0, 0]" not in stored  # no confidence, no position
     assert events(c) == ["identity", "identity", "prepare", "read", "release"]  # probe, then the attempt
     assert "synthetic line" not in logged(c)
