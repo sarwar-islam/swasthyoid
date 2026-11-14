@@ -1586,3 +1586,6 @@ manifest on stdout and writes no file of its own, and the runner uses `os.mkdir`
 CPU time per page (a provisional 120 s limit) are right: all are unconfirmed until the owner runs the preparation. **Interface version
 0 stays test-only (D18 / 4B, schema approval unchanged): this adapter does not enable production extraction.** Confidence and positions
 are still not stored. Evaluation needs permitted data and the clinical reviewer (FRD Q7, D11).
+
+**CI evidence for the PaddleOCR adapter (commits `c52897b` code, `8be3b03` docs).** CI run #53 (`8be3b03`; `ubuntu-latest`, Python 3.12, PostgreSQL 16): **1229 passed, 0 failed, 0 skipped**, 1 warning, 245.69 s (0:04:05). CI run #52 (`91a05c9`, a docs-only commit): 1145 passed, 0 failed, 0 skipped, 1 warning, 235.28 s (0:03:55), the same count as run #51 because no code changed. The two summary lines were pasted by the owner without run labels; they are attributed by the commits' contents (1229 = 1145 + 84, the new PaddleOCR tests: 81 passed and 3 symlink tests that run on Linux). The summary does not name tests. The tests use a fake runner;
+the real runner, the weights and any accuracy remain unexecuted and unclaimed.

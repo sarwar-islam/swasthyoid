@@ -1,6 +1,6 @@
 # PaddleOCR (English) adapter: a second, temporary, replaceable OCR provider
 
-Status 2026-11-14: **implemented and tested with a fake runner only; uncommitted.** The real runner and the real weights have
+Status 2026-11-14: **implemented and tested with a fake runner only; committed (`c52897b`, docs `8be3b03`) and CI-green.** The real runner and the real weights have
 never been run in this repository. No accuracy of any kind is known. It sits **alongside** the Jonaki adapter
 (`docs/OCR_JONAKI.md`, untouched, the Bangla reference); the two share no code.
 
@@ -89,3 +89,11 @@ The real adapter class against a fake runner: contract and validators, reading o
 failure code, a hung runner killed at the limit, an allowlisted environment with no secrets and no `HOME`, isolated command with
 the model names, factory refusals, linkage with synthetic files (an unlisted file, a path outside the root, symlinks, `..`),
 the preparation script's pure parts and refusals, and that nothing in the core imports a model library or the preparation script.
+
+## CI evidence
+
+- CI run #53 (`8be3b03`; `ubuntu-latest`, Python 3.12, PostgreSQL 16): **1229 passed, 0 failed, 0 skipped**, 1 warning, 245.69 s (0:04:05).
+- CI run #52 (`91a05c9`, a docs-only commit): 1145 passed, 0 failed, 0 skipped, 1 warning, 235.28 s (0:03:55), the same count as run #51 because no code changed.
+- The two summary lines were pasted by the owner without run labels; they are attributed by the commits' contents (1229 = 1145 + 84, the new PaddleOCR tests: 81 passed and 3 symlink tests that run on Linux). The summary does not name tests.
+- What this shows: the adapter, linkage and preparation-script tests (fake runner, synthetic files) pass on Linux, and no existing
+  test regressed. What it does **not** show: anything about PaddleOCR, the weights, the real runner or accuracy: none of them ran.

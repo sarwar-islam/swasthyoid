@@ -9,7 +9,7 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 ## Update 2026-11-14 (later; supersedes the older snapshot lines below where they differ)
 
 - `main` was at `bdca92c` and in sync with `origin/main` when this was written (**verify with `git status` and `git log`**). Latest
-  CI evidence: CI run #51 (`bdca92c`; `ubuntu-latest`, Python 3.12, PostgreSQL 16; **1145 passed, 0 failed, 0 skipped**, 1 warning, 181 s). Run #48 (`dcf31d6`) 1135 passed, 0 skipped; run #47 failed 3 tests that were fixed in `dcf31d6`.
+  CI evidence (the lines below this one were written at run #51; run #53 on `8be3b03` is later, 1229 passed, 0 failed, 0 skipped): CI run #51 (`bdca92c`; `ubuntu-latest`, Python 3.12, PostgreSQL 16; **1145 passed, 0 failed, 0 skipped**, 1 warning, 181 s). Run #48 (`dcf31d6`) 1135 passed, 0 skipped; run #47 failed 3 tests that were fixed in `dcf31d6`.
 - Done since the snapshot below: drug catalog loader Phase A (D8, synthetic tests only, data files git-ignored, license unresolved);
   worker reliability fix (process-tree termination, lifetime budget of **5 OCR executions per document** that supersedes the earlier
   18-attempt Option A); Extraction Data Privacy verification (no leak found). Details and limits: `docs/DECISIONS.md`
@@ -17,7 +17,7 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 - Open and waiting for the owner or an outside party: D8 and FRD Q1 (catalog source and license), D18 / 4B and its schema approval,
   Jonaki access and license, the clinical reviewer (FRD Q7), D5/D6/D11, D13 and Q4, D3, residual risks R1 to R5, key rotation
   (`docs/M2_OWNER_DECISIONS.md`). No feature work is authorized until the owner decides the next step.
-- **Second OCR adapter (owner decision 2026-11-14, local, uncommitted unless the git log says otherwise):** PaddleOCR English
+- **Second OCR adapter (owner decision 2026-11-14; committed as `c52897b` and `8be3b03`, CI run #53: 1229 passed, 0 failed, 0 skipped):** PaddleOCR English
   (`capture/adapters/paddleocr_adapter.py`, `paddleocr_runner.py`, `paddleocr_prepare.py`; `docs/OCR_PADDLEOCR.md`) alongside Jonaki,
   tested with a fake runner only. The owner runs the weights download; model names and versions are unconfirmed; no accuracy
   claim; interface version 0 stays test-only. Bangla support in PaddleOCR could not be confirmed.
