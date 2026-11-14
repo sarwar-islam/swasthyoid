@@ -69,14 +69,17 @@ def test_the_result_is_unverified_and_waits_for_review(c):
     assert body["status"] == "needs_review" and body["extraction"]["engine"] == "jonaki-bangla-ocr"
 
 
-@pytest.mark.parametrize("mode, code", [("undecodable", "engine_error"), ("crash", "engine_error"),
-                                        ("garbage", "malformed_output"), ("bad_poly", "malformed_output")])
-def test_failures_are_retried_then_recorded_by_code_and_the_original_survives(c, monkeypatch, mode, code):
+@pytest.mark.parametrize("mode, code, runs", [("undecodable", "engine_error", 2), ("crash", "engine_error", 2),
+                                              ("garbage", "malformed_output", 1), ("bad_poly", "malformed_output", 1)])
+def test_failures_are_recorded_by_code_and_the_original_survives(c, monkeypatch, mode, code, runs):
+    """engine_error is transient: retried (2 attempts here). malformed_output is permanent (lifetime budget decision,
+    2026-11-14): it ran once, that execution counted, and it is not retried."""
     monkeypatch.setenv("FAKE_JONAKI_MODE", mode)
     doc_id = upload_png(c)
     with c.connect() as conn:
-        assert extraction.run_due(conn, **CHILD) == 2  # attempted, retried
-        assert job(conn, doc_id) == ("extraction_failed", 2, code, None)
+        assert extraction.run_due(conn, **CHILD) == runs
+        assert job(conn, doc_id) == ("extraction_failed", runs, code, None)
+        assert conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [doc_id]).fetchone()[0] == runs
         assert rows(conn, doc_id) == []  # nothing stored for a failed read
         assert documents.read_image(conn, doc_id, 1)[1] == PAGE
     assert "synthetic" not in c.caplog.text  # no page text in the logs

@@ -87,8 +87,10 @@ def test_a_page_that_cannot_be_decoded_fails_the_attempt_and_the_original_surviv
     bad = b"\x89PNG\r\n\x1a\n" + b"not really a png"  # passes the upload's first-bytes check, does not decode
     doc_id = upload_png(c, bad)
     with c.connect() as conn:
-        assert extraction.run_due(conn, preprocess=("deskew",), backoff=timedelta(0), **CHILD) == 2  # tried, retried
-        assert job(conn, doc_id) == ("extraction_failed", 2, "ImageRejected", None)
+        # ImageRejected is permanent (lifetime budget decision, 2026-11-14): one claim, no retry, and no OCR ever started
+        assert extraction.run_due(conn, preprocess=("deskew",), backoff=timedelta(0), **CHILD) == 1
+        assert job(conn, doc_id) == ("extraction_failed", 1, "ImageRejected", None)
+        assert conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [doc_id]).fetchone()[0] == 0
         assert count(conn, "extractions") == 0
         assert documents.read_image(conn, doc_id, 1)[1] == bad  # the original is still there, unchanged
     assert "not really a png" not in c.caplog.text
