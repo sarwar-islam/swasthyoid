@@ -104,3 +104,45 @@ look-alike hazard: suggestions must never be pre-selected); declared counts in t
   malformed rows, NUL and oversized cells, report definitions, empty version, other-file names, size limit, missing strength
   or form kept and unconfirmed, import and write boundary, a real `git check-ignore` that is skipped when git is unavailable)
   and the added cases in `tests/test_drugmatch.py`. Deferred: full-catalog performance measurement (Phase B).
+
+## 8. Phase 7B (2026-11-14, owner-approved, local, uncommitted): index, generic groups, row matching, pipeline, benchmark
+
+**Still true:** the data's source and licence are unresolved (FRD Q1). Everything below is **opt-in and off by default**; the real
+`medicine.csv` never enters the repository or CI; the tests use synthetic catalogs only.
+
+- **Name index.** `Catalog` builds a read-only index at construction: normalised brand or generic name to the records that carry it.
+  Exact lookup no longer scans the catalog (about 130,000 microseconds a lookup on the real file before; see the measurements below).
+  The 39 existing matcher tests and the catalog tests pass unchanged.
+- **Generic-level groups.** When several records share a generic name, `match()` returns one candidate per (generic as written,
+  strength, form) with `kind: "generic_group"`, every source id in `ids`, `brand_count` and `manufacturer_count`, instead of hundreds
+  of brand rows. A group of several records is still `ambiguous` (reason `generic_name`): nothing is selected. A generic of one record
+  stays `exact`. Brand-name hits are still listed record by record; a route qualifier keeps names apart.
+- **Row matching `match_row(text, catalog)` (PROVISIONAL, marked D8-REVIEWER).** Exact normalised phrase windows over the words of one
+  row's written text, longest first, a window inside a longer match dropped; a comma, full stop, semicolon or colon at the end of a word
+  is ignored for a second try, nothing else is. No similarity, no floor, no abbreviation expansion (`Tab.` is not `tablet`), no alias.
+  Each candidate carries `strength_check` and `form_check`: `confirmed` (the catalog's value appears in the row text as an exact word
+  window; Bangla digits and a missing space as in `500mg` are normalised), `unconfirmed` (it does not: the candidate is **kept**) or
+  `catalog_missing`. At most 50 candidates per row (`MAX_ROW_CANDIDATES`); `truncated` counts the rest.
+- **Pipeline (worker only; never the OCR child).** `DRUG_CATALOG_PATH` (an absolute file) enables it; `DRUG_CATALOG_SOURCE` is then
+  **required** (the owner's statement of where the data came from and on what terms; no default); `DRUG_CATALOG_VERSION` is optional (the
+  file's SHA-256 by default). If the path is set but the setting or the file is unusable the worker **exits 2** with
+  `code=invalid_configuration setting=... reason=<fixed word>` before connecting (never silent degradation); if it is unset nothing
+  happens. For a prescription or discharge summary, after the parsers, each medication row's raw reading is matched and the result is
+  stored under the reserved key `fields["catalog_matches"] = {catalog: {version, source}, rows: [{row, status, review_required,
+  matches: [{phrase, start, end, status, reason, candidates}], truncated}]}` **inside the sealed `fields`** (D2): no new column, no
+  migration, encrypted at rest. A failure for one row is recorded as `{"row": i, "status": "unavailable"}` by code only and never
+  fails the extraction. Manual entries have none. The patient sees it in `fields` of the extraction endpoint; it is a list of unverified
+  candidates, never a selection, never a verified event. The schema fields themselves are never filled from a candidate.
+- **Benchmark.** `python -m swasthyoid.tests.evaluation.catalog_benchmark [--csv PATH] [--rows N] [--queries N] [--seed N]` reports
+  `load_seconds`, `index_seconds`, `peak_python_memory_bytes` (tracemalloc), `max_rss_kib` (Linux only), the loader's counts and p50,
+  p95, max and mean microseconds for exact brand, exact generic, row and unmatched lookups. No target is set (the owner decides).
+  Measured here on one Windows machine (a measurement, not a requirement): **real `medicine.csv`, 21,714 rows, 300 lookups of each
+  kind:** load 1.6 s, index 0.47 s, peak Python memory about 94 MB, p95 15 microseconds (exact brand), 401 (exact generic),
+  596 (row), 18 (unmatched); the file's hash was unchanged. **Synthetic, 25,000 rows:** load 2.1 s, index 0.6 s, peak about 97 MB,
+  row p95 679 microseconds. CI runs the synthetic benchmark with generous regression bounds only.
+
+**Limits, stated plainly.** Matching needs the catalog's exact spelling: a misspelling, a brand written differently, an abbreviation or a
+name inside brackets finds nothing (the reviewer decides any alias, abbreviation or similarity rule, and the suggestion parameters,
+D8). A brand that is also an ordinary word can match inside unrelated row text, producing noise; candidates are only suggestions
+for a person. A row's strength and form are not extracted into fields (reviewer vocabularies are missing); the checks only compare the
+catalog's values with the row text. The PostgreSQL-backed test (sealed storage of the matches) was written but could not run here.

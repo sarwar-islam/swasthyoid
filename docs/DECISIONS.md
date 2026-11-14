@@ -1661,3 +1661,28 @@ photographs may be refused or accepted wrongly (D11; upload anyway is the safety
 measured. **Behaviour changes to know about:** every upload test now needs a real, decodable image (`tests/images.py`); existing clients that sent
 undecodable files will now get 422; non-patient viewers of an image now receive a re-encoded copy, not the stored bytes. The real-OCR pre-processing
 evaluation benchmark remains out of scope.
+
+## Phase 7B: drug catalog index, row matching, extraction integration and benchmark (2026-11-14; local, uncommitted)
+
+**Decisions (owner, 2026-11-14, approving the plan).** (1) Row matching by **exact normalised phrase windows**, marked `D8-REVIEWER`, as a
+**provisional** rule: no similarity threshold, no abbreviation expansion, no alias, never an automatic selection. (2) **Strength and form
+checks**: `confirmed` only when the catalog's value is present in the row text as an exact word window, `unconfirmed` when absent,
+`catalog_missing` when the catalog has none; candidates are never dropped or selected. (3) **Fail-closed startup**: the worker exits 2 with
+`invalid_configuration` when `DRUG_CATALOG_PATH` is set but the setting or the file is unusable; unset means off. (4) **At most 50
+candidates per row**, with `truncated: <count>`. (5) **Licence and safety stance (FRD Q1)**: opt-in and off by default,
+`DRUG_CATALOG_SOURCE` required when enabled, the real `medicine.csv` never in the repository or CI. The decisions are recorded
+as the owner's; the clinical reviewer (not yet named, FRD Q7) has not reviewed the row rules, so they stay marked provisional.
+
+**Built:** a read-only name index in `Catalog` and generic-level groups in `match()`; `match_row()`; `extraction._match_medications` called in
+`_attempt` (only when the worker was given a `catalog`, only for documents with medication rows, after the parsers and the optional
+cloud step, before the sealed store); `workers.extract.load_catalog` and its startup step; `tests/evaluation/catalog_benchmark.py`. The
+catalog never reaches the OCR child. The result lives under `fields["catalog_matches"]` inside the sealed `fields`: **no schema
+column, no migration**. Details, shapes and measurements: `docs/DRUG_CATALOG.md`, section 8.
+
+**Behaviour changes to know about.** A generic name shared by several records now returns groups (ids kept) instead of one
+entry per record; the status for one multi-record group is `ambiguous` / `generic_name`. A patient's extraction response can now carry
+`fields["catalog_matches"]`. The worker's startup can now exit 2 on a catalog setting. Existing tests passed unchanged.
+
+**Not verified here.** The PostgreSQL-backed test could not run on this machine (CI needed). Real prescriptions were never matched, so
+the usefulness and the noise of phrase windows on real text are unknown; no accuracy is claimed. Timings are from one Windows machine.
+Production use of the owner-supplied data still waits for the licence (FRD Q1) and the reviewer's sign-off on the matching rules (D8).

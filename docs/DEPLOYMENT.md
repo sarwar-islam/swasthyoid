@@ -27,6 +27,7 @@ Start the API first. The worker refuses to start (exit 1) if the tables or colum
 | `EXTRACTION_KEY` | both | **Fernet key for extracted text (D2).** The API refuses to start and the worker exits 2 without it |
 | `EXTRACTION_POLL_SECONDS` | worker, loop mode | positive number of seconds; no default; not needed for `--once` |
 | `OCR_ADAPTER`, `OCR_ADAPTERS_APPROVED` | worker | adapter reference and the approved-artifact list |
+| `DRUG_CATALOG_PATH`, `DRUG_CATALOG_SOURCE`, `DRUG_CATALOG_VERSION` | worker, optional | drug-name candidates (Phase 7B). Unset: off. Set: `DRUG_CATALOG_PATH` is an absolute `medicine.csv`, `DRUG_CATALOG_SOURCE` (the owner's statement of source and terms) is **required**, and a bad value makes the worker **exit 2**. Do not enable until the data's licence is settled (FRD Q1) |
 | `APP_ENV`, `SWASTHYOID_TEST_MODE_CONFIRM` | both | test mode needs **both**; never set in production |
 
 Generate a key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.

@@ -112,6 +112,11 @@ residual risks, D13, D3, and the reviewer's name.
   unchanged) and authorized an in-memory loader only. It is built and tested on synthetic data (`docs/DRUG_CATALOG.md`).
   **Still open:** the catalog's source, license and permission (FRD Q1; the files carry no license or date and appear to derive
   from MedEx), the matching parameters and any alias rules (reviewer), a generic-level index, database tables (schema approval).
+- **Update 2026-11-14 (Phase 7B, owner-approved, implemented locally):** the generic-level index, row matching by exact phrase windows
+  (provisional, reviewer-owned), strength and form checks, the extraction integration (opt-in, fail-closed at worker startup, stored inside
+  the sealed fields, 50 candidates per row) and a full-catalog benchmark are built (`docs/DRUG_CATALOG.md`, section 8). **Still open:** the
+  catalog's source and licence (FRD Q1), the reviewer's sign-off on the row rules and any alias, abbreviation or similarity rule and the
+  suggestion parameters (D8), and CI for the PostgreSQL test. No database table was needed.
 
 ## 4. API behavior (slice 8.6, manual entry and retry)
 
@@ -236,7 +241,7 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | PaddleOCR English adapter (second adapter) | adapter, runner, requirements, preparation script, fake runner and tests | DB-free, fake runner | owner decision 2026-11-14; models, versions and weights unconfirmed | IMPLEMENTED AND TESTED (fake runner; CI run #55 on `a2c0139`: 1231 passed, 0 failed, 0 skipped) and run once for real on the owner's machine; oneDNN off by default; no accuracy claim; interface version 0 stays test-only |
 | Clinical schemas | mechanism plus the approved list in `SCHEMAS` | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; reviewer sign-off pending |
 | Clinical parsers | label-anchored transcription; rows kept whole | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies) |
-| Drug catalog matching | matcher plus in-memory loader for the supplied CSV (Phase A) | DB-free, synthetic data only | D8, FRD Q1 | IMPLEMENTED AND TESTED locally; license/provenance, matching parameters and a generic-level index BLOCKED BY OWNER DECISION |
+| Drug catalog matching | matcher, in-memory loader (Phase A), name index, generic groups, row matching, opt-in worker integration and benchmark (Phase 7B) | DB-free, synthetic data only; one PostgreSQL test written, not yet run | D8, FRD Q1; row rules provisional | IMPLEMENTED locally (off unless configured); license/provenance and the reviewer's sign-off on the matching rules BLOCKED BY OWNER DECISION; no real prescription ever matched |
 | Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41; process-tree and lifetime-budget changes: CI run #48) |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED (CI run #48) |
 | Retry endpoints | endpoint and function, lifetime budget of 5 OCR executions (supersedes Option A), audited | PostgreSQL | D10 approved; budget decided by the owner 2026-11-14 | IMPLEMENTED AND TESTED: CI run #48 (`dcf31d6`) 1135 passed, 0 failed, 0 skipped on Linux with PostgreSQL 16 |
