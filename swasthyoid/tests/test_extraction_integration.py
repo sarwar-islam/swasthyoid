@@ -19,10 +19,11 @@ from swasthyoid import db
 from swasthyoid.api import deps
 from swasthyoid.api.main import app
 from swasthyoid.capture import extraction
+from swasthyoid.tests import images
 from swasthyoid.tests.conftest import require_database
 
 V1 = "/api/v1"
-JPEG = b"\xff\xd8\xff\xe0 synthetic prescription page"
+JPEG = images.JPEG  # a real, decodable synthetic page: an upload is decoded and quality-checked
 READING = {"prescriber": {"value": "Synthetic Prescriber", "confidence": 0.99}}
 
 
@@ -107,7 +108,9 @@ def test_real_schema_has_the_extraction_objects(prod):
             "engine_id": ("text", "YES"), "model_version": ("text", "YES"), "model_checksum": ("text", "YES"),
             "adapter_interface_version": ("integer", "YES"), "adapter_version": ("text", "YES"),
             # D2: the hash of the raw text; the text itself lives in extraction_raw_texts
-            "raw_text_sha256": ("text", "YES")}
+            "raw_text_sha256": ("text", "YES"),
+            # Phase 5: the pre-processing operations applied for this extraction, in order (NULL: not recorded)
+            "preprocessing": ("ARRAY", "YES")}
         raw = columns("extraction_raw_texts")  # deletable, unlike extractions: no append-only triggers
         assert {k: v[:2] for k, v in raw.items()} == {
             "extraction_id": ("uuid", "NO"), "document_id": ("uuid", "NO"), "ciphertext": ("text", "NO"),
@@ -240,3 +243,55 @@ def test_concurrent_workers_on_the_real_schema(prod):
         rows = conn.execute("SELECT document_id, version FROM extractions").fetchall()
     assert sorted(str(r[0]) for r in rows) == sorted(ids) and {r[1] for r in rows} == {1}
     assert len(calls) == 4  # each document was read exactly once, whichever worker took it
+
+
+# ---- Phase 5: what was applied to the working copy is recorded with the extraction it produced
+
+def recorded(conn, doc_id):
+    return conn.execute("SELECT preprocessing FROM extractions WHERE document_id = %s ORDER BY version DESC LIMIT 1",
+                        [doc_id]).fetchone()[0]
+
+
+def test_the_operations_applied_are_recorded_in_the_order_they_ran_not_the_order_configured(prod):
+    doc_id = upload(prod, patient(prod))
+    with prod.connect() as conn:
+        assert extraction.run_due(conn, ocr, preprocess=("contrast", "exif", "deskew")) == 1
+        assert recorded(conn, doc_id) == ["exif", "deskew", "contrast"]  # the order process() runs them in
+
+
+def test_no_operation_is_recorded_as_an_empty_list_which_is_not_the_same_as_unknown(prod):
+    doc_id = upload(prod, patient(prod))
+    with prod.connect() as conn:
+        assert extraction.run_due(conn, ocr) == 1
+        assert recorded(conn, doc_id) == []  # the engine read the stored pages as they are
+
+
+def test_a_manual_entry_and_an_older_row_have_no_record_at_all(prod):
+    headers = patient(prod)
+    first, second = upload(prod, headers), upload(prod, headers)
+    with prod.connect() as conn:
+        extraction.run_due(conn, broken, max_attempts=1)  # both fail; no extraction row is written for a failure
+        extraction.manual_entry(conn, first)
+        assert recorded(conn, first) is None  # a manual row: nothing was processed
+        conn.execute("INSERT INTO extractions (id, document_id, version, engine, fields) "
+                     "VALUES (gen_random_uuid(), %s, 1, 'old', '{}')", [second])  # a row from before the column
+        assert recorded(conn, second) is None
+
+
+def test_a_retry_records_its_own_list_and_a_failed_attempt_leaves_no_row(prod):
+    doc_id = upload(prod, patient(prod))
+    with prod.connect() as conn:
+        extraction.run_due(conn, broken, max_attempts=1, preprocess=("denoise",))
+        assert job(conn, doc_id)[0] == "extraction_failed" and conn.execute("SELECT count(*) FROM extractions").fetchone()[0] == 0
+        extraction.requeue(conn, doc_id)
+        assert extraction.run_due(conn, ocr, preprocess=("exif", "contrast")) == 1
+        assert recorded(conn, doc_id) == ["exif", "contrast"]  # the successful attempt's operations, nothing from the failed one
+
+
+def test_the_database_refuses_an_operation_that_does_not_exist_or_too_many(prod):
+    doc_id = upload(prod, patient(prod))
+    with prod.connect() as conn:
+        for bad in (["rotate"], ["exif", "deskew", "denoise", "contrast", "exif"]):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute("INSERT INTO extractions (id, document_id, version, engine, fields, preprocessing) "
+                             "VALUES (gen_random_uuid(), %s, 1, 'x', '{}', %s)", [doc_id, bad])

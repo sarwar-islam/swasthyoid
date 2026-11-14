@@ -248,21 +248,22 @@ def _cloud_ai(conn, doc, pages, spec, fields, ai, threshold, ai_threshold):
                 holder[key] = answer
 
 
-def _store(conn, document_id, version, engine, fields, raw_text, config=None):
+def _store(conn, document_id, version, engine, fields, raw_text, config=None, preprocessing=None):
     """config is the checked adapter (ocr.check_available) for an OCR result; None for manual
-    entry and the legacy test path, whose identity columns stay NULL."""
+    entry and the legacy test path, whose identity columns stay NULL. preprocessing is the list of operations applied to
+    the working copy for THIS extraction ([] when none; None when not recorded, as for a manual entry)."""
     identity = config["identity"] if config else {}
     extraction_id = uuid4()
     # D2: the fields are sealed and the append-only row keeps only the raw text's hash; the text itself is a
     # token in extraction_raw_texts, deleted when the document is verified or rejected
     conn.execute(
         "INSERT INTO extractions (id, document_id, version, engine, fields, raw_text, raw_text_sha256, engine_id, "
-        "model_version, model_checksum, adapter_interface_version, adapter_version) "
-        "VALUES (%s, %s, %s, %s, %s, '', %s, %s, %s, %s, %s, %s)",
+        "model_version, model_checksum, adapter_interface_version, adapter_version, preprocessing) "
+        "VALUES (%s, %s, %s, %s, %s, '', %s, %s, %s, %s, %s, %s, %s)",
         [extraction_id, document_id, version, engine, Jsonb(extraction_crypto.seal_fields(fields)),
          extraction_crypto.sha256(raw_text), identity.get("engine_id"),
          identity.get("model_version"), config and config["model_checksum"], config and config["interface_version"],
-         identity.get("adapter_version")],
+         identity.get("adapter_version"), preprocessing],
     )
     if raw_text:
         conn.execute("INSERT INTO extraction_raw_texts (extraction_id, document_id, ciphertext) VALUES (%s, %s, %s)",
@@ -333,10 +334,12 @@ def _preprocess(value):
 
 def _working_copy(pages, operations):
     """Processing copies of the page bytes, or the same objects when no operation is switched on.
+    Returns (copies, applied): `applied` is the operations that ran, in the order process() runs them (the same for every page).
     Raises imaging.ImageRejected for a page that cannot be decoded; the originals are only read."""
     if not operations:
-        return pages
-    return [imaging.process(page, **{op: True for op in operations})[0] for page in pages]
+        return pages, []
+    done = [imaging.process(page, **{op: True for op in operations}) for page in pages]
+    return [copy for copy, _ in done], done[0][1]
 
 
 def _settings(given):
@@ -578,7 +581,7 @@ def _attempt(conn, job, engine, ai, o, config=None):
         # reading ran without a heartbeat: confirm, and extend, the lease before the engine starts
         if not _renew(conn, job, o["lease"]):
             raise LeaseLost()
-        used = _working_copy(pages, o["preprocess"])  # transient; `pages` stays the stored originals
+        used, applied = _working_copy(pages, o["preprocess"])  # transient; `pages` stays the stored originals
         media = ["image/png"] * len(images) if o["preprocess"] else [image["content_type"] for image in images]
         work = used if config is None else [
             {"page_number": n, "image": data, "media_type": kind}
@@ -606,7 +609,7 @@ def _attempt(conn, job, engine, ai, o, config=None):
                 [job["id"], job["token"]]).fetchone()
             if mine is None:
                 raise LeaseLost()
-            _store(conn, job["id"], job["version"], name, fields, raw_text, config)
+            _store(conn, job["id"], job["version"], name, fields, raw_text, config, applied)
             conn.execute(
                 "UPDATE documents SET status = 'needs_review', extraction_claim = NULL, extraction_error = NULL, "
                 "next_extraction_at = NULL, updated_at = clock_timestamp() WHERE id = %s", [job["id"]])

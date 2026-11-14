@@ -58,9 +58,9 @@ REQUIRED_SCHEMA = {
     "documents": ("id", "patient_id", "doc_type", "status", "created_at", "updated_at",
                   "extraction_attempts", "next_extraction_at", "extraction_error", "extraction_claim",
                   "extraction_lifetime_attempts"),
-    "document_images": ("document_id", "n", "storage_key", "content_type", "size_bytes", "sha256"),
+    "document_images": ("document_id", "n", "storage_key", "content_type", "size_bytes", "sha256", "quality_warnings"),
     "extractions": ("id", "document_id", "version", "engine", "fields", "raw_text", "raw_text_sha256", "engine_id",
-                    "model_version", "model_checksum", "adapter_interface_version", "adapter_version"),
+                    "model_version", "model_checksum", "adapter_interface_version", "adapter_version", "preprocessing"),
     "extraction_raw_texts": ("extraction_id", "document_id", "ciphertext"),
 }
 

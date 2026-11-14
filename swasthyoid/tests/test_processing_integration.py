@@ -96,9 +96,35 @@ def test_rules_and_required_marks_apply_to_what_is_stored(world, seen, monkeypat
     monkeypatch.setattr(extraction, "_run_engine", lambda *a: {
         "engine": "fake", "raw_text": "", "fields": {"issued": {"value": tomorrow, "confidence": 1.0}}})
     stored = []
-    monkeypatch.setattr(extraction, "_store", lambda conn, doc, version, name, fields, raw, config=None: stored.append(fields))
+    monkeypatch.setattr(extraction, "_store", lambda conn, doc, version, name, fields, raw, config=None, preprocessing=None: stored.append(fields))
     attempt(world)
     (fields,) = stored
     assert fields["issued"]["value"] is None and fields["issued"]["error"] == "invalid_not_future"
     assert extraction.missing_required(spec, fields) == ["issued"]
     assert fields["note"]["manual_entry"] is True  # the optional field is left for manual entry, not required
+
+
+# ---- Phase 5: the operations actually applied reach the stored extraction, in the order process() ran them
+
+def stored_preprocessing(world, monkeypatch, **options):
+    calls = []
+    monkeypatch.setattr(extraction, "_store", lambda conn, doc, version, name, fields, raw, config=None, preprocessing=None:
+                        calls.append(preprocessing))
+    attempt(world, **options)
+    (value,) = calls
+    return value
+
+
+def test_the_stored_extraction_gets_the_applied_operations_in_run_order_not_configured_order(world, seen, monkeypatch):
+    assert stored_preprocessing(world, monkeypatch, preprocess=("contrast", "exif", "deskew")) == ["exif", "deskew", "contrast"]
+
+
+def test_with_no_operation_the_stored_extraction_gets_an_empty_list_and_not_none(world, seen, monkeypatch):
+    assert stored_preprocessing(world, monkeypatch) == []
+
+
+def test_working_copy_returns_the_copies_and_what_was_applied():
+    copies, applied = extraction._working_copy([PAGE, PAGE], ("denoise",))
+    assert len(copies) == 2 and applied == ["denoise"] and copies[0] != PAGE
+    same, none = extraction._working_copy([PAGE], ())
+    assert same == [PAGE] and none == []

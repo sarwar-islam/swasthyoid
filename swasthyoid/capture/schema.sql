@@ -85,6 +85,15 @@ BEGIN
     END IF;
 END $$;
 
+-- Upload-time image quality (decision D5, docs/DECISIONS.md "Phase 5"): the reason codes of the quality warnings that the
+-- patient or caregiver saw and accepted with "upload anyway". NULL: the image was never checked (uploaded before this
+-- column). '{}': checked, nothing to warn about. Non-empty: warnings accepted. Set at insert (the table is append-only).
+ALTER TABLE document_images ADD COLUMN IF NOT EXISTS quality_warnings text[];
+ALTER TABLE document_images DROP CONSTRAINT IF EXISTS document_images_quality_warnings;
+ALTER TABLE document_images ADD CONSTRAINT document_images_quality_warnings CHECK (
+    quality_warnings IS NULL OR (cardinality(quality_warnings) <= 5 AND quality_warnings <@ ARRAY[
+        'image_blurry', 'image_glare', 'image_low_contrast', 'image_skewed', 'image_too_small']));
+
 -- What was read from a document, for human review. Never the timeline: only M3's confirm
 -- step writes events. One row per (document, version); a repeat of the same job is a no-op.
 CREATE TABLE IF NOT EXISTS extractions (
@@ -128,6 +137,16 @@ ALTER TABLE extractions ADD CONSTRAINT extraction_identity CHECK (
      AND adapter_interface_version >= 0
      AND (adapter_version IS NULL OR length(adapter_version) BETWEEN 1 AND 64))
 );
+
+-- Which pre-processing operations were APPLIED to the working copy the engine read for this extraction, in the order they ran
+-- ("applied" = the operation's switch was on in imaging.process(), not that pixels changed). NULL: not recorded (rows from
+-- before this column, manual entries). '{}': the engine read the stored pages as they are. The row is written once, so a
+-- retry's extraction records its own list and never changes an earlier one.
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS preprocessing text[];
+ALTER TABLE extractions DROP CONSTRAINT IF EXISTS extraction_preprocessing;
+ALTER TABLE extractions ADD CONSTRAINT extraction_preprocessing CHECK (
+    preprocessing IS NULL OR (cardinality(preprocessing) <= 4
+                              AND preprocessing <@ ARRAY['exif', 'deskew', 'denoise', 'contrast']));
 
 -- D2 (owner decision 2026-11-14, option b): `fields` is stored sealed ({"v": 1, "enc": <Fernet token>}) and the
 -- append-only row keeps only the SHA-256 of the raw text; the text itself is a Fernet token in the table below,

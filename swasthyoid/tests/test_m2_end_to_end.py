@@ -35,7 +35,8 @@ def c(prod, monkeypatch, tmp_path, caplog):  # noqa: F811
 
 
 def upload_png(c, data=PAGE):
-    r = c.http.post(f"{V1}/documents", headers=c.headers, data={"doc_type": "prescription"},
+    # PAGE is a rotated page, so the upload check warns about skew: the patient accepts it ("upload anyway", D5)
+    r = c.http.post(f"{V1}/documents", headers=c.headers, data={"doc_type": "prescription", "upload_anyway": "true"},
                     files=[("images", ("page.png", data, "image/png"))])
     assert r.status_code == 201, r.text
     return r.json()["id"]
@@ -83,8 +84,11 @@ def test_schema_rules_are_applied_to_what_is_stored_and_missing_required_is_repo
     assert extraction.missing_required(spec, fields) == ["title"]
 
 
-def test_a_page_that_cannot_be_decoded_fails_the_attempt_and_the_original_survives(c, tmp_path):
-    bad = b"\x89PNG\r\n\x1a\n" + b"not really a png"  # passes the upload's first-bytes check, does not decode
+def test_a_page_that_cannot_be_decoded_fails_the_attempt_and_the_original_survives(c, tmp_path, monkeypatch):
+    bad = b"\x89PNG\r\n\x1a\n" + b"not really a png"  # upload now refuses this (image_undecodable): see test_documents.py
+    # so the stored page is planted by switching the upload check off: the worker must still survive a bad stored page
+    monkeypatch.setattr(documents, "inspect_images", lambda images, upload_anyway=False: [
+        {"content_type": "image/png", "ext": "png", "warnings": []} for _ in images])
     doc_id = upload_png(c, bad)
     with c.connect() as conn:
         # ImageRejected is permanent (lifetime budget decision, 2026-11-14): one claim, no retry, and no OCR ever started

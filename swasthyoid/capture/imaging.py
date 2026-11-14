@@ -29,7 +29,9 @@ import io
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps, UnidentifiedImageError
 
-FORMATS = {"JPEG", "PNG"}
+# MPO is what Pillow calls a JPEG that carries extra frames (some phone cameras write them); its first frame is a plain JPEG
+FORMATS = {"JPEG", "PNG", "MPO"}
+CONTENT_TYPES = {"JPEG": ("image/jpeg", "jpg"), "MPO": ("image/jpeg", "jpg"), "PNG": ("image/png", "png")}
 MAX_PIXELS = 40_000_000  # decompression-bomb cap, checked from the header before any pixel is decoded
 LIMITS = {"min_side": 600, "min_sharpness": 20.0, "max_glare": 0.02, "min_contrast": 75.0,
           "max_skew": 2.0}  # PROVISIONAL, see above
@@ -42,9 +44,11 @@ class ImageRejected(Exception):
     """The file cannot be used; args[0] is a reason code, never file content."""
 
 
-def decode(data):
-    """The image as an 8-bit grey NumPy array. Raises ImageRejected for anything that is not a
-    decodable JPEG or PNG within the pixel cap. Does not trust the first bytes: it decodes."""
+def load(data, *, exif=False):
+    """(8-bit grey NumPy array, Pillow format name), decoded ONCE. Raises ImageRejected for anything that is not a
+    decodable JPEG or PNG within the pixel cap, which is checked from the header before any pixel is decoded. Does not
+    trust the first bytes: it decodes. With exif=True the EXIF orientation is applied first, so a photo a phone stored
+    sideways is measured the way a person sees it; nothing is written and the input is untouched."""
     try:
         with Image.open(io.BytesIO(data)) as image:
             if image.format not in FORMATS:
@@ -53,11 +57,19 @@ def decode(data):
             if width * height > MAX_PIXELS:
                 raise ImageRejected("image_too_large")  # before decoding: a small file can expand enormously
             image.load()
-            return np.asarray(image.convert("L"))
+            kind = image.format
+            if exif:
+                image = ImageOps.exif_transpose(image)
+            return np.asarray(image.convert("L")), kind
     except ImageRejected:
         raise
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
         raise ImageRejected("image_undecodable") from None
+
+
+def decode(data):
+    """The image as an 8-bit grey NumPy array (see load)."""
+    return load(data)[0]
 
 
 def _sharpness(grey):
@@ -93,7 +105,11 @@ def _skew(grey):
 
 def measure(data):
     """{width, height, sharpness, glare, contrast, skew}. Raises ImageRejected."""
-    grey = decode(data)
+    return measure_grey(decode(data))
+
+
+def measure_grey(grey):
+    """measure() for an image that is already decoded (the upload path decodes once)."""
     height, width = grey.shape
     flat = grey.astype(np.float32)
     contrast = float(np.median(flat) - np.percentile(flat, 1))
@@ -107,8 +123,12 @@ def measure(data):
 def check(data, limits=None):
     """Reason codes for a page that should be retaken (empty list: acceptable). A file that cannot
     be used at all raises ImageRejected. Refusing is the caller's policy (D5), not this function's."""
+    return check_measures(measure(data), limits)
+
+
+def check_measures(m, limits=None):
+    """The reason codes for measurements already taken (see check)."""
     limits = {**LIMITS, **(limits or {})}
-    m = measure(data)
     reasons = []
     if min(m["width"], m["height"]) < limits["min_side"]:
         reasons.append("image_too_small")
@@ -150,3 +170,34 @@ def process(data, *, exif=False, deskew=False, denoise=False, contrast=False):
     out = io.BytesIO()
     image.save(out, format="PNG")
     return out.getvalue(), applied
+
+
+def strip_metadata(data):
+    """(bytes, content_type) of a COPY of the image with all metadata removed (EXIF including GPS, XMP, ICC profile, PNG
+    text): the EXIF orientation is applied first, so the picture looks the same. JPEG is re-encoded (quality 95) and PNG
+    is lossless. Never used on the stored original, which is not changed. Raises ImageRejected like decode()."""
+    try:
+        with Image.open(io.BytesIO(data)) as source:
+            kind = source.format
+            if kind not in FORMATS:
+                raise ImageRejected("image_unsupported")
+            if source.size[0] * source.size[1] > MAX_PIXELS:
+                raise ImageRejected("image_too_large")
+            source.load()
+            image = ImageOps.exif_transpose(source)
+        content_type = CONTENT_TYPES[kind][0]
+        image.info = {}  # nothing carried over: no exif, icc_profile, xmp, text chunk or dpi
+        out = io.BytesIO()
+        if content_type == "image/png":
+            if image.mode == "P":
+                image = image.convert("RGB")
+            image.save(out, format="PNG")
+        else:
+            if image.mode not in ("L", "RGB"):
+                image = image.convert("RGB")
+            image.save(out, format="JPEG", quality=95)
+        return out.getvalue(), content_type
+    except ImageRejected:
+        raise
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+        raise ImageRejected("image_undecodable") from None
