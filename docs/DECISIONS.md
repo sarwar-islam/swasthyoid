@@ -1224,15 +1224,15 @@ All M2 work that needs no owner decision or external access; the open decisions 
   pgserver, since removed): **897 passed, 10 skipped, 0 failed** in 582 s. The 10 skips are platform-bound: 3 Linux-only
   process-group kill tests, 4 Linux-only runner signal and kill tests, and 3 symlink tests that need privileges this
   machine lacks (one in `test_ocr_config.py`, two in `test_jonaki_linkage.py`).
-- **CI run #42 (verified, with one limit stated).** Run #42 on `main`, event `push`, head SHA
-  `044c95afcf597c42468f105eb182f25cdb9c961b` (`044c95a`, which includes code commit `909a47c`): conclusion
-  **success**, job 3m 12s (03:04:49 to 03:08:01 UTC). Every step succeeded, including `Run pytest -q`, so pytest
-  exited 0 (no failure, no error). Verified from the run page and the public GitHub run and job metadata.
-  **Not read:** the pytest summary line. The job log needs a signed-in GitHub user and was inaccessible (the browser
-  pane was not signed in; an authenticated fetch was refused by the permission system and was not retried). So the
-  passed, skipped and warning counts are unknown, and it is **unconfirmed** that the two new symlink tests and the
-  Linux-only process-group and signal tests executed rather than were skipped. The expected 907 passed, 0 skipped
-  was not observed. Run link: https://github.com/sarwar-islam/swasthyoid/actions/runs/43549715271.
+- **CI run #42 (verified).** Run #42 on `main`, event `push`, head SHA `044c95afcf597c42468f105eb182f25cdb9c961b`
+  (`044c95a`, which includes code commit `909a47c`): conclusion **success**, job 3m 12s (03:04:49 to 03:08:01 UTC).
+  Pytest on Linux with PostgreSQL 16: **907 passed, 0 failed, 0 skipped, 1 warning** (the existing
+  `StarletteDeprecationWarning` for `httpx`), in 153.01 s (2m 33s). The pytest summary line was supplied by the owner
+  from the job log; the commit SHA, conclusion and step results were separately confirmed from the run page and the
+  public run and job metadata. 907 = 812 (run #41) + 95 new tests, as predicted. `pytest -q` prints no test names, so
+  that the two new symlink tests and the Linux-only process-group and signal tests executed and passed is **inferred
+  from 0 skipped and 0 failed**, not shown by name. Run link:
+  https://github.com/sarwar-islam/swasthyoid/actions/runs/43549715271.
 
 ## D13 clarification (D13 stays open as a whole)
 
