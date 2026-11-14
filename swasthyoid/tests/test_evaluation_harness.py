@@ -168,3 +168,63 @@ def test_a_value_with_no_usable_confidence_is_never_accepted(dataset):
 
 def test_the_confidence_section_exists_only_when_a_threshold_is_given(dataset):
     assert "confidence" not in harness.run(dataset, oracle(dataset), include_copies=False)
+
+
+# ---- text-level metrics (CER, WER, rates), hand-computed
+
+def test_edit_distance_on_strings_and_word_lists():
+    assert harness.edit_distance("kitten", "sitting") == 3
+    assert harness.edit_distance(["a", "b"], ["a", "c", "d"]) == 2 and harness.edit_distance("", "abc") == 3
+
+
+def test_cer_and_wer_of_one_pair():
+    assert harness.cer("abcd", "abxd") == 0.25 and harness.cer("abcd", "abcd") == 0.0
+    assert harness.cer("ab", "") == 1.0 and harness.cer("", "abc") is None
+    assert harness.wer("a b c", "a x c") == pytest.approx(1 / 3) and harness.wer("a b", "a b c") == 0.5
+    assert harness.wer("", "x") is None
+
+
+def test_normalisation_is_nfc_and_whitespace_only():
+    assert harness.cer("\u09cb", "\u09c7\u09be") == 0.0  # the composed and decomposed Bengali vowel sign are the same text
+    assert harness.cer("a  b\n c", "a b c") == 0.0
+    assert harness.cer("\u0964", ".") == 1.0  # nothing else is folded: danda is not a full stop
+
+
+def test_the_corpus_report_micro_averages_and_counts_failures_and_empty_outputs_separately():
+    samples = [{"reference": "abcd", "hypothesis": "abxd", "seconds": 1.0, "peak_memory_bytes": 100},
+               {"reference": "hello world", "hypothesis": "hello world", "seconds": 3.0},
+               {"reference": "gone", "hypothesis": ""},
+               {"reference": "lost", "hypothesis": None}]
+    report = harness.text_report(samples)
+    assert (report["samples"], report["failed"], report["failure_rate"]) == (4, 1, 0.25)
+    assert report["empty_output_rate"] == pytest.approx(1 / 3) and report["exact_match_rate"] == pytest.approx(1 / 3)
+    assert report["cer"] == pytest.approx((1 + 0 + 4) / (4 + 11 + 4))  # edits over total reference characters, failures excluded
+    assert report["wer"] == pytest.approx((1 + 0 + 1) / (1 + 2 + 1))
+    assert (report["mean_seconds"], report["max_seconds"], report["max_peak_memory_bytes"]) == (2.0, 3.0, 100)
+
+
+def test_an_empty_corpus_has_no_rates_and_unmeasured_fields_stay_none():
+    report = harness.text_report([])
+    assert report["samples"] == 0 and report["cer"] is None and report["failure_rate"] is None
+    only = harness.text_report([{"reference": "a", "hypothesis": "a"}])
+    assert only["mean_seconds"] is None and only["max_peak_memory_bytes"] is None and only["cer"] == 0.0
+
+
+def test_a_corpus_of_only_failures_reports_the_failure_rate_and_no_cer():
+    report = harness.text_report([{"reference": "a", "hypothesis": None}])
+    assert report["failure_rate"] == 1.0 and report["cer"] is None and report["empty_output_rate"] is None
+
+
+def test_scoring_refuses_anything_that_is_not_text():
+    for call in (lambda: harness.normalize_text(5), lambda: harness.cer(None, "x"), lambda: harness.wer("a", 3),
+                 lambda: harness.text_report([{"reference": None, "hypothesis": "x"}]),
+                 lambda: harness.text_report([{"reference": "a", "hypothesis": 7}]),
+                 lambda: harness.text_report(["not a sample"])):
+        with pytest.raises(ValueError):
+            call()
+
+
+def test_an_insertion_against_an_empty_reference_is_an_edit_and_an_all_empty_corpus_has_no_cer():
+    mixed = harness.text_report([{"reference": "abcd", "hypothesis": "abcd"}, {"reference": "", "hypothesis": "xy"}])
+    assert mixed["cer"] == pytest.approx(2 / 4)  # two insertions over four reference characters
+    assert harness.text_report([{"reference": "", "hypothesis": "xy"}])["cer"] is None  # nothing to divide by

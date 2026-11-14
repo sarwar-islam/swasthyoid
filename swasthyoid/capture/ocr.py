@@ -221,8 +221,10 @@ def load_allowlist():
 
 def manifest_checksum(entry):
     """SHA-256 over sorted "path<TAB>sha256<LF>" lines of the approved artifacts.
-    shortcut: hard links are not detected (owner-accepted limitation); a file can still change
-    between this check and the adapter reading it."""
+    Documented limitation recorded by the owner (docs/DECISIONS.md, "Owner decisions applied",
+    2026-11-12): hard links are not detected.
+    UNRESOLVED RESIDUAL RISK, NOT approved by the owner: a file can still change between this
+    check and the adapter reading it (see docs/M2_OWNER_DECISIONS.md, R1)."""
     if entry is None or not entry["artifacts"]:
         if not runtime_mode.is_test_mode():
             raise AdapterError("engine_unavailable")  # an empty artifact list is test-only

@@ -141,3 +141,74 @@ def run(dataset, predictor, *, include_copies=True, threshold=None):
 
 def to_json(report):
     return json.dumps(report, sort_keys=True, indent=2)
+
+
+# ---- text-level OCR metrics (step 9 mechanism): CER, WER, exact match, empty and failure rates
+
+def normalize_text(text):
+    """NFC and whitespace collapsed to single spaces: the only normalisation applied before scoring.
+    No script-specific folding (for example of danda forms) is done here; a protocol that needs one
+    must state it. Raises ValueError for anything but text."""
+    import unicodedata
+    if not isinstance(text, str):
+        raise ValueError("scoring needs text, not " + type(text).__name__)
+    return " ".join(unicodedata.normalize("NFC", text).split())
+
+
+def edit_distance(a, b):
+    """Levenshtein distance between two sequences (strings for characters, lists for words)."""
+    previous = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        current = [i]
+        for j, y in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (x != y)))
+        previous = current
+    return previous[-1]
+
+
+def cer(reference, hypothesis):
+    """Character error rate of one pair after normalisation, or None when the reference is empty."""
+    ref, hyp = normalize_text(reference), normalize_text(hypothesis)
+    return edit_distance(ref, hyp) / len(ref) if ref else None
+
+
+def wer(reference, hypothesis):
+    """Word error rate of one pair after normalisation, or None when the reference has no words."""
+    ref, hyp = normalize_text(reference).split(), normalize_text(hypothesis).split()
+    return edit_distance(ref, hyp) / len(ref) if ref else None
+
+
+def text_report(samples):
+    """Corpus-level text metrics. Each sample is {"reference": str, "hypothesis": str or None} (None:
+    the engine failed on it) and may carry "seconds" and "peak_memory_bytes", which are only reported
+    when given (this module measures neither). CER and WER are micro-averaged (total edits over total
+    reference length) over the samples that did not fail (an insertion against an empty reference
+    counts as an edit, and the rates are None when no reference text exists); failures and empty
+    outputs are counted separately, never hidden inside CER. Every rate is None for an empty corpus.
+    This measures reading text against a reference, not clinical correctness."""
+    total = len(samples)
+    for s in samples:  # fail clearly before scoring anything
+        if not (isinstance(s, dict) and isinstance(s.get("reference"), str)
+                and (s.get("hypothesis") is None or isinstance(s["hypothesis"], str))):
+            raise ValueError("each sample needs a text reference and a text or None hypothesis")
+    failed = [s for s in samples if s["hypothesis"] is None]
+    done = [s for s in samples if s["hypothesis"] is not None]
+    char_edits = char_total = word_edits = word_total = exact = empty = 0
+    for s in done:
+        ref, hyp = normalize_text(s["reference"]), normalize_text(s["hypothesis"])
+        char_edits, char_total = char_edits + edit_distance(ref, hyp), char_total + len(ref)
+        word_edits += edit_distance(ref.split(), hyp.split())
+        word_total += len(ref.split())
+        exact += ref == hyp
+        empty += hyp == ""
+    seconds = [s["seconds"] for s in samples if isinstance(s.get("seconds"), (int, float))]
+    memory = [s["peak_memory_bytes"] for s in samples if isinstance(s.get("peak_memory_bytes"), int)]
+    return {"samples": total, "failed": len(failed),
+            "failure_rate": len(failed) / total if total else None,
+            "empty_output_rate": empty / len(done) if done else None,
+            "exact_match_rate": exact / len(done) if done else None,
+            "cer": char_edits / char_total if char_total else None,
+            "wer": word_edits / word_total if word_total else None,
+            "mean_seconds": sum(seconds) / len(seconds) if seconds else None,
+            "max_seconds": max(seconds) if seconds else None,
+            "max_peak_memory_bytes": max(memory) if memory else None}

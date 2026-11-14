@@ -22,10 +22,10 @@ What is preserved: per line the text, the recognition score as `confidence` (a r
 is NOT clinical correctness) and the box as `position`, in explicit reading order, per page. In
 interface version 0 only the text reaches the database (items and positions are never stored); the
 provenance that is stored is engine_id, model_version (recognizer and detector revisions),
-adapter_version and, through the approved-artifact manifest, the model checksum. That checksum does NOT
-prove the loaded weights: without an approved-adapter entry the test-mode checksum is the SHA-256 of empty
-input, and even with an entry the listed artifacts are not yet verified to be the files loaded from the
-configured model directories (nothing ties the two together).
+adapter_version and, through the approved-artifact manifest, the model checksum. That checksum proves the
+loaded weights only when an approved-adapter entry exists: the factory then requires every file in both
+model directories to be listed (check_linkage). Without an entry (test mode only) it is the SHA-256 of
+empty input, a constant, and proves nothing. Linkage is tested with synthetic files, not real weights.
 
 Fail closed: a page that cannot be decoded, a crashed or hung runner, or malformed runner output
 raises an AdapterError (the attempt fails and is retried, then goes to manual entry). A page that
@@ -42,6 +42,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
+from swasthyoid.capture import ocr
 from swasthyoid.capture.ocr import AdapterError
 
 ENGINE_ID = "jonaki-bangla-ocr"
@@ -228,12 +229,64 @@ def _env_path(name, directory):
     return value
 
 
+def artifact_files(directory):
+    """Every regular file under `directory` as a sorted list of paths relative to it, '/'-separated.
+    A symlink anywhere below it, or anything that is neither a file nor a directory, raises
+    AdapterError(model_integrity_failed): the runner must load exactly what was approved."""
+    root = Path(directory)
+    found = []
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise _fail("model_integrity_failed")
+        if path.is_file():
+            found.append(path.relative_to(root).as_posix())
+        elif not path.is_dir():
+            raise _fail("model_integrity_failed")
+    return found
+
+
+def _listed(root, directory):
+    """The files of `directory` as paths relative to the artifact root; the directory must be below it."""
+    base = Path(directory).resolve()
+    try:
+        prefix = base.relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        raise _fail("model_integrity_failed")
+    return {f"{prefix}/{name}" if prefix != "." else name for name in artifact_files(base)}
+
+
+def check_linkage(entry, recognizer, detector):
+    """Tie the approved-artifact entry to the directories the runner will load: both must lie under
+    the entry's artifact_root and EVERY file in them must be listed (the manifest checksum then
+    covers exactly the loaded files). Raises AdapterError(model_integrity_failed) otherwise.
+    UNRESOLVED RESIDUAL RISK (not an approved limitation): a file can still change between this
+    check and the runner reading it, and hard links are not detected. For the 4A artifact check
+    the owner recorded hard links as a documented limitation (docs/DECISIONS.md, "Owner decisions
+    applied"); that record does not mention this check. See docs/M2_OWNER_DECISIONS.md, R1 and R2."""
+    listed = set(entry["artifacts"])
+    for directory in (recognizer, detector):
+        if not _listed(entry["artifact_root"], directory) <= listed:
+            raise _fail("model_integrity_failed")
+
+
+def build_allowlist_entry(ref, root, recognizer, detector):
+    """The OCR_ADAPTERS_APPROVED entry for exactly the files in the two model directories, with the
+    real manifest checksum of those files. A convenience for the operator: putting an entry in the
+    approved list is the OWNER's act, and the entry should be reviewed before it is."""
+    artifacts = sorted(_listed(root, recognizer) | _listed(root, detector))
+    entry = {"ref": ref, "artifact_root": str(Path(root).resolve()), "artifacts": artifacts, "model_checksum": ""}
+    entry["model_checksum"] = ocr.manifest_checksum(entry)
+    return entry
+
+
 def jonaki():
     """The factory named in OCR_ADAPTER. Every setting is checked here, without loading anything:
     JONAKI_PYTHON (an interpreter of the separate environment), JONAKI_MODEL_DIR and
     JONAKI_DETECTOR_DIR (local directories), JONAKI_MODEL_REVISION and JONAKI_DETECTOR_REVISION
     (what the operator says the weights are, e.g. the Hugging Face commit hash; the approved-artifact
-    checksum is what proves it), optional JONAKI_PAGE_SECONDS."""
+    checksum is what proves it), optional JONAKI_PAGE_SECONDS. When OCR_ADAPTERS_APPROVED has an
+    entry for this adapter, the two directories must be covered by it (check_linkage). With no
+    entry (test mode only) nothing ties the loaded files to any checksum."""
     python = _env_path("JONAKI_PYTHON", directory=False)
     recognizer = _env_path("JONAKI_MODEL_DIR", directory=True)
     detector = _env_path("JONAKI_DETECTOR_DIR", directory=True)
@@ -241,6 +294,36 @@ def jonaki():
         seconds = float(os.environ.get("JONAKI_PAGE_SECONDS", PAGE_SECONDS))
     except ValueError:
         raise _fail("engine_unavailable")
+    for directory in (recognizer, detector):
+        if Path(directory).is_symlink():  # the path the runner receives must be the one that was checked
+            raise _fail("model_integrity_failed")
+    recognizer, detector = str(Path(recognizer).resolve()), str(Path(detector).resolve())
+    entry = ocr.load_allowlist().get(os.environ.get("OCR_ADAPTER"))
+    if entry is not None:  # with an approved entry the loaded files must be the approved ones
+        check_linkage(entry, recognizer, detector)
     command = [python, str(RUNNER), "--recognizer", recognizer, "--detector", detector]
     return Jonaki(command, os.environ.get("JONAKI_MODEL_REVISION", ""),
                   os.environ.get("JONAKI_DETECTOR_REVISION", ""), seconds)
+
+
+def main(argv=None):
+    """Print the approved-list entry for the model directories: python -m swasthyoid.capture.adapters.jonaki
+    --root ROOT --recognizer DIR --detector DIR [--ref REF]. Read-only."""
+    import argparse
+    parser = argparse.ArgumentParser(prog="python -m swasthyoid.capture.adapters.jonaki")
+    parser.add_argument("--root", required=True)
+    parser.add_argument("--recognizer", required=True)
+    parser.add_argument("--detector", required=True)
+    parser.add_argument("--ref", default="swasthyoid.capture.adapters.jonaki:jonaki")
+    args = parser.parse_args(argv)
+    try:
+        print(json.dumps({"adapters": [build_allowlist_entry(args.ref, args.root, args.recognizer, args.detector)]},
+                         indent=2))
+    except AdapterError as failure:
+        print(f"code={failure.code}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
