@@ -1609,3 +1609,55 @@ at the time of those runs the real runner and the weights had not been run; the 
   that pin the oneDNN default.
 - Scope boundaries unchanged: no accuracy claim (one synthetic page, no ground-truth scoring), no zero-network proof (an unreachable-proxy guard only, the network stayed on; R3 stands), no Bangla claim, and interface version 0 stays test-only until the owner approves D18 / 4B. The model names, package versions and PaddleX cache layout are now confirmed for that one machine only; Linux, GPU and other
   versions were not tried.
+
+## Phase 5: upload validation, retake and upload-anyway, EXIF at serve time, and the pre-processing record (2026-11-14; local, uncommitted)
+
+**Decisions (owner, 2026-11-14, approving the plan).** **D5 is decided:** a retake is simply a new upload (a refused upload stores
+nothing, so there is no earlier original to replace and no replacement endpoint); poor-quality pages are refused with reason codes and
+Bangla guidance unless the patient or caregiver sends `upload_anyway=true`; after "upload anyway" OCR runs normally (the proposal in the
+plan said "straight to manual entry"; that does not fit caregivers, since manual entry is patient-only (D10), and a poor page may still
+read; manual entry stays available at any time, D12). **D6 is decided:** the stored original is never changed; anyone but the patient
+who fetches an image gets a copy without EXIF or other metadata, made at serve time, and nothing is served if that copy cannot be made.
+The wording "remove EXIF before storing" in the request was resolved to this serve-time design to keep the original-preservation
+contract. Validation lives in `documents.create()`; `MPO` (a JPEG with extra frames, written by some phone cameras) is accepted as a
+JPEG; each image is decoded once; the per-image byte limit has its own code; the Bangla guidance is approved as written
+(`capture/guidance.py`; a native-speaker review is pending).
+
+**Built (all behind the existing authorization and idempotency):**
+
+- **Hard validation (`documents.inspect_images`, used by `create`).** Cheap checks for every page first (count 1 to 10, not empty, at most
+  10 MB, JPEG or PNG magic bytes), then one real decode per page (`imaging.load`, EXIF orientation applied, pixel cap 40,000,000 checked
+  from the header before any pixel is decoded, at most two pages checked at a time because decoding a large page is memory-heavy). Stable
+  codes, all HTTP 422 with `details.page`: `image_file_too_large`, `image_unsupported`, `image_undecodable`, `image_too_large`; count and
+  empty file stay `invalid_document`. **`upload_anyway` never bypasses any of these.** Nothing is stored for a refused upload.
+- **Quality (`imaging.check_measures`, provisional limits, D11).** A decodable page with reasons is refused with 422
+  `image_quality_warning` and `details.pages = [{page, reasons, guidance: [{code, bn}]}]`. The reasons are `image_blurry`, `image_glare`,
+  `image_low_contrast`, `image_skewed`, `image_too_small`. With `upload_anyway=true` the upload succeeds (201), each image carries
+  `quality_warnings` (`[]` for a clean page), and the audit entry `document.upload_override` (result allow, reason `page N: codes`, the
+  actor and the patient) is written in the same transaction as the document. The form field must be `true` or `false` (anything else is 422
+  `invalid_upload`) and is part of the idempotency fingerprint, so a refused upload does not burn its key and the same key with a different
+  flag is `idempotency_key_reused`.
+- **EXIF (D6).** `GET /documents/{id}/images/{n}`: the original's hash is verified first; the patient receives the stored original; any
+  other viewer (caregiver, consenting doctor) receives `imaging.strip_metadata(...)`: the orientation applied, then a re-encode without EXIF, GPS,
+  XMP, ICC or PNG text (JPEG quality 95, PNG lossless), or 500 `image_unavailable` with no image. The copy is never stored.
+- **Pre-processing record.** `extractions.preprocessing text[]`: the operations that `imaging.process()` applied to the working copy for that
+  extraction, in the order it runs them (`exif`, `deskew`, `denoise`, `contrast`), written in the same transaction as the extraction row.
+  **"Applied" means the operation's switch was on, not that pixels changed** (for example `deskew` is recorded even when the measured skew was 0).
+  `NULL` = not recorded (rows from before the column, manual entries); `{}` = the engine read the stored pages as they are. A failed attempt
+  stores no extraction row, so its operations are not recorded; a retry's successful extraction records its own list.
+
+**Migration (additive, in `capture/schema.sql`, applied by `db.apply_schema` like every earlier column; no numbered migration files exist).**
+`document_images.quality_warnings text[]` with a check that the values are a subset of the five quality codes (NULL = never checked,
+`{}` = checked and clean); `extractions.preprocessing text[]` with a check that it is a subset of the four operation names, at most four
+entries (the same `<@ ARRAY[...]` pattern as `allowed_categories`). Both tables are append-only, so the values are set at insert and never edited. The worker
+only checks, never migrates: `REQUIRED_SCHEMA` lists `document_images.quality_warnings` and `extractions.preprocessing`. **Deploy order: apply the
+schema (API start) before starting a worker with this change.**
+
+**Not verified here, stated plainly.** The PostgreSQL-backed tests that cover the upload endpoint, the audit entry, the serving rules and the
+extraction row (`test_documents.py`, `test_extraction_integration.py`, `test_m2_end_to_end.py`) were updated or added but could not run on this machine
+(no PostgreSQL); they need a CI run. The pure validation, guidance, EXIF-copy and recording logic is tested without a database
+(`test_upload_validation.py`, `test_processing_integration.py`). The quality limits are provisional and calibrated only on synthetic pages, so real
+photographs may be refused or accepted wrongly (D11; upload anyway is the safety valve). Memory use on a real 40-megapixel photograph was not
+measured. **Behaviour changes to know about:** every upload test now needs a real, decodable image (`tests/images.py`); existing clients that sent
+undecodable files will now get 422; non-patient viewers of an image now receive a re-encoded copy, not the stored bytes. The real-OCR pre-processing
+evaluation benchmark remains out of scope.

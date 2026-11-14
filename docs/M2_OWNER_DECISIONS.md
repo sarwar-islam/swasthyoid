@@ -46,8 +46,10 @@ residual risks, D13, D3, and the reviewer's name.
    real drug name would be `unrecognised`, and no suggestion parameter exists.
 7. **External model: access, license, detector, provenance, data.** Real Jonaki never runs, so no OCR accuracy of
    any kind exists and the real runner stays unexecuted.
-8. **D5, D6, D11 (upload quality policy, EXIF, pass marks).** Imaging limits stay provisional and unused by upload;
-   no retake policy and no confidence threshold.
+8. **D5 and D6 DECIDED 2026-11-14 (implemented locally, CI pending); D11 (pass marks) still open.** Upload is decoded and quality-checked
+   (retake = a new upload; poor pages refused with Bangla guidance unless `upload_anyway`; hard errors never bypassed); non-patients get an
+   EXIF-free copy at serve time (`docs/DECISIONS.md`, "Phase 5"). The quality limits stay provisional (calibrated on synthetic pages only) and there
+   is still no confidence threshold.
 9. **Residual risks (section 7), D13 alert mechanism (section 5), D3 handwritten set (Cross-cutting).** Each stays as described in that section.
 
 ## 1. Privacy
@@ -217,7 +219,8 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
   made here. Until decided, no handwritten evaluation data exists.
 
 - **D11** pass marks (confidence thresholds, image-quality limits): none are set; the harness takes any threshold as
-  an argument. **D5/D6** retake policy and EXIF handling: imaging limits are provisional and not wired into upload.
+  an argument. **D5/D6** are decided and implemented (2026-11-14, see the update in the priority list): the imaging limits are wired into
+  upload but stay provisional.
 - **Schema.** Everything above that needs a column waits for your approval; nothing was migrated.
 
 ---
@@ -226,7 +229,7 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 
 | M2 component | Implementation | Tests | Approval | Status |
 |---|---|---|---|---|
-| Capture and image processing | upload, storage, `imaging` measures, `process()`, `preprocess` option | DB-free and PostgreSQL | limits provisional (D5, D6, D11) | IMPLEMENTED AND TESTED (upload checks not wired: BLOCKED BY OWNER DECISION) |
+| Capture and image processing | upload, storage, `imaging` measures, `process()`, `preprocess` option | DB-free and PostgreSQL | D5, D6 decided 2026-11-14; limits provisional (D11) | IMPLEMENTED locally: upload decoded and quality-checked, Bangla guidance, upload anyway, EXIF-free copies for non-patients, pre-processing recorded; DB-free tests pass, PostgreSQL tests written and NOT RUN here (CI pending) |
 | Extraction privacy | secret allowlist, no temp files, constant log messages, original untouched, guards, fields sealed, raw text deletable and deleted at verification or rejection | static guards, PostgreSQL | D2 (b), Q8, Q4 approved 2026-11-14 | IMPLEMENTED AND TESTED (Windows with PostgreSQL; CI run #48); privacy verified with canary strings in CI run #51 (no leak found); no key rotation, no key version, no backup or export feature to verify |
 | OCR infrastructure | adapter contract v0, probe, child, Jonaki adapter and linkage | adapter, worker, process tests | v0 test-only; D18, 4B open | IMPLEMENTED AND TESTED (fake runner); final interface BLOCKED BY OWNER DECISION |
 | Real OCR execution | Jonaki runner written, never run; PaddleOCR English runner run once end to end on the owner's Windows machine (7 lines from one synthetic page, about 20 s, output accepted by the version 0 validator) | owner's local smoke run | Jonaki: access, license; PaddleOCR: owner decision 2026-11-14 | Jonaki BLOCKED BY EXTERNAL ACCESS/LICENSE; PaddleOCR RUN ONCE LOCALLY, no accuracy and no zero-network claim |
