@@ -19,8 +19,12 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
   (`docs/M2_OWNER_DECISIONS.md`). No feature work is authorized until the owner decides the next step.
 - **Second OCR adapter (owner decision 2026-11-14; committed as `c52897b` and `8be3b03`, CI run #53: 1229 passed, 0 failed, 0 skipped):** PaddleOCR English
   (`capture/adapters/paddleocr_adapter.py`, `paddleocr_runner.py`, `paddleocr_prepare.py`; `docs/OCR_PADDLEOCR.md`) alongside Jonaki,
-  tested with a fake runner only. The owner runs the weights download; model names and versions are unconfirmed; no accuracy
-  claim; interface version 0 stays test-only. Bangla support in PaddleOCR could not be confirmed.
+  tested with a fake runner in CI. **First real run (Windows, owner's machine, 2026-11-14):** the owner's `paddleocr_prepare.py` fetched
+  `PP-OCRv5_mobile_det` and `en_PP-OCRv5_mobile_rec` (30 pinned files); the first smoke run failed with `engine_error` because
+  PaddlePaddle 3.3.1's oneDNN CPU path breaks inside `predict()`; the runner now keeps oneDNN **off by default** (`PADDLEOCR_ENABLE_MKLDNN=1`
+  to opt in); after that, 7 lines were read from one synthetic page in about 20 s and the output passed the version 0 validator. That is
+  not accuracy, and not zero-network proof (an unreachable-proxy guard only; the network was on). Interface version 0 stays test-only.
+  Bangla support in PaddleOCR could not be confirmed. Details: `docs/OCR_PADDLEOCR.md`.
 - Still true: do not install `pgserver`, Docker or WSL without the owner's OK; never stage `.claude/` or `data/`.
 
 ## Next session: start here

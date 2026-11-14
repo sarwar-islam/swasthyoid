@@ -1,7 +1,7 @@
 # PaddleOCR (English) adapter: a second, temporary, replaceable OCR provider
 
-Status 2026-11-14: **implemented and tested with a fake runner only; committed (`c52897b`, docs `8be3b03`) and CI-green.** The real runner and the real weights have
-never been run in this repository. No accuracy of any kind is known. It sits **alongside** the Jonaki adapter
+Status 2026-11-14: **implemented, committed (`c52897b`, docs `8be3b03`) and CI-green with a fake runner; run once end to end with the real weights
+on the owner's Windows machine (first smoke run, below).** CI does not run PaddleOCR. No accuracy of any kind is known. It sits **alongside** the Jonaki adapter
 (`docs/OCR_JONAKI.md`, untouched, the Bangla reference); the two share no code.
 
 ## What it is, and what it is not
@@ -76,12 +76,37 @@ A page that cannot be decoded, a crashed or hung runner, or malformed output fai
 (`engine_error`, `malformed_output`, `engine_unavailable`); a page that decodes with no text is a valid empty page. The
 lifetime budget of 5 OCR executions per document applies as for any adapter (`docs/DECISIONS.md`, "Worker reliability fix").
 
+## First real run (2026-11-14, Windows, one page)
+
+- **Preparation by the owner:** `paddleocr_prepare.py` downloaded `PP-OCRv5_mobile_det` and `en_PP-OCRv5_mobile_rec` (30 files) into
+  `C:\ocr\paddleocr-en`; the adapter command printed an approved-list entry for exactly those 30 files, with `model_checksum`
+  `70947f32fc9b5566e4f1bf38a5fd8d95112d4239de77ec8d92a9e056dbf7d767` (the same value was recomputed from the files on disk). The
+  packages are the pinned `paddleocr_requirements.txt` (PaddleOCR 3.7.0, PaddlePaddle 3.3.1), installed by the owner in a separate virtual environment. The default model names and the
+  PaddleX cache layout that the preparation script assumes therefore worked on that machine.
+- **The first smoke run failed with `engine_error`, and the cause was not the environment.** The models load (a direct
+  `PaddleOCR(...)` load printed `loaded`), but `predict()` raised, inside PaddlePaddle's oneDNN (MKLDNN) CPU path, `NotImplementedError:
+  ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]` from the detector. The adapter reports
+  only `engine_error` on purpose (the runner hides exception text), which is why the cause was found with a diagnostic copy of the runner
+  that printed a traceback. The allowlisted environment (`SYSTEMROOT`, `PATH`, `TEMP`, no `HOME`, `USERPROFILE` or `APPDATA`) was ruled out.
+- **Fix:** the runner passes `enable_mkldnn=os.environ.get("PADDLEOCR_ENABLE_MKLDNN") == "1"`: **oneDNN is off by default and an opt-in
+  only.** This is the same default the Jonaki runner uses for its PP-OCRv6 detector. The `PADDLEOCR_` prefix is already allowed through
+  the child's environment. Two tests pin it (`test_the_runner_keeps_onednn_off_unless_the_owner_opts_in`, and the opt-in reaching the runner
+  without a secret).
+- **Result after the fix** (the repository adapter and runner, the 30 pinned files, one synthetic English prescription page from the test
+  generator, an unreachable proxy set as a guard, the network not disabled): **7 lines read in about 20 s**, recognition scores 0.983 to
+  1.000, and the output passed the version 0 validator (`ocr.validate_result`) with the runner exiting 0.
+- **What this does NOT show.** No accuracy: it is one synthetic page, with no ground-truth scoring, and no real prescription or handwriting.
+  No zero-network proof: the unreachable proxy is a guard that would make a network attempt fail, not a block, and the network
+  stayed on (residual risk R3 stands). Nothing about Bangla, nothing about clinical correctness, and nothing about production use:
+  interface version 0 stays test-only. The CPU time (about 20 s per page here, including model loading) is one measurement on one
+  machine, not a limit; the adapter's 120 s default is still a provisional guess.
+
 ## Not verified, stated plainly
 
-The real runner and the preparation script were never executed here (no PaddleOCR, no weights, no network used). The PaddleOCR
-call follows the Jonaki runner's usage (PaddleOCR 3.x), not this model pair's documentation. Model names, package versions, the
-cache layout and the CPU time per page are all unconfirmed. **No accuracy, no Bangla support and no clinical correctness is
-claimed.** Evaluation needs the weights and permitted data; the clinical reviewer's sign-off (FRD Q7) is separate.
+Beyond the one smoke run above, nothing about recognition quality is known. The PaddleOCR call follows the Jonaki runner's usage
+(PaddleOCR 3.x); it worked on one page with PaddleOCR 3.7.0 and PaddlePaddle 3.3.1 on Windows CPU, and was not tried on Linux, on GPU, or with
+other versions. **No accuracy, no Bangla support and no clinical correctness is claimed.** Evaluation needs permitted data; the clinical
+reviewer's sign-off (FRD Q7) is separate.
 
 ## Tests (no PaddleOCR, no weights, no network)
 
