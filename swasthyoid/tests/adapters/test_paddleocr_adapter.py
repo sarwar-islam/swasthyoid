@@ -296,6 +296,20 @@ def test_the_runner_switches_orientation_textline_and_unwarping_off_and_passes_e
     assert "text_detection_model_dir=args.detector" in source and "text_recognition_model_dir=args.recognizer" in source
 
 
+def test_the_runner_keeps_onednn_off_unless_the_owner_opts_in():
+    """Found with the real weights (2026-11-14): with oneDNN on, predict() failed on Windows CPU after the models loaded."""
+    source = (ADAPTERS / "paddleocr_runner.py").read_text(encoding="utf-8")
+    assert 'enable_mkldnn=os.environ.get("PADDLEOCR_ENABLE_MKLDNN") == "1"' in source  # off by default, opt-in only
+    assert "enable_mkldnn=True" not in source
+
+
+def test_the_opt_in_setting_reaches_the_runner_but_a_secret_does_not(monkeypatch):
+    monkeypatch.setenv("PADDLEOCR_ENABLE_MKLDNN", "1")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://synthetic-secret")
+    env = fake_paddleocr.paddleocr_en()._environment()
+    assert env["PADDLEOCR_ENABLE_MKLDNN"] == "1" and "DATABASE_URL" not in env
+
+
 def test_the_optional_requirements_are_not_part_of_the_projects_dependencies():
     import tomllib
     root = ADAPTERS.parents[2]

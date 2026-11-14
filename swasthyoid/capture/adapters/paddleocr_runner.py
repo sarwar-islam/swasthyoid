@@ -38,6 +38,10 @@ def run(args, cache):
         text_detection_model_name=args.detector_name, text_detection_model_dir=args.detector,
         text_recognition_model_name=args.recognizer_name, text_recognition_model_dir=args.recognizer,
         use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=False,
+        # oneDNN (MKLDNN) is OFF unless PADDLEOCR_ENABLE_MKLDNN=1: with PaddlePaddle 3.3.1 on Windows CPU the detector
+        # fails inside predict() ("ConvertPirAttribute2RuntimeAttribute not support ...") although the models LOAD fine,
+        # which the adapter reports only as engine_error. Measured 2026-11-14 on this machine; the Jonaki runner does the same.
+        enable_mkldnn=os.environ.get("PADDLEOCR_ENABLE_MKLDNN") == "1",
     )
     pages = []
     for page in request["pages"]:
