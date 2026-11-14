@@ -1526,3 +1526,33 @@ machine is Windows with no PostgreSQL, WSL or Docker; the first CI run is descri
   outside, such as by the OOM killer, while a new-session descendant is alive) may escape. No test covers that case.
 - Windows relies on `taskkill /T /F` and has no equivalent normal-exit cleanup. Windows was tested here only for same-group
   descendants (timeout, lost lease, cancellation, an already-exited child).
+
+## Extraction data privacy verification with canary strings (2026-11-14; commit `bdca92c`)
+
+Evidence-based check of the three D2 requirements with synthetic canary strings only (one each for a prescriber name, a printed
+patient name, an allergy text and a raw text, plus generated keys). No canary or key value is recorded in these documents.
+
+**Result: no leak found, no defect found.** CI evidence: CI run #51 (`bdca92c`; `ubuntu-latest`, Python 3.12, PostgreSQL 16; **1145 passed, 0 failed, 0 skipped**, 1 warning, 181 s). The pytest summary does not name tests, so which individual tests
+ran is inferred from the counts (1135 in run #48, plus 3 PostgreSQL-backed and 7 database-free tests added here); the
+`Run pytest -q` output was supplied by the owner. Locally on Windows (no PostgreSQL): 808 passed, 337 skipped; the 3 PostgreSQL-backed
+tests were collected and skipped there and ran only in CI.
+
+| Requirement | Method | Result |
+|---|---|---|
+| Plaintext in a database dump | `COPY ... TO STDOUT` of every public table (the data section of a `pg_dump`), after a success, a failure whose error text carried the canaries, and a manual entry; a real `pg_dump` is also run when the CI image has one that can dump the server | no canary in any table; metadata intact (engine, raw-text hash, ids, statuses, the failure's error type only); the raw-text ciphertext is gone from the dump once the document is verified and its hash remains; `audit_logs` and `extractions` refuse UPDATE and DELETE |
+| Wrong or rotated key fails closed | direct tests (`test_privacy_canary.py`, database-free) and a rotated key through the API and the database (`test_extraction_privacy_pg.py`) | both the fields path and the raw-text path raise `Undecryptable` (API: 500 `extraction_unreadable`); no partial or plain value returned; stored ciphertext identical afterwards; status unchanged and never `verified`; no canary or key in the error, its repr, its formatted traceback or the response; the original key reads everything again |
+| Logs and files | every log record at DEBUG and every SQL parameter of the worker failure path recorded; the API run's captured logs; the document-store files; a failing OCR child | no canary and no key; no log record carries a traceback; the stored error is the exception type only |
+
+**Scope limits that stand (nothing here proves them away):**
+
+- There is **no backup or export feature** in the code. The data dump is a proxy; real backups, replicas and the PostgreSQL server's
+  own logs were not inspected.
+- **No key version is stored.** After a rotation new extractions are sealed with the new key and old rows become unreadable; nothing
+  re-seals them or detects the mismatch (the known "no key rotation" item).
+- `open_fields` returns a `fields` value that is not in the sealed shape **unchanged** (this is how pre-D2 rows are read). It is not a
+  plaintext leak, but such a value does not fail closed; the append-only table blocks edits.
+- `Undecryptable` hides its cause when printed, but the underlying JSON decode error (which holds the decrypted text) stays in
+  `__context__`. A debugger or code that reads `__context__` could reach it. Not changed.
+- Logging was checked through the application's own loggers and test capture. Real stdout and stderr, uvicorn access logs and
+  operating-system logs were not.
+- Pre-D2 rows (`fields` and `raw_text` in plain form, synthetic data only) still exist where they were written.

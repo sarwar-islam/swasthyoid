@@ -30,7 +30,7 @@ residual risks, D13, D3, and the reviewer's name.
 
 ## Priority order (items 1, 3, 4 and 5 were approved on 2026-11-14 and implemented locally; what is still open in each is stated)
 
-1. **D2 and FRD Q8 (privacy and retention): approved and implemented; covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped, Linux, PostgreSQL 16).** Still open: no key rotation,
+1. **D2 and FRD Q8 (privacy and retention): approved and implemented; covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped, Linux, PostgreSQL 16) and verified with canary strings in CI run #51 (`bdca92c`; 1145 passed, 0 failed, 0 skipped): no plaintext in a full data dump, a rotated key fails closed on both paths, no canary or key in logs or errors (details and scope limits: `docs/DECISIONS.md`, "Extraction data privacy verification").** Still open: no key rotation,
    plain legacy rows, a lawyer's view on retention not recorded; synthetic data only until deployed and reviewed.
 2. **D18 / 4B and the schema approval (OCR interface).** Interface version 0 stays test-only: no OCR adapter is
    available outside test mode, so no production extraction; per-line confidence, boxes, the preprocessing record and
@@ -208,12 +208,12 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 
 ---
 
-# M2 completion status (2026-11-14; latest CI run #48 on `dcf31d6`: 1135 passed, 0 failed, 0 skipped, Linux, PostgreSQL 16; earlier figures, kept as history: local Windows run 992 passed, 10 skipped; CI run #42 907 passed)
+# M2 completion status (2026-11-14; latest CI run #51 on `bdca92c`: 1145 passed, 0 failed, 0 skipped, Linux, PostgreSQL 16; earlier figures, kept as history: CI run #48 1135 passed; local Windows run 992 passed, 10 skipped; CI run #42 907 passed)
 
 | M2 component | Implementation | Tests | Approval | Status |
 |---|---|---|---|---|
 | Capture and image processing | upload, storage, `imaging` measures, `process()`, `preprocess` option | DB-free and PostgreSQL | limits provisional (D5, D6, D11) | IMPLEMENTED AND TESTED (upload checks not wired: BLOCKED BY OWNER DECISION) |
-| Extraction privacy | secret allowlist, no temp files, constant log messages, original untouched, guards, fields sealed, raw text deletable and deleted at verification or rejection | static guards, PostgreSQL | D2 (b), Q8, Q4 approved 2026-11-14 | IMPLEMENTED AND TESTED (Windows with PostgreSQL; CI run #48); no key rotation |
+| Extraction privacy | secret allowlist, no temp files, constant log messages, original untouched, guards, fields sealed, raw text deletable and deleted at verification or rejection | static guards, PostgreSQL | D2 (b), Q8, Q4 approved 2026-11-14 | IMPLEMENTED AND TESTED (Windows with PostgreSQL; CI run #48); privacy verified with canary strings in CI run #51 (no leak found); no key rotation, no key version, no backup or export feature to verify |
 | OCR infrastructure | adapter contract v0, probe, child, Jonaki adapter and linkage | adapter, worker, process tests | v0 test-only; D18, 4B open | IMPLEMENTED AND TESTED (fake runner); final interface BLOCKED BY OWNER DECISION |
 | Real OCR execution | real runner written, never run | none | access, license | BLOCKED BY EXTERNAL ACCESS/LICENSE |
 | Clinical schemas | mechanism plus the approved list in `SCHEMAS` | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; reviewer sign-off pending |

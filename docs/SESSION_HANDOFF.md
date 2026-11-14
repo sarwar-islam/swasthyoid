@@ -6,6 +6,19 @@ facts live in `CLAUDE.md`, `docs/DECISIONS.md`, `docs/FRD.md` (v3) and
 `docs/M2_COMPLETION_PLAN.md`. Where this file and those disagree, those win. **Verify Git state
 yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file for it.
 
+## Update 2026-11-14 (later; supersedes the older snapshot lines below where they differ)
+
+- `main` was at `bdca92c` and in sync with `origin/main` when this was written (**verify with `git status` and `git log`**). Latest
+  CI evidence: CI run #51 (`bdca92c`; `ubuntu-latest`, Python 3.12, PostgreSQL 16; **1145 passed, 0 failed, 0 skipped**, 1 warning, 181 s). Run #48 (`dcf31d6`) 1135 passed, 0 skipped; run #47 failed 3 tests that were fixed in `dcf31d6`.
+- Done since the snapshot below: drug catalog loader Phase A (D8, synthetic tests only, data files git-ignored, license unresolved);
+  worker reliability fix (process-tree termination, lifetime budget of **5 OCR executions per document** that supersedes the earlier
+  18-attempt Option A); Extraction Data Privacy verification (no leak found). Details and limits: `docs/DECISIONS.md`
+  ("Worker reliability fix", "Extraction data privacy verification"), `docs/DRUG_CATALOG.md`.
+- Open and waiting for the owner or an outside party: D8 and FRD Q1 (catalog source and license), D18 / 4B and its schema approval,
+  Jonaki access and license, the clinical reviewer (FRD Q7), D5/D6/D11, D13 and Q4, D3, residual risks R1 to R5, key rotation
+  (`docs/M2_OWNER_DECISIONS.md`). No feature work is authorized until the owner decides the next step.
+- Still true: do not install `pgserver`, Docker or WSL without the owner's OK; never stage `.claude/` or `data/`.
+
 ## Next session: start here
 
 1. Read `CLAUDE.md`, this file, `docs/DECISIONS.md` (from "AI models are owner-supplied" to the
