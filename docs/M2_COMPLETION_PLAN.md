@@ -117,7 +117,7 @@ The approved proposal was a claim-and-lease design fenced by attempt number, wit
 
 ## Step 2 — Extraction data privacy
 
-- **Status.** Implemented locally 2026-11-14 (D2 option b, key EXTRACTION_KEY, deletion at verification or rejection); see docs/DECISIONS.md, "Implementation record of the 2026-11-14 decisions". Not pushed, no CI run.
+- **Status.** Implemented locally 2026-11-14 (D2 option b, key EXTRACTION_KEY, deletion at verification or rejection); see docs/DECISIONS.md, "Implementation record of the 2026-11-14 decisions". Pushed; covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped).
 - **FRD requirement.** Section 9: encryption at rest, field-level encryption for sensitive fields, "store only schema fields", no document text in logs, patient export and delete.
 - **Proposed implementation.** The mitigation already written in `DECISIONS.md`: encrypt `extractions.fields` and `raw_text` with a key outside the database; keep `raw_text` only until the document is verified or rejected, in a store that allows deletion; record its hash in the append-only row.
 - **Files.** `capture/extraction.py`, `capture/schema.sql`, `pii.py` or `capture/storage.py`.
@@ -290,7 +290,7 @@ Planned work, in order, after those conditions are met:
 
 ## Step 6 — Clinical schemas and document parsers (your area 4)
 
-- **Status.** Partly implemented locally 2026-11-14: the approved field list in SCHEMAS and label-anchored transcription parsers; row splitting waits for reviewer vocabularies; reviewer not named. See docs/DECISIONS.md. Not pushed, no CI run.
+- **Status.** Partly implemented locally 2026-11-14: the approved field list in SCHEMAS and label-anchored transcription parsers; row splitting waits for reviewer vocabularies; reviewer not named. See docs/DECISIONS.md. Pushed; covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped).
 - **FRD requirement.** M2: "Parse to a typed schema with per-field confidence, validate types and dates". Invariant 1. CLAUDE.md: no invented clinical content.
 
 ### 6A — Schema mechanism (model-independent)
