@@ -17,6 +17,10 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 - Open and waiting for the owner or an outside party: D8 and FRD Q1 (catalog source and license), D18 / 4B and its schema approval,
   Jonaki access and license, the clinical reviewer (FRD Q7), D5/D6/D11, D13 and Q4, D3, residual risks R1 to R5, key rotation
   (`docs/M2_OWNER_DECISIONS.md`). No feature work is authorized until the owner decides the next step.
+- **Second OCR adapter (owner decision 2026-11-14, local, uncommitted unless the git log says otherwise):** PaddleOCR English
+  (`capture/adapters/paddleocr_adapter.py`, `paddleocr_runner.py`, `paddleocr_prepare.py`; `docs/OCR_PADDLEOCR.md`) alongside Jonaki,
+  tested with a fake runner only. The owner runs the weights download; model names and versions are unconfirmed; no accuracy
+  claim; interface version 0 stays test-only. Bangla support in PaddleOCR could not be confirmed.
 - Still true: do not install `pgserver`, Docker or WSL without the owner's OK; never stage `.claude/` or `data/`.
 
 ## Next session: start here

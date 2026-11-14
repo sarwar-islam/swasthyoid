@@ -151,7 +151,17 @@ is held; one transaction; audit entry `document.manual_entry`; and an endpoint f
 - **Recommended.** Keep the queue-length counter and add the alert the supervisor already offers.
 - **Approval needed.** The mechanism.
 
-## 6. External model (Jonaki, temporary)
+## 6. External model (Jonaki, temporary; PaddleOCR English added alongside, 2026-11-14)
+
+- **Second adapter, PaddleOCR English (owner decision 2026-11-14; `docs/OCR_PADDLEOCR.md`).** Because Hugging Face access for Jonaki is
+  pending, the owner added PaddleOCR's official detector and English recognizer as a second, temporary, replaceable adapter
+  (`engine_id` `paddleocr-en`), alongside Jonaki, which is untouched. It is **English only**: an official PaddleOCR Bangla recognizer
+  could not be confirmed (the sources disagree), so Bangla stays with Jonaki. Apache-2.0 is the owner's statement (the licence of
+  the individual model files was not read here). Weights are not yet prepared: the owner runs `paddleocr_prepare.py` (the only
+  networked step) and approves the entry in `OCR_ADAPTERS_APPROVED`. Implemented and tested with a fake runner only; the real runner
+  was never run; **no accuracy is known**. Orientation classification and unwarping are off. Interface version 0 stays test-only
+  (D18 / 4B open), so this does not enable production extraction. Open: confirm the model names and package versions, run the
+  preparation, provide permitted evaluation data, the reviewer's sign-off (FRD Q7), and R3 (network) for deployment.
 
 - **Hugging Face access.** The weights are gated; the author reviews every request. Needed: your account requests
   access. Nothing was downloaded or bypassed.
@@ -215,7 +225,8 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | Capture and image processing | upload, storage, `imaging` measures, `process()`, `preprocess` option | DB-free and PostgreSQL | limits provisional (D5, D6, D11) | IMPLEMENTED AND TESTED (upload checks not wired: BLOCKED BY OWNER DECISION) |
 | Extraction privacy | secret allowlist, no temp files, constant log messages, original untouched, guards, fields sealed, raw text deletable and deleted at verification or rejection | static guards, PostgreSQL | D2 (b), Q8, Q4 approved 2026-11-14 | IMPLEMENTED AND TESTED (Windows with PostgreSQL; CI run #48); privacy verified with canary strings in CI run #51 (no leak found); no key rotation, no key version, no backup or export feature to verify |
 | OCR infrastructure | adapter contract v0, probe, child, Jonaki adapter and linkage | adapter, worker, process tests | v0 test-only; D18, 4B open | IMPLEMENTED AND TESTED (fake runner); final interface BLOCKED BY OWNER DECISION |
-| Real OCR execution | real runner written, never run | none | access, license | BLOCKED BY EXTERNAL ACCESS/LICENSE |
+| Real OCR execution | real runners (Jonaki, PaddleOCR English) written, never run | none | access, license; PaddleOCR weights not yet prepared by the owner | BLOCKED BY EXTERNAL ACCESS/LICENSE (Jonaki) and BY THE OWNER'S WEIGHTS PREPARATION (PaddleOCR) |
+| PaddleOCR English adapter (second adapter) | adapter, runner, requirements, preparation script, fake runner and tests | DB-free, fake runner | owner decision 2026-11-14; models, versions and weights unconfirmed | IMPLEMENTED AND TESTED locally with a fake runner (not committed); no accuracy claim; interface version 0 stays test-only |
 | Clinical schemas | mechanism plus the approved list in `SCHEMAS` | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; reviewer sign-off pending |
 | Clinical parsers | label-anchored transcription; rows kept whole | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies) |
 | Drug catalog matching | matcher plus in-memory loader for the supplied CSV (Phase A) | DB-free, synthetic data only | D8, FRD Q1 | IMPLEMENTED AND TESTED locally; license/provenance, matching parameters and a generic-level index BLOCKED BY OWNER DECISION |

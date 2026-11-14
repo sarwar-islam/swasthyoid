@@ -1556,3 +1556,33 @@ tests were collected and skipped there and ran only in CI.
 - Logging was checked through the application's own loggers and test capture. Real stdout and stderr, uvicorn access logs and
   operating-system logs were not.
 - Pre-D2 rows (`fields` and `raw_text` in plain form, synthetic data only) still exist where they were written.
+
+## Second OCR adapter: PaddleOCR English, alongside Jonaki (2026-11-14, local, uncommitted)
+
+**Decision (owner, 2026-11-14).** Because Hugging Face access to the Jonaki weights is still pending, add PaddleOCR's official PP-OCR
+text detector and **English** recognizer as a second adapter, **alongside** Jonaki (`capture/adapters/jonaki.py` untouched, kept as
+the Bangla reference). The owner first asked for Bangla; the sources on whether PaddleOCR has an official Bangla recognizer
+disagree (a README claims 111 languages including Bengali; the PP-OCRv5 language tables and a maintainer's reply to a
+March 2026 request do not confirm it), so the owner chose English for the first slice (medicine names, doses and schedules).
+`engine_id` is `paddleocr-en`, the factory is `paddleocr_en`. Apache-2.0 is the owner's statement; the licence of the individual
+model files was not read here.
+
+**Approved by the owner, all five items of the proposal:** the English models; the module name `paddleocr_adapter.py` (not
+`paddleocr.py`, which would shadow the real package for the runner, which is also started with `-I`); orientation classification
+and unwarping **off**; the line-cleaning and reading-order helpers **copied**, not imported from Jonaki, so the two adapters stay
+independent; the owner runs the one-time weights download (`paddleocr_prepare.py`) and generates the SHA-256 manifest, after
+which the model runs strictly offline from pinned directories under `OCR_ADAPTERS_APPROVED`.
+
+**Built (local, tested with a fake runner only):** `paddleocr_adapter.py`, `paddleocr_runner.py`, `paddleocr_requirements.txt`,
+`paddleocr_prepare.py`, `tests/adapters/fake_paddleocr*.py` and three test files, `docs/OCR_PADDLEOCR.md`. Design points:
+the adapter imports only the standard library; the runner child gets an allowlisted environment with **no `HOME` or `USERPROFILE`**
+and makes its own private cache; explicit local model directories, so it never downloads; the preparation script prints its
+manifest on stdout and writes no file of its own, and the runner uses `os.mkdir` and not `tempfile`, so the existing privacy guards
+(`test_privacy_guards.py`, which scan `capture/`) pass **unchanged** (no guard was relaxed); the offline settings do not block the network
+(residual risk R3).
+
+**Not decided and not claimed:** accuracy (none is known); Bangla support; that the default model names
+(`PP-OCRv5_mobile_det`, `en_PP-OCRv5_mobile_rec`), the pinned package versions, the PaddleX cache layout the script assumes, and the
+CPU time per page (a provisional 120 s limit) are right: all are unconfirmed until the owner runs the preparation. **Interface version
+0 stays test-only (D18 / 4B, schema approval unchanged): this adapter does not enable production extraction.** Confidence and positions
+are still not stored. Evaluation needs permitted data and the clinical reviewer (FRD Q7, D11).

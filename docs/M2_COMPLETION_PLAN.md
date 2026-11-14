@@ -165,7 +165,7 @@ Everything in step 3 is model-independent. It produces data and plumbing; it mea
 ## Step 4 — OCR infrastructure and owner-model integration (your area 2)
 
 - **FRD requirement.** 3.5: local OCR. M2: local OCR; cloud model only on opt-in. Section 9: Bangla and English OCR; under 60 s per page.
-- **Status.** 4A (model-independent infrastructure) is implemented, merged and CI-verified. The Jonaki adapter infrastructure is implemented and tested with a fake runner only. **4B (the owner's model) is not implemented**, and the real Jonaki runner and weights have never been executed. No model is selected, installed or integrated by the project.
+- **Status.** 4A (model-independent infrastructure) is implemented, merged and CI-verified. The Jonaki adapter infrastructure is implemented and tested with a fake runner only. **4B (the owner's model) is not implemented**, and the real Jonaki runner and weights have never been executed. No model is selected, installed or integrated by the project. **Second adapter (owner decision 2026-11-14, local):** PaddleOCR English alongside Jonaki, implemented and tested with a fake runner only (`docs/OCR_PADDLEOCR.md`); weights are prepared by the owner; no accuracy claim; interface version 0 stays test-only.
 
 **OCR model status (2026-11-12).** Development of the OCR model has **not started**. The owner has not selected an architecture, framework, dataset or trained model, and will select, train, own and supply it independently (`docs/DECISIONS.md`, "OCR model not yet developed"). Everything in 4A is therefore model-independent infrastructure plus a **provisional** interface that is expected to change.
 
