@@ -2,3 +2,5 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
+# Licensed or third-party reference data stays out of git (docs/DRUG_CATALOG.md)
+data/

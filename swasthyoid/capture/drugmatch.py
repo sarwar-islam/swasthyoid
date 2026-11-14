@@ -10,19 +10,23 @@ What this decides, and what it refuses to decide:
   normalisation, and nothing more.
 - It never infers a strength or a form that was not written, and never treats similar names as
   equivalent. Strength and form are used only to NARROW exact name matches, by equality after
-  normalisation; a conflict is reported as ambiguous with every candidate, never resolved. When
-  an exact match has a strength or form the written text did not state, `unconfirmed` lists it.
+  normalisation; a record whose value CONFLICTS with the written one is dropped, a record that has NO
+  value for it is kept (a missing value cannot confirm or exclude anything) and marked `unconfirmed`.
+  A candidate with an unconfirmed attribute is never "exact": the result is ambiguous. When an exact
+  match has a strength or form the written text did not state, `unconfirmed` lists it too.
 - Similar-name suggestions exist only when the caller passes BOTH `suggestion_floor` and
   `max_suggestions`. They are the D8 parameters (how close is "similar", how many to show), they
   need the clinical reviewer's sign-off, and so they have NO defaults.
 - Deterministic: same input and catalog, same output, whatever the order of the catalog entries.
 
-Statuses: "exact" (one catalog entry has this name), "ambiguous" (more than one entry, or the
-written strength or form conflicts), "suggested" (no exact name; similar names listed for a
+Statuses: "exact" (one catalog entry has this name and nothing it was asked about is unconfirmed),
+"ambiguous" (more than one entry, the written strength or form conflicts, or the one entry lacks a
+written strength or form), "suggested" (no exact name; similar names listed for a
 person), "unrecognised" (nothing; the written name is kept verbatim and visible).
 """
 import re
 import unicodedata
+from types import MappingProxyType
 
 _BANGLA_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 
@@ -43,29 +47,49 @@ def _compact(text):
 
 
 class Catalog:
-    """An immutable catalog: entries {id, generic, brands, strength, form} plus its provenance."""
+    """A READ-ONLY catalog: entries {id, generic, brands, strength, form, manufacturer} plus its provenance.
+    `id` is the source record's own id and is kept as given. A generic name or a brand name may be absent
+    (never both); strength, form and manufacturer may be absent, and an absent value stays absent. The
+    manufacturer is shown with a candidate and is never used to choose one. Neither the catalog nor its
+    entries can be changed after construction."""
+
+    __slots__ = ("version", "source", "entries")
 
     def __init__(self, version, source, entries):
+        if hasattr(self, "entries"):  # an initialised catalog cannot be re-initialised to change it
+            raise AttributeError("a Catalog is read-only")
         if not (isinstance(version, str) and version.strip() and isinstance(source, str) and source.strip()):
             raise ValueError("a catalog needs a version and a source")
         seen, out = set(), []
         for entry in entries:
-            if not (isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]
-                    and isinstance(entry.get("generic"), str) and normalize(entry["generic"])):
-                raise ValueError("every catalog entry needs an id and a generic name")
+            if not (isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]):
+                raise ValueError("every catalog entry needs an id")
+            generic = entry.get("generic")
+            if generic is not None and not (isinstance(generic, str) and normalize(generic)):
+                raise ValueError("a generic name must be text or absent")
             if entry["id"] in seen:
                 raise ValueError("duplicate catalog entry id")
             seen.add(entry["id"])
             brands = entry.get("brands") or []
             if not (isinstance(brands, (list, tuple)) and all(isinstance(b, str) and normalize(b) for b in brands)):
                 raise ValueError("brands must be a list of non-empty names")
-            for key in ("strength", "form"):
+            if generic is None and not brands:
+                raise ValueError("every catalog entry needs a generic name or a brand name")
+            for key in ("strength", "form", "manufacturer"):
                 if entry.get(key) is not None and not isinstance(entry[key], str):
                     raise ValueError(f"{key} must be text or absent")
-            out.append({"id": entry["id"], "generic": entry["generic"], "brands": tuple(brands),
-                        "strength": entry.get("strength"), "form": entry.get("form")})
-        self.version, self.source = version, source
-        self.entries = tuple(sorted(out, key=lambda e: e["id"]))
+            out.append(MappingProxyType({"id": entry["id"], "generic": generic, "brands": tuple(brands),
+                                         "strength": entry.get("strength"), "form": entry.get("form"),
+                                         "manufacturer": entry.get("manufacturer")}))
+        object.__setattr__(self, "version", version)
+        object.__setattr__(self, "source", source)
+        object.__setattr__(self, "entries", tuple(sorted(out, key=lambda e: e["id"])))
+
+    def __setattr__(self, name, value):
+        raise AttributeError("a Catalog is read-only")
+
+    def __delattr__(self, name):
+        raise AttributeError("a Catalog is read-only")
 
     def provenance(self):
         return {"version": self.version, "source": self.source}
@@ -84,12 +108,16 @@ def similarity(a, b):
 
 
 def _names(entry):
-    return [("generic", entry["generic"])] + [("brand", b) for b in entry["brands"]]
+    named = [("generic", entry["generic"])] if entry["generic"] is not None else []
+    return named + [("brand", b) for b in entry["brands"]]
 
 
 def _candidate(entry, matched_on, score):
-    return {"id": entry["id"], "generic": entry["generic"], "matched_on": matched_on,
-            "strength": entry["strength"], "form": entry["form"], "score": score}
+    """A fresh copy of what the catalog holds, as it holds it: a candidate, never a verified record.
+    `unconfirmed` lists the attributes the written text stated and this record does not hold."""
+    return {"id": entry["id"], "generic": entry["generic"], "brands": list(entry["brands"]), "matched_on": matched_on,
+            "strength": entry["strength"], "form": entry["form"], "manufacturer": entry["manufacturer"], "score": score,
+            "unconfirmed": []}
 
 
 def match(name, catalog, *, strength=None, form=None, suggestion_floor=None, max_suggestions=None):
@@ -126,16 +154,23 @@ def match(name, catalog, *, strength=None, form=None, suggestion_floor=None, max
         narrowed = exact
         for value, fold, field in wanted:
             if value is not None:
-                narrowed = [c for c in narrowed if c[field] is not None and fold(c[field]) == fold(value)]
-        if len(narrowed) == 1:
+                for c in exact:  # a record with no value for this attribute cannot confirm it: kept, marked
+                    if c[field] is None:
+                        c["unconfirmed"].append(field)
+                narrowed = [c for c in narrowed if c[field] is None or fold(c[field]) == fold(value)]
+        if not narrowed:
+            result.update(status="ambiguous", candidates=exact, reason="attribute_mismatch")
+        elif len(narrowed) > 1:
+            result.update(status="ambiguous", candidates=narrowed, reason="multiple_entries")
+        elif narrowed[0]["unconfirmed"]:
+            result.update(status="ambiguous", candidates=narrowed, reason="attribute_unconfirmed")
+        else:
             # the catalog entry has attributes the written text did not state: shown, never filled in
             unconfirmed = [f for f, value in (("strength", strength), ("form", form))
                            if value is None and narrowed[0][f] is not None]
             result.update(status="exact", candidates=narrowed, unconfirmed=unconfirmed)
-        elif not narrowed:
-            result.update(status="ambiguous", candidates=exact, reason="attribute_mismatch")
-        else:
-            result.update(status="ambiguous", candidates=narrowed, reason="multiple_entries")
+        if result["status"] == "ambiguous":
+            result["unconfirmed"] = [f for f in ("strength", "form") if any(f in c["unconfirmed"] for c in result["candidates"])]
         return result
 
     if suggestion_floor is not None:

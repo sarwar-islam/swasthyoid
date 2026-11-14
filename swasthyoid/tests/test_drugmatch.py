@@ -183,3 +183,50 @@ def test_an_exact_match_lists_the_attributes_the_written_text_did_not_state(cata
     assert match("SYNTH-ALPHB", catalog, strength="5 mg", form="syrup")["unconfirmed"] == []
     assert match("gamm", catalog)["unconfirmed"] == []  # the entry has no strength or form to confirm
     assert match("nothing", catalog)["unconfirmed"] == [] and match("Brandone", catalog)["unconfirmed"] == []
+
+
+# ---- D8 Phase A: entries may lack a generic or a brand, carry a manufacturer, and the catalog is read-only
+
+def test_an_entry_may_lack_a_generic_or_a_brand_but_not_both():
+    book = Catalog("v", "s", [{"id": "B", "brands": ["OnlyBrand"]}, {"id": "G", "generic": "SYNTH-ONLY-GENERIC"}])
+    assert ids(match("OnlyBrand", book)) == ["B"] and ids(match("SYNTH-ONLY-GENERIC", book)) == ["G"]
+    for entry in ({"id": "X"}, {"id": "X", "generic": None, "brands": []}, {"id": "X", "generic": ""}):
+        with pytest.raises(ValueError):
+            Catalog("v", "s", [entry])
+
+
+def test_a_candidate_carries_the_catalogs_manufacturer_but_the_manufacturer_never_chooses_one():
+    book = Catalog("v", "s", [{"id": "1", "generic": "SYNTH-G", "brands": ["Brandone"], "manufacturer": "Maker One"},
+                              {"id": "2", "generic": "SYNTH-G", "brands": ["Brandone"], "manufacturer": "Maker Two"}])
+    result = match("Brandone", book)
+    assert result["status"] == "ambiguous" and [c["manufacturer"] for c in result["candidates"]] == ["Maker One", "Maker Two"]
+    with pytest.raises(TypeError):
+        match("Brandone", book, manufacturer="Maker One")  # there is no such narrowing option
+
+
+def test_a_catalog_and_its_entries_cannot_be_changed_after_construction():
+    book = Catalog("v", "s", [{"id": "1", "generic": "SYNTH-G"}])
+    with pytest.raises(AttributeError):
+        book.entries = ()
+    with pytest.raises(AttributeError):
+        del book.version
+    with pytest.raises(TypeError):
+        book.entries[0]["generic"] = "Changed"
+
+
+# ---- D8 Phase A audit corrections: re-initialising a catalog, and records that lack strength or form
+
+def test_an_existing_catalog_cannot_be_changed_by_calling_init_again():
+    book = Catalog("v", "s", [{"id": "1", "generic": "SYNTH-G"}])
+    with pytest.raises(AttributeError):
+        book.__init__("v2", "s2", [{"id": "9", "generic": "SYNTH-Z"}])
+    assert book.version == "v" and [e["id"] for e in book.entries] == ["1"]
+
+
+def test_a_record_without_a_strength_stays_a_candidate_when_a_strength_is_written_and_is_marked_unconfirmed():
+    book = Catalog("v", "s", [{"id": "1", "generic": "SYNTH-G", "brands": ["Brandone"], "strength": "5 mg"},
+                              {"id": "2", "generic": "SYNTH-G", "brands": ["Brandone"]}])
+    result = match("Brandone", book, strength="5 mg")
+    assert result["status"] == "ambiguous" and ids(result) == ["1", "2"] and result["unconfirmed"] == ["strength"]
+    assert [c["unconfirmed"] for c in result["candidates"]] == [[], ["strength"]]
+    assert "selected" not in result and result["review_required"] is True
