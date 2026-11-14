@@ -12,6 +12,7 @@ true; a retake is simply a new upload, because a refused upload stores nothing. 
 original; anyone else gets a copy without EXIF or other metadata, and nothing at all if that copy cannot be made.
 """
 import hashlib
+from dataclasses import replace
 from uuid import UUID
 
 import psycopg
@@ -66,7 +67,9 @@ async def _upload(request, conn, a, patient_id):
     def work():
         try:
             return _view(documents.create(conn, patient_id=patient_id, doc_type=doc_type, uploaded_by=a.id,
-                                          images=images, upload_anyway=upload_anyway, actor=a,
+                                          images=images, upload_anyway=upload_anyway,
+                                          # a caregiver's account role is "patient"; the chain audits them as "caregiver" (deps.py)
+                                          actor=a if a.id == patient_id else replace(a, role="caregiver"),
                                           context=client_info(request)))
         except documents.UploadRejected as e:  # never bypassed by upload_anyway
             raise ApiError(422, e.code, _HARD_MESSAGES[e.code], page=e.page)
