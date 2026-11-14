@@ -101,6 +101,10 @@ residual risks, D13, D3, and the reviewer's name.
 - **Consequences.** Without them only exact names match and everything else is "unrecognised", kept verbatim.
 - **Recommended.** No pre-selection; reviewer-set parameters.
 - **Approval needed.** The two values, the pre-selection rule, the catalog name, version, source and license.
+- **Update 2026-11-14 (Phase A, implemented locally):** the owner supplied six CSV files (`data/drug_catalog/`, git-ignored,
+  unchanged) and authorized an in-memory loader only. It is built and tested on synthetic data (`docs/DRUG_CATALOG.md`).
+  **Still open:** the catalog's source, license and permission (FRD Q1; the files carry no license or date and appear to derive
+  from MedEx), the matching parameters and any alias rules (reviewer), a generic-level index, database tables (schema approval).
 
 ## 4. API behavior (slice 8.6, manual entry and retry)
 
@@ -209,7 +213,7 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | Real OCR execution | real runner written, never run | none | access, license | BLOCKED BY EXTERNAL ACCESS/LICENSE |
 | Clinical schemas | mechanism plus the approved list in `SCHEMAS` | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; reviewer sign-off pending |
 | Clinical parsers | label-anchored transcription; rows kept whole | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies) |
-| Drug catalog matching | catalog-independent matcher | DB-free | D8, FRD Q1 | IMPLEMENTED AND TESTED (synthetic fixture); real catalog BLOCKED BY OWNER DECISION |
+| Drug catalog matching | matcher plus in-memory loader for the supplied CSV (Phase A) | DB-free, synthetic data only | D8, FRD Q1 | IMPLEMENTED AND TESTED locally; license/provenance, matching parameters and a generic-level index BLOCKED BY OWNER DECISION |
 | Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41) |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED locally; no CI run |
 | Retry endpoints | endpoint and function, cap 5, audited | PostgreSQL | D10 and retry cap approved 2026-11-14 (Option A) | IMPLEMENTED AND TESTED locally; no CI run |

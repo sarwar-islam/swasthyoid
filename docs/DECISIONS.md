@@ -1348,6 +1348,21 @@ extraction (D8, FRD Q1), the final OCR interface and persistence of confidence a
 Jonaki execution and any OCR accuracy (access, license, data), upload quality policy (D5, D6, D11), key rotation, a database
 `connect_timeout`, the D13 alert mechanism, and CI verification of this batch.
 
+## D8 Phase A: drug reference catalog loader (2026-11-14, local, uncommitted)
+
+Authorized by the owner: a safe in-memory loader, synthetic fixtures, unit tests and documentation, nothing more. Implemented:
+`capture/drugcatalog.py` (reads only `medicine.csv`, six fields: brand id kept as the source record id, brand name, generic, strength,
+dosage form, manufacturer; original values and missing values preserved; duplicates, one brand with several generics and one
+product from several manufacturers kept and reported, never resolved) and changes to `capture/drugmatch.py` (entries may lack a
+generic or a brand, candidates carry `id`, `brands` and `manufacturer`, the catalog and its entries are read-only). `data/` is in
+`.gitignore`; the CSV files are untracked, unchanged (SHA-256 recorded in `docs/DRUG_CATALOG.md`) and must not be committed
+or pushed. No database table, migration, dependency, threshold, alias, abbreviation list, network call, M3 or M4 work was added.
+Audit corrections (owner-authorized, same day): malformed rows, NUL bytes, oversized cells, other-file names, oversize files and an
+empty explicit version are refused with fixed reasons; a record with a missing strength or form is kept as a candidate and marked
+`unconfirmed`, and is never `exact`; a `Catalog` cannot be re-initialised; two report definitions were corrected.
+**Open:** source, license and permission for the data (FRD Q1), D8 matching parameters and alias rules (clinical reviewer, not named),
+a generic-level index, database tables (schema approval). Details and limits: `docs/DRUG_CATALOG.md`.
+
 ## D13 clarification (D13 stays open as a whole)
 
 The behavior already accepted on 2026-11-12 and implemented in 4A is unchanged: before any claim, an
