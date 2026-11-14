@@ -45,7 +45,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from swasthyoid import runtime_mode
-from swasthyoid.capture import documents, extraction_crypto, imaging, ocr, parsers
+from swasthyoid.capture import documents, drugmatch, extraction_crypto, imaging, ocr, parsers
 from swasthyoid.core import audit
 
 log = logging.getLogger(__name__)
@@ -248,6 +248,25 @@ def _cloud_ai(conn, doc, pages, spec, fields, ai, threshold, ai_threshold):
                 holder[key] = answer
 
 
+def _match_medications(fields, catalog):
+    """Attach drug-name CANDIDATES for each medication row (Phase 7B; docs/DRUG_CATALOG.md). Nothing is selected, verified or
+    written into any schema field: the result sits under the reserved key `catalog_matches`, inside the sealed `fields`, with the
+    catalog's version and source. The reading used is the row's raw text, accepted or not (the reviewer sees the same text). A
+    failure for one row is recorded as status "unavailable" by code only and never fails the extraction. The matching rules
+    (exact normalised phrase windows, strength and form checks) are provisional, owned by the clinical reviewer (D8)."""
+    rows = []
+    for i, row in enumerate(fields.get("medications") or []):
+        cell = row.get("name_as_written") if isinstance(row, dict) else None
+        text = cell.get("raw") or cell.get("value") if isinstance(cell, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            rows.append({"row": i, **drugmatch.match_row(text, catalog)})
+        except Exception:
+            rows.append({"row": i, "status": "unavailable"})
+    fields["catalog_matches"] = {"catalog": catalog.provenance(), "rows": rows}
+
+
 def _store(conn, document_id, version, engine, fields, raw_text, config=None, preprocessing=None):
     """config is the checked adapter (ocr.check_available) for an OCR result; None for manual
     entry and the legacy test path, whose identity columns stay NULL. preprocessing is the list of operations applied to
@@ -292,7 +311,7 @@ class WorkerConnectionLost(Exception):
 _DUE = "(status = 'uploaded' OR (status = 'extracting' AND next_extraction_at <= clock_timestamp()))"
 _MINE = "id = %s AND extraction_claim = %s AND status = 'extracting'"
 _DEFAULTS = ("threshold", "ai_threshold", "max_attempts", "backoff", "lease", "heartbeat", "hard_timeout",
-             "availability_timeout", "preprocess")
+             "availability_timeout", "preprocess", "catalog")
 _TEST_MODE = f"APP_ENV=test and {runtime_mode.CONFIRM}=1"
 
 
@@ -354,7 +373,7 @@ def _settings(given):
         raise TypeError(f"unknown extraction options: {sorted(unknown)}")
     o = {"threshold": CONFIDENCE_THRESHOLD, "ai_threshold": CLOUD_AI_THRESHOLD, "max_attempts": MAX_ATTEMPTS,
          "backoff": BACKOFF, "lease": LEASE, "heartbeat": HEARTBEAT, "hard_timeout": HARD_TIMEOUT,
-         "availability_timeout": ocr.AVAILABILITY_TIMEOUT, "preprocess": PREPROCESS, **given}
+         "availability_timeout": ocr.AVAILABILITY_TIMEOUT, "preprocess": PREPROCESS, "catalog": None, **given}
     if o["availability_timeout"] is None:
         o["availability_timeout"] = ocr.AVAILABILITY_TIMEOUT  # None means "the default"
     if o["hard_timeout"] is None:
@@ -370,6 +389,8 @@ def _settings(given):
         _fraction(o, "ai_threshold")
     _attempts(o["max_attempts"])
     _preprocess(o["preprocess"])
+    if o["catalog"] is not None and not isinstance(o["catalog"], drugmatch.Catalog):
+        raise TypeError("extraction option catalog must be a drugmatch.Catalog or None")
     if o["hard_timeout"] is not None and o["heartbeat"] >= o["lease"]:
         raise ValueError("heartbeat must be shorter than the lease, or every lease runs out before it is renewed")
     return o
@@ -602,6 +623,8 @@ def _attempt(conn, job, engine, ai, o, config=None):
             fields, raw_text, name = structure(spec, parsers.parse(job["doc_type"], got, patient_name=True), o["threshold"]), \
                 ocr.raw_text_v0(got), config["identity"]["engine_id"]
         _cloud_ai(conn, job, pages, spec, fields, ai, o["threshold"], o["ai_threshold"])
+        if o["catalog"] is not None and "medications" in spec:
+            _match_medications(fields, o["catalog"])  # candidates only; off unless the worker was given a catalog
         with conn.transaction():
             # the fence: only the current claim, inside its lease, may store a result
             mine = conn.execute(

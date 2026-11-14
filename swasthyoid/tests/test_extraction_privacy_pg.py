@@ -315,3 +315,28 @@ def test_a_failing_ocr_child_leaks_no_canary_into_the_log_the_error_column_or_th
     assert error == "RuntimeError"  # the type, never the message of the engine's exception
     assert "synthetic patient text" not in caplog.text and "synthetic patient text" not in dump
     assert all(r.exc_info is None for r in caplog.records)  # no traceback is attached to any log record
+
+
+# ---- Phase 7B: drug-name candidates sit inside the sealed fields (CI: Linux, PostgreSQL 16)
+
+def test_catalog_candidates_are_stored_only_inside_the_sealed_fields_and_nothing_is_selected(c):
+    from swasthyoid.capture.drugmatch import Catalog
+    book = Catalog("v1", "synthetic test catalog", [{"id": "C1", "generic": "CANARY-GENERIC-3d9e", "brands": ["CANARY-BRAND-8f21"],
+                                                    "strength": "5 mg", "form": "Synth Tablet"}])
+
+    def with_a_medicine(pages, doc_type):
+        return {"engine": "fake-ocr", "raw_text": "", "fields": {"medications": [
+            {"name_as_written": {"value": "Tab. CANARY-BRAND-8f21 5 mg daily", "confidence": 0.99}}]}}
+
+    doc_id = upload(c, c.headers)
+    with c.connect() as conn:
+        assert extraction.run_due(conn, with_a_medicine, catalog=book) == 1
+        got = extraction.latest(conn, doc_id)
+        row = got["fields"]["catalog_matches"]["rows"][0]
+        candidate = row["matches"][0]["candidates"][0]
+        assert (candidate["id"], candidate["strength_check"], candidate["form_check"]) == ("C1", "confirmed", "unconfirmed")
+        assert got["fields"]["catalog_matches"]["catalog"] == {"version": "v1", "source": "synthetic test catalog"}
+        assert "selected" not in str(row) and job(conn, doc_id)[0] == "needs_review"
+        dump = full_dump(conn).decode("utf-8", "replace")
+        assert "CANARY-BRAND-8f21" not in dump and "CANARY-GENERIC-3d9e" not in dump and "catalog_matches" not in dump
+        assert conn.execute("SELECT count(*) FROM events").fetchone()[0] == 0

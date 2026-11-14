@@ -13,7 +13,8 @@ Startup order (docs/DECISIONS.md, "Startup error and ordering contract"):
   2. side-effect-free argument parsing (a usage error exits 2);
   3. runtime_mode.check_test_mode_config(), the first runtime safety check;
   4. required configuration: EXTRACTION_POLL_SECONDS in loop mode, then DATABASE_URL, then EXTRACTION_KEY
-     (a Fernet key: extracted text is stored sealed, D2);
+     (a Fernet key: extracted text is stored sealed, D2), then the optional drug catalog (DRUG_CATALOG_PATH; when it is
+     set, DRUG_CATALOG_SOURCE is required and the file must load, or the runner exits 2; when unset, no matching happens);
   5. connect with db.connect_worker() and check, read-only, that the tables and columns the
      worker uses exist;
   6. only then run_due() (availability probe, then claiming) is called.
@@ -27,6 +28,7 @@ Diagnostics go to stderr, one line each, and name settings, tables, columns and 
 never an environment value, a connection string, an exception message or document text.
 """
 import argparse
+import functools
 import math
 import os
 import signal
@@ -37,7 +39,7 @@ import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
 from swasthyoid import db, runtime_mode
-from swasthyoid.capture import extraction, extraction_crypto
+from swasthyoid.capture import drugcatalog, extraction, extraction_crypto
 
 EXIT_OK = 0
 EXIT_INFRASTRUCTURE = 1
@@ -97,6 +99,34 @@ def parse_poll_seconds(raw):
     if "_" in raw or not math.isfinite(value) or value <= 0:
         raise ValueError("invalid")
     return value
+
+
+def load_catalog(environ=None):
+    """The drug reference catalog the worker matches medication rows against (Phase 7B, docs/DRUG_CATALOG.md), or None when
+    DRUG_CATALOG_PATH is unset (matching is then off). Raises ValueError((setting, reason)) with fixed words, never a value or
+    file content: a path that is set but empty, relative, unreadable or not a usable medicine.csv, a missing or empty
+    DRUG_CATALOG_SOURCE (the owner's statement of where the data came from and on what terms; there is no default), or an
+    empty DRUG_CATALOG_VERSION. The version defaults to the file's SHA-256."""
+    environ = os.environ if environ is None else environ
+    path = environ.get("DRUG_CATALOG_PATH")
+    if path is None:
+        return None
+    if not path.strip():
+        raise ValueError(("DRUG_CATALOG_PATH", "empty"))
+    if not os.path.isabs(path):
+        raise ValueError(("DRUG_CATALOG_PATH", "not_absolute"))
+    source = environ.get("DRUG_CATALOG_SOURCE")
+    if source is None or not source.strip():
+        raise ValueError(("DRUG_CATALOG_SOURCE", "missing"))
+    version = environ.get("DRUG_CATALOG_VERSION")
+    if version is not None and not version.strip():
+        raise ValueError(("DRUG_CATALOG_VERSION", "empty"))
+    try:
+        return drugcatalog.load_medicine_csv(path, source=source, version=version).catalog
+    except drugcatalog.CatalogError as reason:
+        raise ValueError(("DRUG_CATALOG_PATH", reason.args[0])) from None
+    except OSError:
+        raise ValueError(("DRUG_CATALOG_PATH", "unreadable")) from None
 
 
 def check_database_url():
@@ -227,6 +257,12 @@ def main(argv=None):
     except extraction_crypto.KeyError_ as reason:
         _say("invalid_configuration", setting="EXTRACTION_KEY", reason=reason.args[0])
         return EXIT_CONFIG
+    try:
+        catalog = load_catalog()  # None unless the owner enabled drug-name candidates; a bad setting never degrades silently
+    except ValueError as problem:
+        setting, reason = problem.args[0]
+        _say("invalid_configuration", setting=setting, reason=reason)
+        return EXIT_CONFIG
 
     try:
         conn = db.connect_worker()
@@ -250,7 +286,8 @@ def main(argv=None):
         install_handlers(stop)
         poll = None if args.once else parse_poll_seconds(os.environ.get(POLL_VARIABLE))
         try:
-            return serve(conn, once=args.once, poll=poll, stop=stop)
+            options = {} if catalog is None else {"run": functools.partial(extraction.run_due, catalog=catalog)}
+            return serve(conn, once=args.once, poll=poll, stop=stop, **options)
         except (extraction.WorkerConnectionLost, psycopg.Error):
             _say("connection_lost")  # no reconnect: the lease expiry recovers the attempt
             return EXIT_INFRASTRUCTURE
