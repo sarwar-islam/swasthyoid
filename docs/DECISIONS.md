@@ -1197,7 +1197,7 @@ Behavior changes only; details are in the code docstrings and tests.
   not proof against timing flakiness; the 20 s `WorkerDied` bound remains the implementation's own
   choice.
 
-## M2 completion batch (2026-11-14, local, uncommitted)
+## M2 completion batch (2026-11-14; code commit `909a47c`, docs commit `044c95a`; CI run #42 succeeded)
 
 All M2 work that needs no owner decision or external access; the open decisions are in ONE sheet,
 `docs/M2_OWNER_DECISIONS.md` (D2, Q4, D7, D8, D10, D12, D14, D18/4B, D13, the external model). Added:
@@ -1223,7 +1223,16 @@ All M2 work that needs no owner decision or external access; the open decisions 
   from totals; see `docs/OCR_JONAKI.md`). Local evidence for this batch (Windows, disposable PostgreSQL via
   pgserver, since removed): **897 passed, 10 skipped, 0 failed** in 582 s. The 10 skips are platform-bound: 3 Linux-only
   process-group kill tests, 4 Linux-only runner signal and kill tests, and 3 symlink tests that need privileges this
-  machine lacks (one in `test_ocr_config.py`, two in `test_jonaki_linkage.py`). None of this batch has been through CI.
+  machine lacks (one in `test_ocr_config.py`, two in `test_jonaki_linkage.py`).
+- **CI run #42 (verified, with one limit stated).** Run #42 on `main`, event `push`, head SHA
+  `044c95afcf597c42468f105eb182f25cdb9c961b` (`044c95a`, which includes code commit `909a47c`): conclusion
+  **success**, job 3m 12s (03:04:49 to 03:08:01 UTC). Every step succeeded, including `Run pytest -q`, so pytest
+  exited 0 (no failure, no error). Verified from the run page and the public GitHub run and job metadata.
+  **Not read:** the pytest summary line. The job log needs a signed-in GitHub user and was inaccessible (the browser
+  pane was not signed in; an authenticated fetch was refused by the permission system and was not retried). So the
+  passed, skipped and warning counts are unknown, and it is **unconfirmed** that the two new symlink tests and the
+  Linux-only process-group and signal tests executed rather than were skipped. The expected 907 passed, 0 skipped
+  was not observed. Run link: https://github.com/sarwar-islam/swasthyoid/actions/runs/43549715271.
 
 ## D13 clarification (D13 stays open as a whole)
 
