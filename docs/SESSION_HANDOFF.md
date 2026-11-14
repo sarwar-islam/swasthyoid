@@ -6,27 +6,62 @@ facts live in `CLAUDE.md`, `docs/DECISIONS.md`, `docs/FRD.md` (v3) and
 `docs/M2_COMPLETION_PLAN.md`. Where this file and those disagree, those win. **Verify Git state
 yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file for it.
 
-## Update 2026-11-14 (later; supersedes the older snapshot lines below where they differ)
+## Update 2026-11-14 (end of day; supersedes every older snapshot line below where they differ)
 
-- `main` was at `bdca92c` and in sync with `origin/main` when this was written (**verify with `git status` and `git log`**). Latest
-  CI evidence (the lines below this one were written at run #51; run #53 on `8be3b03` is later, 1229 passed, 0 failed, 0 skipped): CI run #51 (`bdca92c`; `ubuntu-latest`, Python 3.12, PostgreSQL 16; **1145 passed, 0 failed, 0 skipped**, 1 warning, 181 s). Run #48 (`dcf31d6`) 1135 passed, 0 skipped; run #47 failed 3 tests that were fixed in `dcf31d6`.
-- Done since the snapshot below: drug catalog loader Phase A (D8, synthetic tests only, data files git-ignored, license unresolved);
-  worker reliability fix (process-tree termination, lifetime budget of **5 OCR executions per document** that supersedes the earlier
-  18-attempt Option A); Extraction Data Privacy verification (no leak found). Details and limits: `docs/DECISIONS.md`
-  ("Worker reliability fix", "Extraction data privacy verification"), `docs/DRUG_CATALOG.md`.
-- Open and waiting for the owner or an outside party: D8 and FRD Q1 (catalog source and license), D18 / 4B and its schema approval,
-  Jonaki access and license, the clinical reviewer (FRD Q7), D5/D6/D11, D13 and Q4, D3, residual risks R1 to R5, key rotation
-  (`docs/M2_OWNER_DECISIONS.md`). No feature work is authorized until the owner decides the next step.
-- **Second OCR adapter (owner decision 2026-11-14; committed as `c52897b`, `8be3b03`, `1482f02` and `a2c0139`; CI run #55: 1231 passed, 0 failed, 0 skipped):** PaddleOCR English
-  (`capture/adapters/paddleocr_adapter.py`, `paddleocr_runner.py`, `paddleocr_prepare.py`; `docs/OCR_PADDLEOCR.md`) alongside Jonaki,
-  tested with a fake runner in CI. **First real run (Windows, owner's machine, 2026-11-14):** the owner's `paddleocr_prepare.py` fetched
-  `PP-OCRv5_mobile_det` and `en_PP-OCRv5_mobile_rec` (30 pinned files); the first smoke run failed with `engine_error` because
-  PaddlePaddle 3.3.1's oneDNN CPU path breaks inside `predict()`; the runner now keeps oneDNN **off by default** (`PADDLEOCR_ENABLE_MKLDNN=1`
-  to opt in); after that, 7 lines were read from one synthetic page in about 20 s and the output passed the version 0 validator. That is
-  not accuracy, and not zero-network proof (an unreachable-proxy guard only; the network was on). Interface version 0 stays test-only.
-  Bangla support in PaddleOCR could not be confirmed. CI run #55 (`a2c0139`) passed 1231 tests, 0 skipped; CI does not run PaddleOCR.
-  Details: `docs/OCR_PADDLEOCR.md`; the decision record is in `docs/DECISIONS.md` ("PaddleOCR English: oneDNN default and the first real run").
-- Still true: do not install `pgserver`, Docker or WSL without the owner's OK; never stage `.claude/` or `data/`.
+**State.** `main` was at `c7bf7e4` and in sync with `origin/main` when this was written (**verify with `git status` and
+`git log origin/main..HEAD`**). Latest CI: **run #59 (`c7bf7e4`, `ubuntu-latest`, Python 3.12, PostgreSQL 16): 1355 passed, 0 failed,
+0 skipped**, 1 warning, 223.76 s; run #58 (`bd7e2a5`): 1299 passed, 0 skipped. The summary lines were supplied by the owner and do not name
+individual tests. Only `.claude/` was untracked.
+
+**Done today (details and limits in the named docs; every item is committed and CI-green unless stated):**
+
+- **Worker reliability** (`docs/DECISIONS.md`, "Worker reliability fix"): OCR process trees ended on timeout, lost lease, cancellation, normal
+  return and worker death (a subreaper child plus a walk of parent ids; Windows uses `taskkill /T`); **a document gets at most 5 actual OCR
+  executions in its life** (`documents.extraction_lifetime_attempts`; this supersedes the old 18-attempt Option A); permanent failures
+  (`PERMANENT_CODES`) are not retried. Limit: a descendant orphaned to init before cleanup may escape.
+- **D2 privacy verification** (`docs/DECISIONS.md`, "Extraction data privacy verification"): no canary or key found in a full data dump, errors or
+  logs; a rotated key fails closed. Limits: no backup or export feature exists to test, no key version is stored (no key rotation), real stdout
+  and uvicorn logs were not inspected.
+- **Drug catalog** (`docs/DRUG_CATALOG.md`): Phase A loader (six allowlisted fields, original values kept, ambiguity reported, read-only);
+  **Phase 7B**: a name index, generic-level groups, `match_row` (exact phrase windows, **provisional, D8-REVIEWER**), strength and form
+  checks, opt-in worker integration (`DRUG_CATALOG_PATH`; `DRUG_CATALOG_SOURCE` required; a bad setting exits 2; candidates stored inside the
+  sealed `fields["catalog_matches"]`, never a selection), and a benchmark (real file: exact brand p95 15 microseconds, row p95 596). The CSV
+  files are git-ignored and **not cleared for use (FRD Q1 licence)**. No real prescription was ever matched.
+- **Second OCR adapter, PaddleOCR English** (`docs/OCR_PADDLEOCR.md`): alongside Jonaki; run once for real on the owner's Windows machine (7 lines
+  from one synthetic page, about 20 s; oneDNN **off by default**, `PADDLEOCR_ENABLE_MKLDNN=1` opts in). No accuracy claim, no zero-network
+  proof, no Bangla support. Interface version 0 stays test-only: **no production extraction exists** (D18 / 4B).
+- **Phase 5** (`docs/DECISIONS.md`, "Phase 5"): **D5 and D6 decided.** Uploads are decoded once and quality-checked; hard failures are never
+  bypassed; poor pages get 422 `image_quality_warning` with Bangla guidance (`capture/guidance.py`) unless `upload_anyway=true`
+  (audit entry `document.upload_override`); a retake is a new upload; non-patient viewers get an EXIF-free copy made at serve time; the
+  operations applied are stored in `extractions.preprocessing`; two additive columns (`document_images.quality_warnings`,
+  `extractions.preprocessing`): **apply the schema (API start) before starting a new worker.** The quality limits are provisional and were never
+  tried on real photographs.
+- **Read-only audits** of Phases 3, 5, 6, 8 and 9 were done (results are in the conversation, not in a file; the gaps are listed below).
+
+**Open, waiting for the owner or an outside party:** the catalog's source and licence (FRD Q1) and the reviewer's sign-off on the matching rules
+(D8); the clinical reviewer's name (FRD Q7) and vocabularies; D18 / 4B and its schema approval; Jonaki access and licence; D11 pass marks; D13
+alerting and Q4 deployment (hosting, supervisor, poll interval, `connect_timeout`); D3 (handwritten set); residual risks R1 to R5
+(`docs/M2_OWNER_DECISIONS.md`); key rotation and a stored key version; permitted evaluation data; a native-speaker review of the Bangla guidance;
+a PaddleOCR run on Linux or real photographs.
+
+**Engineering work that needs no outside decision (the owner chooses the order):** Phase 9 metric gaps (whole-row precision and recall, a
+manual-entry rate, latency percentiles measured by the harness, a false-refusal metric for blur and glare, accepted-but-wrong per degradation);
+Phase 3 dataset gaps (lab-report and discharge-summary layouts, combined degradations; Bangla pages wait for a font licence); storing a schema
+version per extraction (needs a column, so the owner's schema approval).
+
+**Working rules (the owner's, all still in force):** no commit, push, amend, reset or rebase without the owner's explicit word; code and docs go
+in **separate commits**; never stage `.claude/` or `data/`; synthetic data only; never install PostgreSQL, Docker, WSL or `pgserver` without
+the owner's OK; invent no clinical rule, threshold, catalog, reviewer sign-off or licence; report only what was run; the owner pastes the last line
+of `Run pytest -q` from CI (the pane is not signed in and the API is rate-limited), and run numbers are read from the Actions page.
+
+**Only on the owner's machine (not in git):** `data/drug_catalog/*.csv` (git-ignored); `C:\ocr\` (the PaddleOCR virtual environment, the 30
+pinned weight files, `approved.json`); `.claude/`; environment variables and keys; the assistant's memory is per account and does not move to
+another account, so a new session must read this file and the docs it names.
+
+**Tool notes.** Windows, Git Bash and PowerShell; no PostgreSQL, Docker or WSL here, so PostgreSQL-backed tests run only in CI. In the shell
+tool, here-documents holding quotes or the two characters backslash-x can be altered: write a script file with the Write tool instead.
+Write files with LF line endings (`.gitattributes`); check `git diff --check` and for stray carriage returns before committing. Do not use the
+stored git credentials for API calls.
 
 ## Next session: start here
 
