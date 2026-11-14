@@ -56,8 +56,15 @@ CONFIDENCE_THRESHOLD = 0.85     # manual review: FRD M3 start value, configurabl
 # threshold. None means nothing is ever sent, whatever the opt-in.
 CLOUD_AI_THRESHOLD = None
 # Worker reliability settings. Configurable defaults approved by the owner, not FRD values.
-MAX_ATTEMPTS = 3
-BACKOFF = timedelta(minutes=1)          # wait before a retry; doubles each time
+MAX_ATTEMPTS = 3                        # claims per run (a run starts at upload and again at each patient retry)
+# Lifetime budget (owner decision 2026-11-14, supersedes Option A): a document gets at most this many ACTUAL OCR
+# executions in its whole life, shared by the first run, automatic retries, patient retries and recovery after a
+# crash. Persisted in documents.extraction_lifetime_attempts; nothing ever lowers it. Do not raise it.
+MAX_LIFETIME_ATTEMPTS = 5
+# Failures that retrying cannot fix: no automatic retry, no patient retry (manual entry stays possible). Codes only.
+PERMANENT_CODES = frozenset({"model_integrity_failed", "malformed_output", "ImageRejected", "Corrupted",
+                             "AttemptBudgetExhausted"})
+BACKOFF = timedelta(minutes=1)          # wait before a retry of a run; doubles each time (1, 2 minutes)
 LEASE = timedelta(minutes=5)            # how long a claim holds without a heartbeat
 HEARTBEAT = timedelta(seconds=60)       # how often a working attempt renews its lease
 # The engine runs in a child process that is killed after this long. A database timeout cannot
@@ -411,7 +418,8 @@ def claim(conn, document_id=None, *, lease=None, max_attempts=None):
             ).fetchone()
             if doc is None:
                 return None
-            if doc["extraction_attempts"] < max_attempts:
+            exhausted = doc["extraction_lifetime_attempts"] >= MAX_LIFETIME_ATTEMPTS
+            if not exhausted and doc["extraction_attempts"] < max_attempts:
                 token = uuid4()
                 conn.execute(
                     "UPDATE documents SET status = 'extracting', extraction_attempts = extraction_attempts + 1, "
@@ -423,11 +431,11 @@ def claim(conn, document_id=None, *, lease=None, max_attempts=None):
                 )
                 return {"id": doc["id"], "patient_id": doc["patient_id"], "doc_type": doc["doc_type"],
                         "attempt": doc["extraction_attempts"] + 1, "version": _next_version(conn, doc["id"]),
-                        "token": token}
-            conn.execute(
+                        "token": token, "executions": doc["extraction_lifetime_attempts"]}
+            conn.execute(  # the run's claims, or the lifetime executions, are used up: close it, run nothing
                 "UPDATE documents SET status = 'extraction_failed', extraction_claim = NULL, "
-                "next_extraction_at = NULL, extraction_error = 'LeaseExpired', updated_at = clock_timestamp() "
-                "WHERE id = %s", [doc["id"]])
+                "next_extraction_at = NULL, extraction_error = %s, updated_at = clock_timestamp() "
+                "WHERE id = %s", ["AttemptBudgetExhausted" if exhausted else "LeaseExpired", doc["id"]])
         if document_id:
             return None
 
@@ -449,6 +457,8 @@ def _child(engine, pages, doc_type, out, limit):
         out.send(("ok", engine(pages, doc_type)))
     except BaseException as e:
         out.send(("failed", _code(e)))  # a code or type name, never the message
+    finally:
+        ocr.kill_descendants(os.getpid())  # nothing the engine started outlives it, whatever session it is in
 
 
 def _release(child, out, results):
@@ -514,7 +524,8 @@ def _run_engine(engine, pages, doc_type, hard_timeout, heartbeat, renew):
 def _fail(conn, job, reason, max_attempts, backoff):
     """Record a failed attempt, if the claim is still ours and inside its lease. The last
     attempt closes the document. A stale worker writes nothing: the next claim deals with it."""
-    final = job["attempt"] >= max_attempts
+    final = (job["attempt"] >= max_attempts or job.get("executions", 0) >= MAX_LIFETIME_ATTEMPTS
+             or str(reason) in PERMANENT_CODES)  # no retry of what retrying cannot fix, or past the lifetime budget
     conn.execute(
         f"UPDATE documents SET status = %s, extraction_claim = NULL, extraction_error = %s, "
         f"next_extraction_at = CASE WHEN %s THEN NULL ELSE clock_timestamp() + %s END, "
@@ -534,6 +545,28 @@ def _fail_unless_disconnected(conn, job, reason, cause, o):
     _fail(conn, job, reason, o["max_attempts"], o["backoff"])
 
 
+def _begin_execution(conn, job, lease):
+    """Reserve ONE actual OCR execution for this claim, immediately before the engine starts, and return how
+    many executions the document has used including this one. One UPDATE does the check and the count, behind
+    the claim fence and the lease, so no number of workers or retry requests can reserve more than remain.
+    Nothing before this point (reading the images, preprocessing, a failed claim) consumes the budget.
+    Raises LeaseLost if the claim is gone or the lease ran out, AttemptFailed("AttemptBudgetExhausted") if the
+    lifetime budget is used up."""
+    row = conn.execute(
+        f"UPDATE documents SET extraction_lifetime_attempts = extraction_lifetime_attempts + 1, "
+        f"next_extraction_at = clock_timestamp() + %s, updated_at = clock_timestamp() "
+        f"WHERE {_MINE} AND next_extraction_at > clock_timestamp() AND extraction_lifetime_attempts < %s "
+        f"RETURNING extraction_lifetime_attempts",
+        [lease, job["id"], job["token"], MAX_LIFETIME_ATTEMPTS]).fetchone()
+    if row is not None:
+        return row[0]
+    mine = conn.execute(f"SELECT 1 FROM documents WHERE {_MINE} AND next_extraction_at > clock_timestamp()",
+                        [job["id"], job["token"]]).fetchone()
+    if mine is None:
+        raise LeaseLost()
+    raise AttemptFailed("AttemptBudgetExhausted")
+
+
 def _attempt(conn, job, engine, ai, o, config=None):
     """Work and store for one claimed attempt. Never raises for a failed attempt, except
     WorkerConnectionLost when the database connection is lost: then nothing more is written and
@@ -550,6 +583,7 @@ def _attempt(conn, job, engine, ai, o, config=None):
         work = used if config is None else [
             {"page_number": n, "image": data, "media_type": kind}
             for n, (kind, data) in enumerate(zip(media, used), 1)]
+        job["executions"] = _begin_execution(conn, job, o["lease"])  # from here an OCR execution is counted
         got = _run_engine(engine, work, job["doc_type"], o["hard_timeout"], o["heartbeat"],
                           lambda: _renew(conn, job, o["lease"]))
         spec = SCHEMAS.get(job["doc_type"], {})
@@ -632,7 +666,8 @@ def run_due(conn, engine=None, ai=None, *, limit=100, **options):
 
 
 def requeue(conn, document_id):
-    """extraction_failed -> extracting: try again from the first attempt."""
+    """extraction_failed -> extracting: a new run of automatic attempts. Resets the run's claim counter ONLY; the
+    lifetime counter (extraction_lifetime_attempts) is never touched here or anywhere else."""
     with conn.transaction():
         documents.set_status(conn, document_id, "extracting")
         conn.execute("UPDATE documents SET extraction_attempts = 0, extraction_claim = NULL, "
@@ -641,11 +676,7 @@ def requeue(conn, document_id):
 
 # ---- manual entry and retry by the patient (slice 8.6; owner decisions D10, D12, D14, 2026-11-14)
 
-MAX_RETRIES = 5  # patient-initiated retries per document (owner decision, Option A, 2026-11-14)
-# Policy (owner-approved Option A): at most 1 initial run plus MAX_RETRIES retries, and each run has up to MAX_ATTEMPTS
-# automatic attempts (a requeue resets the run's counter). So a document is claimed at most this many times. It is a
-# documented bound derived from the two limits above, NOT a separate counter and not enforced on its own.
-MAX_TOTAL_ATTEMPTS = (1 + MAX_RETRIES) * MAX_ATTEMPTS  # 18 with the defaults
+# Retry policy: see MAX_LIFETIME_ATTEMPTS, PERMANENT_CODES and BACKOFF above, and docs/DECISIONS.md "Lifetime attempt budget".
 _MANUAL_SOURCES = ("uploaded", "extracting", "extraction_failed")
 
 
@@ -689,26 +720,38 @@ def start_manual_entry(conn, document_id, *, actor, context=None, threshold=CONF
 
 
 def retry_extraction(conn, document_id, *, actor, context=None):
-    """The patient asks for another try of a failed extraction: extraction_failed -> extracting from
-    the first attempt, at most MAX_RETRIES times per document (counted from the audit entries of
-    successful retries, so no column is needed). Conflict(not_allowed_state) from any other state,
-    Conflict(retry_limit_reached) past the cap. One transaction with the audit entry
+    """The patient asks for another try of a failed extraction: extraction_failed -> extracting, a new run of
+    automatic attempts. A request is NOT an attempt: only an OCR execution that actually starts is counted, in
+    documents.extraction_lifetime_attempts, which this never resets. Conflict(not_allowed_state) from any other
+    state; Conflict(retry_limit_reached) when the lifetime budget (MAX_LIFETIME_ATTEMPTS executions) is used up;
+    Conflict(not_retryable) when the failure was permanent (PERMANENT_CODES: a retry would fail the same way).
+    The row is locked, so simultaneous requests are serialised. One transaction with the audit entry
     `document.retry`. Returns how many retries the document has used, this one included."""
     with conn.transaction():
-        row = conn.execute("SELECT patient_id, status FROM documents WHERE id = %s FOR UPDATE", [document_id]).fetchone()
+        row = conn.execute("SELECT patient_id, status, extraction_lifetime_attempts, extraction_error "
+                           "FROM documents WHERE id = %s FOR UPDATE", [document_id]).fetchone()
         if row is None:
             raise LookupError("document not found")
-        patient_id, status = row
+        patient_id, status, executions, error = row
         if status != "extraction_failed":
             raise Conflict("not_allowed_state")
+        if executions >= MAX_LIFETIME_ATTEMPTS:
+            raise Conflict("retry_limit_reached")
+        if error in PERMANENT_CODES:
+            raise Conflict("not_retryable")
         used = conn.execute("SELECT count(*) FROM audit_logs WHERE action = 'document.retry' AND resource_id = %s "
                             "AND result = 'allow'", [document_id]).fetchone()[0]
-        if used >= MAX_RETRIES:
-            raise Conflict("retry_limit_reached")
         requeue(conn, document_id)
         audit.append(conn, action="document.retry", result="allow", patient_id=patient_id, resource_type="document",
-                     resource_id=document_id, reason=f"retry {used + 1} of {MAX_RETRIES}", **_actor_fields(actor, context))
+                     resource_id=document_id, reason=f"retry {used + 1}; {executions} of {MAX_LIFETIME_ATTEMPTS} attempts used",
+                     **_actor_fields(actor, context))
         return used + 1
+
+
+def attempts_used(conn, document_id):
+    """How many of the document's MAX_LIFETIME_ATTEMPTS OCR executions have been used (0 for an unknown document)."""
+    row = conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [document_id]).fetchone()
+    return row[0] if row else 0
 
 
 def manual_entry(conn, document_id, *, threshold=CONFIDENCE_THRESHOLD):

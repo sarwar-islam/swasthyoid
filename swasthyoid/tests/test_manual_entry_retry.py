@@ -1,5 +1,5 @@
 """Slice 8.6 against PostgreSQL: manual entry and retry endpoints (owner decisions of 2026-11-14: D10 patient
-only, D12 manual entry always allowed, D14 conflicts not audited, retry cap 5). Synthetic data only.
+only, D12 manual entry always allowed, D14 conflicts not audited, lifetime budget of 5 OCR executions, owner decision 2026-11-14). Synthetic data only.
 
 Shows the state machine, authorization, idempotency, the races with a worker, the audit entries, and that no
 verified event is ever created."""
@@ -10,7 +10,7 @@ from datetime import timedelta
 import pytest
 
 from swasthyoid.api.deps import Actor
-from swasthyoid.capture import extraction
+from swasthyoid.capture import documents, extraction, ocr as ocr_module
 from swasthyoid.identity import accounts, sessions
 from swasthyoid.tests.test_extraction_integration import V1, blank, broken, job, ocr, patient, prod, upload  # noqa: F401
 
@@ -191,10 +191,11 @@ def test_retry_requeues_a_failed_document_from_the_first_attempt_and_audits_it(c
         fail(conn, doc_id)
     r = post(c, doc_id, RETRY)
     assert r.status_code == 200
-    assert r.json() == {"document_id": doc_id, "status": "extracting", "retries_used": 1, "retries_allowed": 5}
+    assert r.json() == {"document_id": doc_id, "status": "extracting", "retries_used": 1, "attempts_used": 1,
+                        "attempts_allowed": 5}
     with c.connect() as conn:
         assert job(conn, doc_id)[:2] == ("extracting", 0)
-        assert audit(conn, doc_id) == [("document.retry", "allow", "patient", "retry 1 of 5")]
+        assert audit(conn, doc_id) == [("document.retry", "allow", "patient", "retry 1; 1 of 5 attempts used")]
         assert extraction.run_due(conn, ocr) == 1 and job(conn, doc_id)[0] == "needs_review"  # the worker picks it up
         assert conn.execute("SELECT count(*) FROM events").fetchone()[0] == 0
 
@@ -214,23 +215,24 @@ def test_retry_is_refused_unless_the_extraction_failed(c, state):
         assert snapshot(conn, doc_id) == before
 
 
-def test_the_sixth_retry_is_refused_and_manual_entry_is_still_possible(c):
+def test_a_retry_after_the_fifth_execution_is_refused_and_manual_entry_is_still_possible(c):
     doc_id = upload(c, c.headers)
     with c.connect() as conn:
-        fail(conn, doc_id)
-    for n in range(1, 6):
+        fail(conn, doc_id)  # execution 1
+    for n in range(1, 5):  # four patient retries, one execution each: executions 2 to 5
         r = post(c, doc_id, RETRY)
-        assert (r.status_code, r.json()["retries_used"]) == (200, n)
+        assert (r.status_code, r.json()["retries_used"], r.json()["attempts_used"]) == (200, n, n)
         with c.connect() as conn:
             fail(conn, doc_id)
     with c.connect() as conn:
+        assert lifetime(conn, doc_id) == 5
         before = snapshot(conn, doc_id)
     r = post(c, doc_id, RETRY)
     assert (r.status_code, r.json()["code"]) == (409, "retry_limit_reached")
     with c.connect() as conn:
         assert snapshot(conn, doc_id) == before  # the refused retry is not counted or audited
-        assert [a[0] for a in audit(conn, doc_id)] == ["document.retry"] * 5
-    assert post(c, doc_id, MANUAL).status_code == 200  # the cap never takes the patient's escape hatch away
+        assert [a[0] for a in audit(conn, doc_id)] == ["document.retry"] * 4
+    assert post(c, doc_id, MANUAL).status_code == 200  # the budget never takes the patient's escape hatch away
 
 
 def test_a_retry_cap_is_per_document(c):
@@ -276,34 +278,191 @@ def test_two_simultaneous_retries_use_exactly_one(c):
         assert [x[0] for x in audit(conn, doc_id)] == ["document.retry"]
 
 
-def test_one_initial_run_plus_five_retries_claim_a_document_at_most_eighteen_times(c):
-    """Option A (owner decision): 1 initial run + 5 patient-triggered retries, each run with up to MAX_ATTEMPTS = 3
-    automatic attempts, so 18 claimed attempts at most; the 6th retry is refused and nothing more runs."""
-    assert (extraction.MAX_ATTEMPTS, extraction.MAX_RETRIES, extraction.MAX_TOTAL_ATTEMPTS) == (3, 5, 18)
-    doc_id = upload(c, c.headers)
-    calls = []
+# ---- the lifetime budget: 5 actual OCR executions per document, one counter for everything (owner decision 2026-11-14)
 
-    def always_fails(pages, doc_type):
-        calls.append(1)
-        raise RuntimeError("synthetic failure")
+def lifetime(conn, doc_id):
+    return conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [doc_id]).fetchone()[0]
 
-    def run(conn):
-        before = len(calls)
-        extraction.run_due(conn, always_fails, backoff=timedelta(0))  # default max_attempts, no waiting between attempts
-        assert job(conn, doc_id)[0] == "extraction_failed"
-        return len(calls) - before
 
+class Counting:
+    """An engine that counts its calls and fails with a transient error (or the given one)."""
+
+    def __init__(self, error=RuntimeError("synthetic failure")):
+        self.calls, self.error = 0, error
+
+    def __call__(self, pages, doc_type):
+        self.calls += 1
+        raise self.error
+
+
+def expire(conn, doc_id):
+    conn.execute("UPDATE documents SET next_extraction_at = clock_timestamp() - interval '1 second' WHERE id = %s", [doc_id])
+
+
+def test_the_budget_is_five_and_shared_by_automatic_and_patient_runs(c):
+    assert extraction.MAX_LIFETIME_ATTEMPTS == 5 and extraction.MAX_ATTEMPTS == 3
+    assert not hasattr(extraction, "MAX_RETRIES") and not hasattr(extraction, "MAX_TOTAL_ATTEMPTS")
+    doc_id, engine = upload(c, c.headers), Counting()
     with c.connect() as conn:
-        assert run(conn) == 3  # the initial run: 3 automatic attempts, then extraction_failed
-    for n in range(1, 6):
-        r = post(c, doc_id, RETRY)
-        assert (r.status_code, r.json()["retries_used"]) == (200, n)
-        with c.connect() as conn:
-            assert run(conn) == 3  # every retry is a fresh run of 3 automatic attempts
-    assert len(calls) == 18 == extraction.MAX_TOTAL_ATTEMPTS
+        extraction.run_due(conn, engine, backoff=timedelta(0))
+        assert (engine.calls, lifetime(conn, doc_id), job(conn, doc_id)[0]) == (3, 3, "extraction_failed")  # the first run
+    assert post(c, doc_id, RETRY).status_code == 200
+    with c.connect() as conn:
+        assert lifetime(conn, doc_id) == 3  # asking did not use an attempt
+        extraction.run_due(conn, engine, backoff=timedelta(0))
+        assert (engine.calls, lifetime(conn, doc_id), job(conn, doc_id)[0]) == (5, 5, "extraction_failed")  # only 2 were left
     r = post(c, doc_id, RETRY)
     assert (r.status_code, r.json()["code"]) == (409, "retry_limit_reached")
     with c.connect() as conn:
-        assert extraction.run_due(conn, always_fails, backoff=timedelta(0)) == 0  # nothing is due: no 19th attempt
-        assert len(calls) == 18 and job(conn, doc_id)[0] == "extraction_failed"
-        assert [a[0] for a in audit(conn, doc_id)] == ["document.retry"] * 5
+        assert extraction.run_due(conn, engine, backoff=timedelta(0)) == 0 and engine.calls == 5  # a sixth never runs
+        assert lifetime(conn, doc_id) == 5 and [a[0] for a in audit(conn, doc_id)] == ["document.retry"]
+
+
+def test_each_actual_execution_counts_once_and_a_claim_alone_does_not(c):
+    doc_id = upload(c, c.headers)
+    with c.connect() as conn:
+        assert lifetime(conn, doc_id) == 0
+        job_ = extraction.claim(conn, doc_id)
+        assert lifetime(conn, doc_id) == 0  # claimed, no OCR started
+        extraction._attempt(conn, job_, ocr, None, extraction._settings({"hard_timeout": None}))
+        assert lifetime(conn, doc_id) == 1  # one OCR execution, one attempt
+
+
+def test_a_successful_first_execution_counts_exactly_one(c):
+    doc_id = upload(c, c.headers)
+    with c.connect() as conn:
+        assert extraction.run_due(conn, ocr) == 1
+        assert (job(conn, doc_id)[0], lifetime(conn, doc_id)) == ("needs_review", 1)
+
+
+def test_a_failure_before_the_engine_starts_uses_no_attempt_and_is_not_retried(c, monkeypatch):
+    doc_id, engine = upload(c, c.headers), Counting()
+
+    def unreadable(*args, **kwargs):
+        raise documents.Corrupted()
+
+    monkeypatch.setattr(documents, "read_image", unreadable)
+    with c.connect() as conn:
+        extraction.run_due(conn, engine, backoff=timedelta(0))
+        assert engine.calls == 0 and lifetime(conn, doc_id) == 0  # OCR never started: nothing was used
+        assert job(conn, doc_id)[:3] == ("extraction_failed", 1, "Corrupted")  # permanent: one claim, no automatic retry
+    r = post(c, doc_id, RETRY)
+    assert (r.status_code, r.json()["code"]) == (409, "not_retryable")
+    assert post(c, doc_id, MANUAL).status_code == 200
+
+
+def test_a_permanent_failure_is_not_retried_automatically_or_by_the_patient(c):
+    doc_id, engine = upload(c, c.headers), Counting(ocr_module.AdapterError("malformed_output"))
+    with c.connect() as conn:
+        extraction.run_due(conn, engine, backoff=timedelta(0))
+        assert engine.calls == 1 and lifetime(conn, doc_id) == 1  # it ran once, and that counted
+        assert job(conn, doc_id)[:3] == ("extraction_failed", 1, "malformed_output")
+        before = snapshot(conn, doc_id)
+    r = post(c, doc_id, RETRY)
+    assert (r.status_code, r.json()["code"]) == (409, "not_retryable")
+    with c.connect() as conn:
+        assert snapshot(conn, doc_id) == before and lifetime(conn, doc_id) == 1
+
+
+def test_a_transient_failure_is_retried_with_doubling_backoff_inside_the_budget(c):
+    doc_id, engine = upload(c, c.headers), Counting()
+    with c.connect() as conn:
+        waits = []
+        for _ in range(2):
+            extraction.run_due(conn, engine)  # the default backoff: one minute, then two
+            waits.append(conn.execute("SELECT extract(epoch FROM next_extraction_at - clock_timestamp()) FROM documents "
+                                      "WHERE id = %s", [doc_id]).fetchone()[0])
+            expire(conn, doc_id)
+        assert 50 < waits[0] <= 60 and 110 < waits[1] <= 120
+        assert (engine.calls, lifetime(conn, doc_id), job(conn, doc_id)[0]) == (2, 2, "extracting")  # not closed yet
+
+
+def test_a_patient_retry_never_resets_the_lifetime_counter(c):
+    doc_id = upload(c, c.headers)
+    with c.connect() as conn:
+        fail(conn, doc_id)
+        assert lifetime(conn, doc_id) == 1
+    assert post(c, doc_id, RETRY).status_code == 200
+    with c.connect() as conn:
+        assert lifetime(conn, doc_id) == 1 and job(conn, doc_id)[1] == 0  # the run's claims restart; the lifetime does not
+
+
+def test_recovery_after_a_crash_counts_the_execution_that_started_and_not_the_claim_that_did_not(c):
+    doc_id = upload(c, c.headers)
+    with c.connect() as conn:
+        extraction.claim(conn, doc_id, lease=timedelta(seconds=30))  # a worker claims, then dies before OCR starts
+        expire(conn, doc_id)
+        assert lifetime(conn, doc_id) == 0
+        job_ = extraction.claim(conn, doc_id)  # the recovering worker
+        extraction._begin_execution(conn, job_, extraction.LEASE)  # starts OCR, then dies
+        expire(conn, doc_id)
+        assert lifetime(conn, doc_id) == 1
+        assert extraction.run_due(conn, ocr) == 1  # a third worker recovers it
+        assert (job(conn, doc_id)[0], lifetime(conn, doc_id)) == ("needs_review", 2)
+
+
+def test_the_sixth_execution_is_prevented_even_for_a_claim_that_is_already_held(c):
+    doc_id, engine = upload(c, c.headers), Counting()
+    with c.connect() as conn:
+        conn.execute("UPDATE documents SET extraction_lifetime_attempts = 4 WHERE id = %s", [doc_id])
+        job_ = extraction.claim(conn, doc_id)
+        conn.execute("UPDATE documents SET extraction_lifetime_attempts = 5 WHERE id = %s", [doc_id])  # another worker used the last
+        extraction._attempt(conn, job_, engine, None, extraction._settings({"hard_timeout": None}))
+        assert engine.calls == 0 and lifetime(conn, doc_id) == 5
+        assert job(conn, doc_id)[:3] == ("extraction_failed", 1, "AttemptBudgetExhausted")
+
+
+def test_an_exhausted_document_that_is_due_is_closed_and_never_run(c):
+    doc_id, engine = upload(c, c.headers), Counting()
+    with c.connect() as conn:
+        conn.execute("UPDATE documents SET extraction_lifetime_attempts = 5 WHERE id = %s", [doc_id])
+        assert extraction.run_due(conn, engine) == 0 and engine.calls == 0
+        assert job(conn, doc_id)[:3] == ("extraction_failed", 0, "AttemptBudgetExhausted")
+
+
+def test_workers_at_once_cannot_reserve_more_executions_than_remain(c):
+    doc_id, engine = upload(c, c.headers), Counting()
+    with c.connect() as conn:
+        conn.execute("UPDATE documents SET extraction_lifetime_attempts = 4 WHERE id = %s", [doc_id])
+    gate = threading.Barrier(6)
+
+    def worker():
+        with c.connect() as conn:
+            gate.wait()
+            extraction.run_due(conn, engine, backoff=timedelta(0))
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    [t.start() for t in threads]
+    [t.join(120) for t in threads]
+    with c.connect() as conn:
+        assert engine.calls == 1 and lifetime(conn, doc_id) == 5  # exactly the one that remained
+        assert job(conn, doc_id)[0] == "extraction_failed"
+
+
+def test_simultaneous_retry_requests_cannot_get_past_the_budget(c):
+    doc_id = upload(c, c.headers)
+    with c.connect() as conn:
+        fail(conn, doc_id)
+        conn.execute("UPDATE documents SET extraction_lifetime_attempts = 4 WHERE id = %s", [doc_id])
+        me = conn.execute("SELECT patient_id FROM documents WHERE id = %s", [doc_id]).fetchone()[0]
+    outcomes, gate = [], threading.Barrier(5)
+
+    def request():
+        with c.connect() as conn:
+            gate.wait()
+            try:
+                outcomes.append(extraction.retry_extraction(
+                    conn, doc_id, actor=Actor(id=me, role="patient", device_id="d", is_verified=True)))
+            except extraction.Conflict as e:
+                outcomes.append(e.args[0])
+
+    threads = [threading.Thread(target=request) for _ in range(5)]
+    [t.start() for t in threads]
+    [t.join(60) for t in threads]
+    assert sorted(map(str, outcomes)) == ["1", "not_allowed_state", "not_allowed_state", "not_allowed_state", "not_allowed_state"]
+    with c.connect() as conn:
+        engine = Counting()
+        extraction.run_due(conn, engine, backoff=timedelta(0))
+        assert engine.calls == 1 and lifetime(conn, doc_id) == 5  # one request, one remaining execution
+    r = post(c, doc_id, RETRY)
+    assert (r.status_code, r.json()["code"]) == (409, "retry_limit_reached")

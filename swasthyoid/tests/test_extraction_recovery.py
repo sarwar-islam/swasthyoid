@@ -44,6 +44,12 @@ def announce_then(engine):
         return engine(pages, doc_type)
     return run
 
+if mode == "crash_before_store":
+    def die_instead_of_storing(*args, **kwargs):
+        print("ocr_done", flush=True)  # the engine has returned; the result is about to be stored
+        os._exit(1)
+    extraction._store = die_instead_of_storing
+    extraction.extract(conn, doc_id, 1, fake_engines.good, lease=lease, hard_timeout=None)
 if mode == "hang_in_process":
     extraction.extract(conn, doc_id, 1, announce_then(fake_engines.hang), lease=lease, hard_timeout=None)
 if mode == "hang_in_child":
@@ -183,6 +189,29 @@ def test_worker_crash_immediately_after_claim(prod):
         assert extraction.run_due(conn, ocr) == 1  # lease over: another worker recovers it
         assert job(conn, doc_id) == ("needs_review", 2, None, None)
         assert extractions(conn) == [(doc_id, 1, "fake-ocr")]
+
+
+def test_worker_crash_after_ocr_completes_but_before_the_result_is_stored(prod):
+    doc_id = upload(prod, patient(prod))
+    proc, watchdog = start_worker(doc_id, 1.5, "crash_before_store")
+    try:
+        assert proc.stdout.readline().strip() == "ocr_done"
+        proc.wait(timeout=30)
+    finally:
+        stop_worker(proc, watchdog)
+    with prod.connect() as conn:
+        assert extractions(conn) == []  # the finished reading was lost with the worker: nothing was stored
+        assert claim_row(conn, doc_id)[:2] == ("extracting", 1)
+        assert conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [doc_id]).fetchone()[0] == 1
+        assert extraction.run_due(conn, ocr) == 0  # the dead worker's lease still holds
+        time.sleep(1.6)
+        assert extraction.run_due(conn, ocr) == 1  # another worker recovers it and reads again
+        assert job(conn, doc_id) == ("needs_review", 2, None, None)
+        assert extractions(conn) == [(doc_id, 1, "fake-ocr")]  # one result, version 1: no duplicate
+        # the lost reading really used an attempt, and the recovery used another: nothing was reset
+        assert conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [doc_id]).fetchone()[0] == 2
+        expire_lease(conn, doc_id)
+        assert extraction.run_due(conn, ocr) == 0 and len(extractions(conn)) == 1  # repeated recovery adds nothing
 
 
 def test_worker_process_killed_during_ocr(prod):
@@ -483,6 +512,33 @@ def test_three_attempts_that_never_report_back_end_in_extraction_failed(prod):
         assert extraction.claim(conn) is None  # the fourth look closes it instead of trying again
         assert job(conn, doc_id) == ("extraction_failed", 3, "LeaseExpired", None)
         assert claim_row(conn, doc_id)[2] is None and extractions(conn) == []
+
+
+def test_workers_that_keep_crashing_in_ocr_end_in_extraction_failed_within_five_executions(prod):
+    """Every execution crashes (the lease runs out, nothing is recorded). Even with patient retries in between, the
+    document is closed for good once five OCR executions have started, and no execution is ever started after that."""
+    doc_id = upload(prod, patient(prod))
+    executions = 0
+    with prod.connect() as conn:
+        for _ in range(3):  # the first run: three claims, three executions, three crashes
+            job_ = extraction.claim(conn, doc_id, lease=timedelta(seconds=30))
+            extraction._begin_execution(conn, job_, timedelta(seconds=30))
+            executions += 1
+            expire_lease(conn, doc_id)
+        assert extraction.claim(conn, doc_id) is None  # the fourth look closes the run
+        assert job(conn, doc_id)[:3] == ("extraction_failed", 3, "LeaseExpired")
+        extraction.requeue(conn, doc_id)  # a patient retry: a new run, the same lifetime counter
+        for _ in range(2):
+            job_ = extraction.claim(conn, doc_id, lease=timedelta(seconds=30))
+            extraction._begin_execution(conn, job_, timedelta(seconds=30))
+            executions += 1
+            expire_lease(conn, doc_id)
+        assert executions == 5
+        assert extraction.claim(conn, doc_id) is None  # nothing may start a sixth execution
+        assert job(conn, doc_id)[:3] == ("extraction_failed", 2, "AttemptBudgetExhausted")  # 2 claims in this run
+        assert conn.execute("SELECT extraction_lifetime_attempts, extraction_claim FROM documents WHERE id = %s",
+                            [doc_id]).fetchone() == (5, None)
+        assert extraction.run_due(conn, ocr) == 0 and extractions(conn) == []
 
 
 def test_no_document_stays_in_extracting_whatever_goes_wrong(prod):

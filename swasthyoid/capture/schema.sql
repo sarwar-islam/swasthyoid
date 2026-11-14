@@ -70,6 +70,21 @@ ALTER TABLE documents DROP CONSTRAINT IF EXISTS extracting_has_time;
 ALTER TABLE documents ADD CONSTRAINT extracting_has_time
     CHECK (status <> 'extracting' OR next_extraction_at IS NOT NULL);
 
+-- Lifetime attempt budget (owner decision 2026-11-14): the number of ACTUAL OCR executions a document has had,
+-- ever. Only the worker adds to it, one at a time, just before the engine starts; nothing resets it (extraction_attempts
+-- is the per-run claim counter and is reset by a patient retry; this one never is). The limit itself is
+-- MAX_LIFETIME_ATTEMPTS in capture/extraction.py. A document that existed before this column starts from its
+-- current run's claims (the only history kept); the backfill runs once, when the column is created, never again.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+                   AND table_name = 'documents' AND column_name = 'extraction_lifetime_attempts') THEN
+        ALTER TABLE documents ADD COLUMN extraction_lifetime_attempts int NOT NULL DEFAULT 0
+            CHECK (extraction_lifetime_attempts >= 0);
+        UPDATE documents SET extraction_lifetime_attempts = extraction_attempts;
+    END IF;
+END $$;
+
 -- What was read from a document, for human review. Never the timeline: only M3's confirm
 -- step writes events. One row per (document, version); a repeat of the same job is a no-op.
 CREATE TABLE IF NOT EXISTS extractions (

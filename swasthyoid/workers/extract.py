@@ -56,7 +56,8 @@ POLL_VARIABLE = "EXTRACTION_POLL_SECONDS"
 # are touched only when a cloud AI provider is passed to run_due(), which the runner never does.
 REQUIRED_SCHEMA = {
     "documents": ("id", "patient_id", "doc_type", "status", "created_at", "updated_at",
-                  "extraction_attempts", "next_extraction_at", "extraction_error", "extraction_claim"),
+                  "extraction_attempts", "next_extraction_at", "extraction_error", "extraction_claim",
+                  "extraction_lifetime_attempts"),
     "document_images": ("document_id", "n", "storage_key", "content_type", "size_bytes", "sha256"),
     "extractions": ("id", "document_id", "version", "engine", "fields", "raw_text", "raw_text_sha256", "engine_id",
                     "model_version", "model_checksum", "adapter_interface_version", "adapter_version"),

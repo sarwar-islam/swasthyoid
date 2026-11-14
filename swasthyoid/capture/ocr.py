@@ -28,6 +28,7 @@ import re
 import signal
 import socket
 import stat
+import sys
 import threading
 import time
 import unicodedata
@@ -265,10 +266,98 @@ def _block_network():
     socket.create_connection = blocked
 
 
+_STOP, _KILL = getattr(signal, "SIGSTOP", 19), getattr(signal, "SIGKILL", 9)  # numbers: Linux, for tests on any system
+
+
+def _children_by_parent(proc_root="/proc"):
+    """{parent pid: [child pids]} read from /proc (Linux). A process that exits while the table is
+    read is skipped; no /proc gives an empty table."""
+    tree = {}
+    try:
+        names = os.listdir(proc_root)
+    except OSError:
+        return tree
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc_root, name, "stat"), "rb") as f:
+                # "pid (name) state ppid ...": the name may hold spaces and brackets, so split after the last ")"
+                parent = int(f.read().decode("ascii", "replace").rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        tree.setdefault(parent, []).append(int(name))
+    return tree
+
+
+def descendants(pid, proc_root="/proc"):
+    """Every live descendant of `pid` (children, their children, ...), whatever its session or process
+    group: the walk follows parent ids, which a new session does not change."""
+    tree, found, seen, stack = _children_by_parent(proc_root), [], {pid}, [pid]
+    while stack:
+        for child in tree.get(stack.pop(), ()):
+            if child not in seen:
+                seen.add(child)
+                found.append(child)
+                stack.append(child)
+    return found
+
+
+def _send(send, pid, sig):
+    """Send one signal. False if the process is already gone (it exited first: not an error) or the
+    system refused (logged by code only)."""
+    try:
+        send(pid, sig)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        log.warning("ocr process kill refused: code=kill_permission")
+        return False
+
+
+def kill_descendants(pid, *, freeze_root=False, proc_root="/proc", send=os.kill, rounds=10):
+    """Linux: kill every descendant of `pid`, including those in another session or group.
+    Everything found is stopped first (a stopped process cannot fork), the walk repeats until it finds
+    nothing new, then all of it is killed, then one last pass catches any straggler. With freeze_root the
+    root is stopped first too, so it cannot start new children meanwhile (the caller kills it afterwards).
+    Races are expected and harmless: a process that exits first is skipped, a refused signal is logged.
+    Without /proc (Windows, macOS) it does nothing; Windows trees are ended by stop_child instead."""
+    if not isinstance(pid, int) or pid <= 1 or not os.path.isdir(proc_root):
+        return
+    if freeze_root:
+        _send(send, pid, _STOP)
+    known = []
+    for _ in range(rounds):
+        fresh = [p for p in descendants(pid, proc_root) if p not in known]
+        if not fresh:
+            break
+        for p in fresh:
+            _send(send, p, _STOP)
+        known.extend(fresh)
+    for p in known:
+        _send(send, p, _KILL)
+    for p in descendants(pid, proc_root):
+        _send(send, p, _KILL)
+
+
+def _become_subreaper():
+    """Linux: make this process the adopter of its orphaned descendants (PR_SET_CHILD_SUBREAPER), so a
+    grandchild whose parent exits is re-parented here instead of to init, and the walk still finds it."""
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+        ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)
+    except (OSError, AttributeError):
+        pass  # best effort: without it only descendants whose parents are still alive are found
+
+
 def _watchdog(limit):
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline and multiprocessing.parent_process().is_alive():
         time.sleep(1)
+    kill_descendants(os.getpid())  # also the ones in their own session
     if hasattr(os, "killpg"):
         try:
             os.killpg(0, signal.SIGKILL)  # this child leads its own group: take the group with it
@@ -286,6 +375,7 @@ def enter_child(limit):
             os.setsid()
         except OSError:
             pass
+    _become_subreaper()
     if not runtime_mode.is_test_mode():
         devnull = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull, 1)
@@ -295,12 +385,30 @@ def enter_child(limit):
     threading.Thread(target=_watchdog, args=(limit,), daemon=True).start()
 
 
+def _taskkill_tree(pid):
+    """Windows: end the process and everything it started (fixed command, no shell, a number as argument)."""
+    import subprocess
+    try:
+        subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        log.warning("ocr child tree kill failed: code=taskkill")
+
+
 def stop_child(proc):
-    """Kill the child's process group, then the child. The group is killed before the child is
-    reaped, so its id cannot have been reused. A descendant that started its own session or
-    group escapes (documented limit); on Windows only the child itself is killed."""
+    """End the child and everything it started, then reap it. Linux: the child is frozen, every
+    descendant is found by walking parent ids (so one in its own session or group is found too) and
+    killed, then the child's group and the child are killed. All of this happens before the child is
+    reaped, so its id cannot have been reused. Windows: the whole tree is ended with taskkill /T.
+    Remaining limit: a descendant whose parent died earlier and that left the group (a daemon started by
+    an engine that was itself killed from outside) is not found; the child is its subreaper while it
+    lives, which covers every normal exit, timeout and worker death."""
     if proc.pid is None:
         return
+    if sys.platform == "win32":
+        _taskkill_tree(proc.pid)
+    else:
+        kill_descendants(proc.pid, freeze_root=True)
     if hasattr(os, "killpg"):
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -357,6 +465,7 @@ def _probe_main(ref, entry, out, limit):
         send("failed", "engine_unavailable")
     finally:
         out.close()
+        kill_descendants(os.getpid())  # an adapter's identity() must not leave processes behind
 
 
 def _read_probe(results, deadline):

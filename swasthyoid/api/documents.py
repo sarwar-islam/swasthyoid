@@ -122,7 +122,8 @@ def get_image(document_id: UUID, n: int, request: Request, conn=Depends(get_conn
 _CONFLICTS = {
     "not_allowed_state": "The document is not in a state that allows this.",
     "extraction_in_progress": "A worker is extracting this document right now; try again shortly.",
-    "retry_limit_reached": f"This document has used all {extraction.MAX_RETRIES} retries; enter it by hand instead.",
+    "retry_limit_reached": f"This document has used all {extraction.MAX_LIFETIME_ATTEMPTS} reading attempts; enter it by hand instead.",
+    "not_retryable": "Reading this document failed in a way that trying again cannot fix; enter it by hand instead.",
 }
 
 
@@ -162,8 +163,9 @@ def start_manual_entry(document_id: UUID, request: Request, conn=Depends(get_con
 @router.post("/documents/{document_id}/retry-extraction")
 def retry_extraction(document_id: UUID, request: Request, conn=Depends(get_conn),
                      a: Actor = Depends(require("patient"))):
-    """Try a failed extraction again, at most MAX_RETRIES times per document. 409 not_allowed_state unless
-    the extraction failed; 409 retry_limit_reached past the cap."""
+    """Try a failed extraction again while the document's lifetime budget of MAX_LIFETIME_ATTEMPTS OCR executions
+    has attempts left. 409 not_allowed_state unless the extraction failed; 409 retry_limit_reached when the budget
+    is used up; 409 not_retryable after a permanent failure."""
     _own_document(conn, a, document_id)
 
     def work():
@@ -172,6 +174,7 @@ def retry_extraction(document_id: UUID, request: Request, conn=Depends(get_conn)
         except extraction.Conflict as e:
             raise ApiError(409, e.args[0], _CONFLICTS[e.args[0]])
         return {"document_id": document_id, "status": "extracting", "retries_used": used,
-                "retries_allowed": extraction.MAX_RETRIES}
+                "attempts_used": extraction.attempts_used(conn, document_id),
+                "attempts_allowed": extraction.MAX_LIFETIME_ATTEMPTS}
 
     return idempotent(conn, request, a, f"retry:{document_id}", work)

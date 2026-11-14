@@ -14,7 +14,8 @@ from swasthyoid.capture import documents, extraction
 IMAGE = b"SYNTHETIC-IMAGE-BYTES"
 RESULT = {"engine": "fake", "raw_text": "", "fields": {}}
 LOST = "ocr attempt lease lost: code=LeaseLost stage=attempt document={} attempt=2"
-STATEMENTS = (("UPDATE documents SET next_extraction_at", "renew"),
+STATEMENTS = (("UPDATE documents SET extraction_lifetime_attempts", "begin"),
+              ("UPDATE documents SET next_extraction_at", "renew"),
               ("UPDATE documents SET status = %s", "fail"),
               ("SELECT 1 FROM documents", "fence"),
               ("INSERT INTO extractions", "store"),
@@ -30,11 +31,12 @@ class Result:
 
 
 class Conn:
-    """Records each statement's name in the shared event list; can fail the renewal or the fence."""
+    """Records each statement's name in the shared event list; can fail the renewal, the fence or the budget."""
 
-    def __init__(self, events, *, renewed=True, renew_error=None, lose_connection=False, fence_row=(1,)):
+    def __init__(self, events, *, renewed=True, renew_error=None, lose_connection=False, fence_row=(1,), begin_row=(1,)):
         self.events, self.renewed, self.renew_error = events, renewed, renew_error
         self.lose_connection, self.fence_row, self.closed = lose_connection, fence_row, False
+        self.begin_row = begin_row
 
     def transaction(self):
         return contextlib.nullcontext()
@@ -51,6 +53,8 @@ class Conn:
                     return Result(rowcount=1 if self.renewed else 0)
                 if name == "fence":
                     return Result(row=self.fence_row)
+                if name == "begin":
+                    return Result(row=self.begin_row)
                 return Result()
         raise AssertionError(f"unexpected statement: {head[:60]}")
 
@@ -99,7 +103,7 @@ READS = ["get", "read 1", "read 2"]
 def test_the_lease_is_renewed_after_all_images_are_read_and_before_the_engine(world, caplog):
     with caplog.at_level("WARNING", logger=extraction.log.name):
         assert world.run(Conn(world.events)) is None
-    assert world.events == READS + ["renew", "engine", "fence", "store", "done"]
+    assert world.events == READS + ["renew", "begin", "engine", "fence", "store", "done"]
     assert messages(caplog) == []
 
 
@@ -153,12 +157,34 @@ def test_a_lease_lost_during_the_engine_stage_logs_the_same_warning(world, monke
     monkeypatch.setattr(extraction, "_run_engine", run_engine)
     with caplog.at_level("WARNING", logger=extraction.log.name):
         assert world.run(Conn(world.events)) is None
-    assert world.events == READS + ["renew", "engine"]
+    assert world.events == READS + ["renew", "begin", "engine"]
     assert messages(caplog) == [LOST.format(world.job["id"])]
 
 
 def test_a_lease_lost_at_the_fence_logs_the_same_warning_and_stores_nothing(world, caplog):
     with caplog.at_level("WARNING", logger=extraction.log.name):
         assert world.run(Conn(world.events, fence_row=None)) is None
-    assert world.events == READS + ["renew", "engine", "fence"]  # no store, no done
+    assert world.events == READS + ["renew", "begin", "engine", "fence"]  # no store, no done
     assert messages(caplog) == [LOST.format(world.job["id"])]
+
+
+def test_the_execution_is_counted_after_the_lease_check_and_immediately_before_the_engine(world):
+    world.run(Conn(world.events))
+    assert world.events.index("renew") < world.events.index("begin") < world.events.index("engine")
+
+
+def test_a_lease_lost_at_the_moment_of_counting_never_starts_the_engine(world, caplog):
+    with caplog.at_level("WARNING", logger=extraction.log.name):
+        # the guarded update matches nothing and the claim is gone (the second query, answered by fence_row)
+        assert world.run(Conn(world.events, begin_row=None, fence_row=None)) is None
+    assert world.events == READS + ["renew", "begin", "fence"]  # no engine, no store
+    assert messages(caplog) == [LOST.format(world.job["id"])]
+
+
+def test_an_exhausted_budget_never_starts_the_engine_and_closes_the_document(world, caplog):
+    with caplog.at_level("WARNING", logger=extraction.log.name):
+        # the guarded update matches nothing but the claim is still ours: the lifetime budget is used up
+        assert world.run(Conn(world.events, begin_row=None, fence_row=(1,))) is None
+    assert world.events == READS + ["renew", "begin", "fence", "fail"]  # no engine; the failure write closes it
+    assert messages(caplog) == [
+        f"ocr attempt failed: code=AttemptBudgetExhausted stage=attempt document={world.job['id']} attempt=2"]

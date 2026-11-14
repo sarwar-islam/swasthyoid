@@ -117,6 +117,7 @@ def test_real_schema_has_the_extraction_objects(prod):
         assert docs["next_extraction_at"][:2] == ("timestamp with time zone", "YES")
         assert docs["extraction_error"][:2] == ("text", "YES")
         assert docs["extraction_claim"][:2] == ("uuid", "YES")
+        assert docs["extraction_lifetime_attempts"] == ("integer", "NO", "0")  # the lifetime OCR execution counter
 
         constraints = {r[0]: r[1] for r in conn.execute(
             "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'extractions'::regclass")}
@@ -137,12 +138,18 @@ def test_schema_applies_twice_and_upgrades_a_slice_1_database(prod):
         conn.execute("DROP TABLE extraction_raw_texts")  # slice 1 had neither this nor extractions
         conn.execute("DROP TABLE extractions")
         conn.execute("ALTER TABLE documents DROP COLUMN extraction_attempts, DROP COLUMN next_extraction_at, "
-                     "DROP COLUMN extraction_error, DROP COLUMN extraction_claim")
+                     "DROP COLUMN extraction_error, DROP COLUMN extraction_claim, "
+                     "DROP COLUMN extraction_lifetime_attempts")
     doc_id = upload(prod, patient(prod))  # a document that existed before the upgrade
     with TestClient(app):  # a restart applies the slice 2 additions
         pass
     with prod.connect() as conn:
         assert job(conn, doc_id) == ("uploaded", 0, None, None)
+        assert conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [doc_id]).fetchone()[0] == 0
+        conn.execute("UPDATE documents SET extraction_lifetime_attempts = 3 WHERE id = %s", [doc_id])
+        db.apply_schema(conn)  # applying the schema again never resets or backfills an existing counter
+        assert conn.execute("SELECT extraction_lifetime_attempts FROM documents WHERE id = %s", [doc_id]).fetchone()[0] == 3
+        conn.execute("UPDATE documents SET extraction_lifetime_attempts = 0 WHERE id = %s", [doc_id])
         assert extraction.run_due(conn, ocr) == 1
         assert job(conn, doc_id)[0] == "needs_review"
 

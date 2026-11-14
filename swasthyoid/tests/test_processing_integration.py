@@ -57,7 +57,7 @@ def test_with_operations_on_the_engine_gets_processing_copies_and_the_original_i
     assert all(abs(imaging.measure(c)["skew"]) <= imaging.LIMITS["max_skew"] for c in copies)
     assert hashlib.sha256(PAGE).hexdigest() == before and seen["served"] == [PAGE, PAGE]
     # the copy is transient: the only statements are the ones of a normal attempt, none stores an image
-    assert world.events == READS + ["renew", "engine", "fence", "store", "done"]
+    assert world.events == READS + ["renew", "begin", "engine", "fence", "store", "done"]
 
 
 def test_the_default_option_is_the_module_constant_and_is_empty():
@@ -75,6 +75,7 @@ def test_a_page_that_cannot_be_decoded_fails_the_attempt_with_a_code_only(world,
     with caplog.at_level("WARNING", logger=extraction.log.name):
         attempt(world, preprocess=("deskew",))
     assert "engine" not in world.events and "store" not in world.events and "fail" in world.events
+    assert "begin" not in world.events  # OCR never started: no attempt was used (lifetime budget)
     assert "SYNTHETIC-NOT-AN-IMAGE" not in caplog.text and seen["engine_pages"] is None
 
 

@@ -280,16 +280,19 @@ def test_hard_timeout_kills_the_adapters_children_in_its_group(c, monkeypatch):
 
 
 @linux_only
-def test_a_child_in_its_own_session_escapes_as_documented(c, monkeypatch):
+def test_a_child_in_its_own_session_no_longer_escapes_the_timeout(c, monkeypatch):
+    """Before the process-tree fix (docs/DECISIONS.md, "Process trees") a descendant that called setsid() left the
+    group and survived the group kill. The kill now walks parent ids, so it is ended with the rest."""
     use(monkeypatch, "spawns_new_session")
     upload(c, c.headers)
     with c.connect() as conn:
         extraction.run_due(conn, **{**CHILD, "hard_timeout": timedelta(seconds=4)})
     pid = grandchild_pid(c)
     try:
-        assert alive(pid)  # documented limit: setsid() leaves the group, so the group kill misses it
+        assert wait_gone(pid)
     finally:
-        os.kill(pid, 9)
+        if alive(pid):
+            os.kill(pid, 9)
 
 
 WORKER = """
