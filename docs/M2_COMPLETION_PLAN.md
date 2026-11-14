@@ -23,7 +23,7 @@ This plan covers what M2 still needs. It does not start M3, does not enable clou
 4. Fake OCR engines exist for tests only and are never production engines.
 5. There is no automatic production fallback to another OCR engine. A failed attempt fails; nothing else runs in its place.
 6. The adapter interface is framework-neutral and **provisional**. Model-dependent details (input and output, confidence, position or box format, granularity, limits, batching, timeout values, process model, resources) stay **OPEN** until the owner supplies the model specification (D4).
-7. Cloud AI stays off. The clinical field list stays empty until approved (D7).
+7. Cloud AI stays off. The clinical field list was approved by the owner on 2026-11-14 and is in `SCHEMAS`; clinical reviewer sign-off is still pending (D7).
 8. The future model is not forced to fit the provisional interface. When the specification arrives, the interface is reviewed and revised to fit the model, with the owner's approval.
 9. No model artifact is bundled or deployed without the owner's explicit authorization. Model-specific implementation, integration and production deployment need the specification and explicit approval.
 
@@ -97,7 +97,7 @@ The record of what was built is `docs/DECISIONS.md`, "Worker reliability (M2 ste
 
 **Completion (2026-11-12):** `main` pushed with the owner's approval (`origin/main` = `3f348d3`), CI run #15 on `main` passed (259 passed, 0 failed, 0 skipped, 0 errors), and the owner marked Step 1 complete. Review findings S2–S8 stay open and are not part of Step 1 unless the owner decides otherwise.
 
-**Interaction with Option A (decided 2026-11-12, not implemented).** Step 1's claim counts an attempt before the work, so a run with no adapter would use up attempts. 4A adds the availability check before any claim (a change to `run_due` and `extract`), and step 8 adds direct manual entry (a change to `manual_entry()` and the transitions). Neither changes the claim, fence, lease, heartbeat or retry logic of step 1.
+**Interaction with Option A (decided 2026-11-12; the availability check before any claim is implemented, and direct manual entry was implemented on 2026-11-14 as slice 8.6).** Step 1's claim counts an attempt before the work, so a run with no adapter would use up attempts. 4A adds the availability check before any claim (a change to `run_due` and `extract`), and step 8 adds direct manual entry (a change to `manual_entry()` and the transitions). Neither changes the claim, fence, lease, heartbeat or retry logic of step 1.
 
 **Open risks (unchanged):**
 
@@ -116,7 +116,7 @@ The approved proposal was a claim-and-lease design fenced by attempt number, wit
 
 ## Step 2 — Extraction data privacy
 
-- **Status.** Plan only. Not implemented.
+- **Status.** Implemented locally 2026-11-14 (D2 option b, key EXTRACTION_KEY, deletion at verification or rejection); see docs/DECISIONS.md, "Implementation record of the 2026-11-14 decisions". Not pushed, no CI run.
 - **FRD requirement.** Section 9: encryption at rest, field-level encryption for sensitive fields, "store only schema fields", no document text in logs, patient export and delete.
 - **Proposed implementation.** The mitigation already written in `DECISIONS.md`: encrypt `extractions.fields` and `raw_text` with a key outside the database; keep `raw_text` only until the document is verified or rejected, in a store that allows deletion; record its hash in the append-only row.
 - **Files.** `capture/extraction.py`, `capture/schema.sql`, `pii.py` or `capture/storage.py`.
@@ -164,7 +164,7 @@ Everything in step 3 is model-independent. It produces data and plumbing; it mea
 ## Step 4 — OCR infrastructure and owner-model integration (your area 2)
 
 - **FRD requirement.** 3.5: local OCR. M2: local OCR; cloud model only on opt-in. Section 9: Bangla and English OCR; under 60 s per page.
-- **Status.** Plan only. Not implemented. No model is selected, installed or integrated.
+- **Status.** 4A (model-independent infrastructure) is implemented, merged and CI-verified. The Jonaki adapter infrastructure is implemented and tested with a fake runner only. **4B (the owner's model) is not implemented**, and the real Jonaki runner and weights have never been executed. No model is selected, installed or integrated by the project.
 
 **OCR model status (2026-11-12).** Development of the OCR model has **not started**. The owner has not selected an architecture, framework, dataset or trained model, and will select, train, own and supply it independently (`docs/DECISIONS.md`, "OCR model not yet developed"). Everything in 4A is therefore model-independent infrastructure plus a **provisional** interface that is expected to change.
 
@@ -289,13 +289,13 @@ Planned work, in order, after those conditions are met:
 
 ## Step 6 — Clinical schemas and document parsers (your area 4)
 
-- **Status.** Plan only. Not implemented.
+- **Status.** Partly implemented locally 2026-11-14: the approved field list in SCHEMAS and label-anchored transcription parsers; row splitting waits for reviewer vocabularies; reviewer not named. See docs/DECISIONS.md. Not pushed, no CI run.
 - **FRD requirement.** M2: "Parse to a typed schema with per-field confidence, validate types and dates". Invariant 1. CLAUDE.md: no invented clinical content.
 
 ### 6A — Schema mechanism (model-independent)
 
 - Extend the schema format so each field carries its kind, whether it is **required or optional**, and validation rules (for example a date not in the future for a prescription date). Store the schema version with each extraction.
-- `SCHEMAS` **stays empty** in the code until the list in `DECISIONS.md` is approved by you and the clinical reviewer. The existing test that pins it empty stays until then.
+- `SCHEMAS` was empty until the list in `DECISIONS.md` was approved. **Superseded 2026-11-14:** the owner approved the list (reviewer sign-off still pending) and `SCHEMAS` now holds it; the test that pinned it empty now compares it with `tests/approved_fields.py`.
 - Required fields are a rule for M3's confirm step; M2 only reports which are missing.
 - **Tests.** Mechanism tests on a synthetic test-only schema, as today; a required field missing is reported; an invalid value is never accepted whatever its confidence.
 
@@ -378,7 +378,7 @@ Planned work, in order, after those conditions are met:
 
 ## Step 9 — Accuracy evaluation and sign-off (your area 6, second half)
 
-- **Status.** Plan only. Not implemented.
+- **Status.** Partly implemented: the evaluation harness (`tests/evaluation/harness.py`: field-level scoring, integrity checks, confidence analysis, CER, WER, failure and empty-output rates), tested with fakes only. **Real accuracy evaluation is not done**: it needs a model run and permitted data (4B, access, license), and no pass marks are set (D11).
 - **FRD requirement.** Section 8: "Extraction accuracy — field-level on a labelled synthetic set of printed and handwritten prescriptions — **target agreed with the clinical reviewer**". The FRD sets no numbers, so this plan sets none either.
 
 ### Metrics (defined once; computed by 9A, reported for the real model by 9B)
@@ -430,18 +430,18 @@ Each is reported separately for printed and handwritten, and per field:
 | #      | Decision                                                                                    | Needed for       | Owner                         | Status                                      |
 | ------ | ------------------------------------------------------------------------------------------- | ---------------- | ----------------------------- | ------------------------------------------- |
 | D1     | Lease length per extraction attempt: **5 minutes**                                          | Step 1           | You                           | DECIDED                                     |
-| D2     | Encrypt extraction data, and delete raw text after review                                   | Step 2           | You, lawyer                   | OPEN                                        |
+| D2     | Encrypt extraction data, and delete raw text after review                                   | Step 2           | You, lawyer                   | APPROVED 2026-11-14: (b), key EXTRACTION_KEY |
 | D3     | Who hand-writes the synthetic handwritten set, and how many                                 | Step 3B          | You                           | OPEN                                        |
 | D4     | OCR model: **owner-trained and owner-supplied**; the specification, delivery method, who writes the adapter module, and explicit integration approval (see below) | Steps 4B, 5B, 9B | You                           | Model ownership DECIDED; the rest OPEN |
 | D5     | Retake policy and "upload anyway"                                                           | Step 5A          | You                           | OPEN (proposal in step 5A)                  |
 | D6     | Serve images without EXIF to non-patients                                                   | Step 5A          | You                           | OPEN (proposal in step 5A)                  |
-| D7     | Clinical field list, required and optional                                                  | Step 6           | You and the clinical reviewer | OPEN                                        |
+| D7     | Clinical field list, required and optional                                                  | Step 6           | You and the clinical reviewer | APPROVED by owner 2026-11-14; reviewer not named |
 | D8     | Drug matching rule                                                                          | Step 7           | Clinical reviewer             | OPEN                                        |
 | D9     | How the worker is run                                                                       | Step 8           | You                           | DECIDED 2026-11-13 (DECISIONS.md)                                        |
-| D10    | Who may retry or start manual entry (recommended: patient only)                             | Step 8           | You                           | OPEN                                        |
-| D12    | Manual entry from `uploaded` also when an adapter is configured (recommended: yes)          | Step 8           | You                           | OPEN                                        |
+| D10    | Who may retry or start manual entry (recommended: patient only)                             | Step 8           | You                           | APPROVED 2026-11-14: patient only           |
+| D12    | Manual entry from `uploaded` also when an adapter is configured (recommended: yes)          | Step 8           | You                           | APPROVED 2026-11-14: yes                    |
 | D13    | Adapter checksum or load failure at worker start: "unavailable", no claim, alert (recommended) or a failed attempt | Steps 4A, 8 | You                     | PARTLY DECIDED: unavailable = no claim + warning (accepted 2026-11-12, in 4A); alert mechanism OPEN |
-| D14    | Audit 409 state-conflict refusals too (recommended: no)                                     | Step 8           | You                           | OPEN                                        |
+| D14    | Audit 409 state-conflict refusals too (recommended: no)                                     | Step 8           | You                           | APPROVED 2026-11-14: no                     |
 | D15    | M3 may start once M2 is infrastructure-complete                                             | M3 start         | You                           | OPEN                                        |
 | D16    | Accept the P0 gate deviation (`docs/DECISIONS.md`)                                          | Record keeping   | You                           | OPEN                                        |
 | D17    | 4A model-independent infrastructure scope; version 0 as an infrastructure-test interface only (`DECISIONS.md`) | Step 4A | You | **APPROVED WITH REVISIONS 2026-11-12**; sub-choices accepted 2026-11-12; plan Revision 4 frozen and implementation approved; built on branch `4a/ocr-infrastructure`, merged into `main` 2026-11-13 (historical) |
@@ -449,7 +449,7 @@ Each is reported separately for printed and handwritten, and per field:
 | D11    | Accuracy and detection targets                                                              | Steps 5A, 9B     | Clinical reviewer             | OPEN                                        |
 | FRD Q1 | Drug catalog source                                                                         | Step 7           | You                           | OPEN                                        |
 | FRD Q7 | Clinical reviewer named                                                                     | Steps 6, 7, 9    | You                           | OPEN                                        |
-| FRD Q8 | Retention (lawyer's view)                                                                   | Step 2           | You, lawyer                   | OPEN                                        |
+| FRD Q8 | Retention (lawyer's view)                                                                   | Step 2           | You, lawyer                   | DECIDED 2026-11-14: delete at verification or rejection |
 
 ### D4 — what the owner supplies (specification intake, all OPEN until supplied; integration also requires explicit owner approval)
 

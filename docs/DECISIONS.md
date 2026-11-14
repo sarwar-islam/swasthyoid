@@ -113,12 +113,14 @@ helped by a caregiver. This is not in the FRD yet; the FRD changes it needs are 
 
 ---
 
-# Extraction field list (P2 slice 2) — PROPOSED, not approved
+# Extraction field list (P2 slice 2) — owner-approved 2026-11-14 with two additions; clinical reviewer not named
 
 The FRD asks M2 to "parse to a typed schema" but lists no fields. The pipeline is built and
 takes the list as data (`SCHEMAS` in `swasthyoid/capture/extraction.py`), which is **empty
 until this list is approved**. With it empty, every document goes to review with its raw text
-only. Approval is needed from the owner and from the clinical reviewer (question 7, still open).
+only. Approval is needed from the owner and from the clinical reviewer (question 7). **Status 2026-11-14:** approved by the owner with
+two additions (`printed_patient_name`, `allergy_text`) and answers to the five questions (see "Owner decisions of
+2026-11-14"); the clinical reviewer has not been named, so reviewer sign-off and FRD Q7 stay open. `SCHEMAS` now holds the approved list (see the implementation record).
 
 Every field is a transcription of what is written on the paper. Nothing is interpreted,
 coded or inferred. Kinds: `text`, `number`, `date`; `[]` marks a repeated group.
@@ -203,6 +205,8 @@ other reading, and never replaces an accepted reading with a rejected one.
 4. Add extraction data to the patient export-and-delete flow the FRD requires.
 
 Owner decision needed on 1 and 2, and a lawyer's view on retention (FRD open question 8).
+**Decided 2026-11-14: option (b), delete `raw_text` at verification or rejection, key `EXTRACTION_KEY` (see "Owner
+decisions of 2026-11-14"). Implemented locally 2026-11-14 (see the implementation record); rows written before it stay plain.**
 
 ---
 
@@ -475,7 +479,7 @@ Code today: no model or engine dependency exists (`pyproject.toml`). Only fake e
 
 # No OCR adapter available: stay due, direct manual entry — DECIDED (Option A)
 
-Owner: Sarwar Islam. Date: 2026-11-12. The design below is PROPOSED and NOT IMPLEMENTED.
+Owner: Sarwar Islam. Date: 2026-11-12. The design below was PROPOSED on that date; the endpoints and functions were implemented locally on 2026-11-14 after the owner's decisions (see "Implementation record of the 2026-11-14 decisions").
 
 **Decision.** A document for which no OCR adapter is available stays due (status `uploaded`)
 and can go straight to manual entry. It is never marked `extraction_failed` just because no
@@ -524,6 +528,8 @@ These are tracked in `docs/M2_COMPLETION_PLAN.md` as 1 = D12, 2 = D13, 3 = D14, 
 3. Audit 409 state-conflict refusals too? Recommended: no; authorization denials are already
    audited by the gateway chain.
 4. Who may start manual entry: plan D10. Recommended: patient only, like viewing the extraction.
+
+**Decided 2026-11-14: D12 yes, D14 no, D10 patient only (see "Owner decisions of 2026-11-14"). Implemented locally 2026-11-14.**
 
 ---
 
@@ -1233,6 +1239,111 @@ All M2 work that needs no owner decision or external access; the open decisions 
   that the two new symlink tests and the Linux-only process-group and signal tests executed and passed is **inferred
   from 0 skipped and 0 failed**, not shown by name. Run link:
   https://github.com/sarwar-islam/swasthyoid/actions/runs/43549715271.
+
+## Owner decisions of 2026-11-14 (D2, FRD Q8, Q4, D10, D12, D14, retry cap, D7)
+
+Owner: Sarwar Islam, in writing on 2026-11-14, on the options and recommendations in `docs/M2_OWNER_DECISIONS.md`.
+These are APPROVED decisions. **Implemented locally on 2026-11-14 in the agreed order (D7, slice 8.6, D2, Q4); see
+"Implementation record of the 2026-11-14 decisions" below. Not pushed, no CI run.**
+
+### D2, FRD Q8 and Q4 (privacy, retention, deployment)
+- **D2: option (b).** Field-level encryption of `extractions.fields`; `raw_text` moves to a deletable encrypted store
+  and only its hash stays in the append-only `extractions` row.
+- **Retention (Q8):** delete `raw_text` at document verification or rejection. The decision does not mention a
+  lawyer's view, which FRD Q8 asked for; none is recorded here.
+- **Key store:** an environment-held Fernet key named `EXTRACTION_KEY`, as `DOCUMENT_KEY` and `PII_KEY` are.
+- **Q4:** approved as recommended: a process supervisor with `EXTRACTION_POLL_SECONDS` set by the operator; schema
+  migrations stay with the API. The approval does not name a hosting provider, a supervisor product or an interval
+  value; those remain operator choices, not recorded decisions.
+- **Consequence for the schema:** D2 needs a migration (a store for `raw_text` and a hash column). Its exact form will
+  be proposed before the D2 step; nothing is migrated yet.
+
+### Slice 8.6 (manual entry and retry)
+- **D10:** patient only. **D12:** yes, manual entry is always allowed, also when an adapter is configured.
+  **D14:** no, do not audit 409 state conflicts; keep auditing successful actions.
+- **Retry cap: 5 attempts per document.** Interpretation to confirm before the endpoints are built: 5 patient-initiated
+  retries per document, separate from the worker's automatic attempts per run (`MAX_ATTEMPTS`, 3), which are unchanged.
+- The proposed design in "No OCR adapter available ... Proposed design" otherwise stands as written there.
+
+### D7 and FRD Q7 (clinical field list)
+- **Approved by the owner:** the transcription-only list under "Extraction field list" for `prescription`,
+  `lab_report`, `discharge_summary` and `other`, plus (a) `printed_patient_name`, stored encrypted and used as a
+  mismatch flag once D2 lands, and (b) a dedicated `allergy_text` field.
+- **Answers to the five questions.** Q1: no field is strictly required at the M2 extraction stage; M2 reports missing
+  fields and M3's confirm step enforces completeness. Q2: yes, the printed patient name as an encrypted mismatch flag.
+  Q3: yes, a dedicated `allergy_text` field. Q4: no; `diagnosis_text` is shown with the document only and is never
+  promoted to a verified diagnosis event without M3 confirmation. Q5: dose and duration stay free text (no splitting).
+- **Clinical reviewer: NOT NAMED.** The reviewer line of the approval message was left as a placeholder, so no name is
+  recorded. The owner co-signs as project owner. **FRD Q7 stays open and reviewer sign-off is pending.**
+- **Not specified, to confirm:** which document types carry `printed_patient_name` and `allergy_text`.
+
+## Implementation record of the 2026-11-14 decisions (local, uncommitted, not pushed, no CI run)
+
+**Evidence.** Windows, disposable PostgreSQL (pgserver in a venv outside the repository, since removed): **992 passed,
+10 skipped, 0 failed** in 607 s; without a database 688 passed, 314 skipped, 0 failed in 126 s. Full detail:
+`docs/M2_OVERALL_COMPLETION_REPORT.md`. The 10 skips are platform-bound (3 Linux-only process-group kill tests, 4 Linux-only
+runner signal and kill tests, 3 symlink tests that need privileges this machine lacks). Nothing here has been through CI.
+
+### D7: field list, parsers
+- `SCHEMAS` (`capture/extraction.py`) holds the approved list: `prescription`, `lab_report`, `discharge_summary`, `other`,
+  with `printed_patient_name` and `allergy_text` as agreed; every field optional; `SCHEMA_VERSION = "1"` (not yet stored per
+  extraction: needs a column). `tests/approved_fields.py` is a separate copy of the signed list; a test fails on any field
+  added, dropped or retyped. **Placement chosen where the approval was silent:** `allergy_text` on `prescription` and
+  `discharge_summary`; `printed_patient_name` on all three document types.
+- `capture/parsers.py`: deterministic, label-anchored transcription. A field comes only from `label: value` (or `label:` and
+  the next line); conflicting readings leave the field empty; dates use the existing date parser (invalid is kept as the raw
+  reading and never accepted); field confidence is the lowest confidence among its source lines (missing counts as 0.0, so
+  it goes to manual entry). Medication and test rows are kept whole as `name_as_written` / `test_name`: strength, form, dose,
+  duration, result, unit and reference range stay empty until the clinical reviewer supplies vocabularies. Default labels
+  are structural English words, a proposal; Bangla labels are not guessed. Wired into the worker's OCR path (`_attempt`).
+- **The clinical reviewer is not named; reviewer sign-off and FRD Q7 are pending.** The list was activated on the owner's
+  approval alone, as agreed in the owner's message.
+- `printed_patient_name`: stored sealed with the other fields; `latest()` adds an ADVISORY `printed_name_check`
+  (`same_after_normalisation`, `not_the_same`, `not_checked`): equality after NFC, case-folding and collapsed spaces only.
+  Transliteration, titles and spelling variants are not handled; it never blocks anything.
+
+### Slice 8.6: manual entry and retry
+- `POST /documents/{id}/manual-entry` and `POST /documents/{id}/retry-extraction` (`api/documents.py`), patient only (D10),
+  Idempotency-Key supported, 404 for unknown or someone else's document, role refusals audited by the gateway chain as before.
+- `start_manual_entry` (`capture/extraction.py`): from `uploaded`, from `extracting` with no live claim, or from
+  `extraction_failed`, also while an adapter is configured (D12); 409 `extraction_in_progress` while a worker holds a live
+  claim; 409 `not_allowed_state` otherwise. One transaction: row lock, status change, claim and due time cleared, `manual`
+  extraction row stored, audit entry `document.manual_entry` (an audit failure undoes everything).
+  `documents.TRANSITIONS` gained `uploaded -> needs_review`. The older narrow `manual_entry()` keeps its contract
+  (failed extraction only).
+- `retry_extraction`: `extraction_failed -> extracting` from the first attempt, audit entry `document.retry`. **Cap: 5
+  retries per document, implemented as patient-initiated retries counted from the audit entries of successful retries**
+  (no column); the worker's automatic attempts (`MAX_ATTEMPTS`, 3) are separate. This is the interpretation recorded as "to
+  confirm" above. A 6th retry gives 409 `retry_limit_reached`; manual entry stays available.
+- 409 refusals are not audited (D14); successful actions are. Races: a worker whose lease ran out stores nothing after a
+  manual entry; two simultaneous retries use exactly one.
+
+### D2: extracted text at rest
+- `capture/extraction_crypto.py`: `extractions.fields` is stored as one sealed object `{"v": 1, "enc": <Fernet token>}`; the
+  raw text is a Fernet token in the new table `extraction_raw_texts`, and the append-only row keeps `raw_text` empty and only
+  its SHA-256 in the new column `raw_text_sha256`. **Migration** (`capture/schema.sql`, additive and idempotent, applied by
+  the API at startup, Q4): that column with a CHECK, and that table. Nothing else changed.
+- **The retention rule is enforced by the database:** the trigger `extraction_raw_texts_retention` on `documents` deletes the
+  raw-text rows when a document's status becomes `verified` or `rejected`, whoever writes it (`set_status` or plain SQL); the
+  hash and the sealed fields stay. `latest()` decrypts, returns `raw_text_available`, and **fails closed** (`Undecryptable`) on a wrong key.
+- Key `EXTRACTION_KEY` (Fernet, environment-held, no default): the API refuses to start, `run_due` and `extract` refuse
+  before any claim, and the runner exits 2 (before connecting) without a valid key; the runner's schema inventory lists the
+  new column and table. Through the API a key that no longer decrypts gives a controlled 500 `extraction_unreadable`, with no
+  content.
+- **Limits.** The key is the root of the protection: whoever holds it reads the text. No key rotation. Rows written before D2
+  are plain and cannot be rewritten (append-only). The existing idempotency store keeps the response of a manual-entry call
+  (a blank manual extraction). A backup holds sealed data and hashes; the key must be backed up separately. Not shown: any
+  protection against a compromised application host. Whether a lawyer reviewed the retention rule is not recorded.
+
+### Q4: deployment
+- `docs/DEPLOYMENT.md`: processes, environment, exit codes mapped to a supervisor policy, a systemd template (untested), what
+  operators can see, and the D2 handling notes. No hosting provider, supervisor product or interval value is chosen.
+
+### Still not done, and why
+Clinical parsers beyond transcription (reviewer vocabularies), the reviewer's name (FRD Q7), drug matching wired into
+extraction (D8, FRD Q1), the final OCR interface and persistence of confidence and boxes (D18, 4B, schema approval), real
+Jonaki execution and any OCR accuracy (access, license, data), upload quality policy (D5, D6, D11), key rotation, a database
+`connect_timeout`, the D13 alert mechanism, and CI verification of this batch.
 
 ## D13 clarification (D13 stays open as a whole)
 

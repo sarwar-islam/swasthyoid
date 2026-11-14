@@ -5,19 +5,37 @@ change or refuse, and each says exactly what the approval must contain. Independ
 what these decisions block is isolated in the code and listed at the end. No clinical, privacy or retention
 policy was invented.
 
-## Priority order (what each unresolved decision costs while it stays open)
+## Decisions recorded 2026-11-14 (approved by the owner; details in `docs/DECISIONS.md`, "Owner decisions of 2026-11-14")
 
-1. **D2 and FRD Q8 (privacy and retention).** Extracted text stays in plain form in PostgreSQL and cannot be removed
-   from the append-only table: no real patient data may be processed, synthetic data only.
+- **D2 (b), Q8, Q4:** encrypt `fields`; move `raw_text` to a deletable encrypted store with only its hash in the
+  append-only row; delete `raw_text` at verification or rejection; key `EXTRACTION_KEY` (environment-held Fernet);
+  supervisor plus `EXTRACTION_POLL_SECONDS`, migrations stay with the API. **Implemented locally 2026-11-14** (not pushed, no CI).
+- **D10 patient only, D12 yes, D14 no, retry cap 5 attempts per document** (interpretation to confirm: patient-initiated
+  retries). **Implemented locally 2026-11-14**, with the retry cap implemented as patient-initiated retries (still to confirm).
+- **D7:** the proposed list approved by the owner, plus `printed_patient_name` and `allergy_text`, with the five answers.
+  **The clinical reviewer is not named (the message held a placeholder): FRD Q7 and reviewer sign-off stay open.**
+  **Implemented locally 2026-11-14:** `SCHEMAS` holds the approved list and the parsers transcribe labelled lines; the reviewer's
+  vocabularies for splitting rows are still missing.
+- **Build order:** D7 schemas and parsers, then slice 8.6, then D2, then Q4: done in that order (see `docs/DECISIONS.md`,
+  "Implementation record of the 2026-11-14 decisions").
+
+Still open after this: D8 and FRD Q1, D18 / 4B and the schema approval, the external model items, D5/D6/D11, the
+residual risks, D13, D3, the reviewer's name, and the points marked "to confirm" above.
+
+## Priority order (items 1, 3, 4 and 5 were approved on 2026-11-14 and implemented locally; what is still open in each is stated)
+
+1. **D2 and FRD Q8 (privacy and retention): approved and implemented locally.** Still open: no CI run, no key rotation,
+   plain legacy rows, a lawyer's view on retention not recorded; synthetic data only until deployed and reviewed.
 2. **D18 / 4B and the schema approval (OCR interface).** Interface version 0 stays test-only: no OCR adapter is
    available outside test mode, so no production extraction; per-line confidence, boxes, the preprocessing record and
    the schema version are never stored, so M3 receives no OCR confidence.
-3. **D7 (clinical field list) and a named clinical reviewer (FRD Q7).** `SCHEMAS` stays empty and no parser can be
-   written: every document reaches review with raw text only, never with parsed fields.
-4. **D10, D12, D14 (manual entry and retry).** Slice 8.6 does not exist: no manual-entry or retry endpoint, so a
-   document with no adapter waits as `uploaded` and cannot be moved to review through the API.
-5. **Q4 (deployment).** No production hosting, supervisor, restart policy, poll interval or schema owner: the
-   runner cannot be operated in production.
+3. **D7 (clinical field list): approved and implemented locally; a named clinical reviewer (FRD Q7) is still missing.**
+   Transcription parsers run; rows are not split into strength, form, dose, duration, result, unit or range until the
+   reviewer supplies vocabularies, so those fields are left for manual entry.
+4. **D10, D12, D14 (manual entry and retry): approved and implemented locally.** Still to confirm: the retry cap is
+   implemented as 5 patient-initiated retries per document. No CI run.
+5. **Q4 (deployment): approved; the guide is in `docs/DEPLOYMENT.md`.** Still open: hosting provider, supervisor product,
+   interval value, `connect_timeout`, alerts (D13). The worker still idles outside test mode (D18, 4B).
 6. **D8 and FRD Q1 (drug matching and catalog).** The matcher runs only on synthetic fixtures; with no catalog every
    real drug name would be `unrecognised`, and no suggestion parameter exists.
 7. **External model: access, license, detector, provenance, data.** Real Jonaki never runs, so no OCR accuracy of
@@ -28,7 +46,7 @@ policy was invented.
 
 ## 1. Privacy
 
-### D2 — extracted text at rest
+### D2 — extracted text at rest — APPROVED 2026-11-14: option (b), retention at verification or rejection, key `EXTRACTION_KEY`
 - **Question.** May `extractions.raw_text` and `extractions.fields` be encrypted at field level with a key
   outside the database, and may `raw_text` be removed from the append-only table after a document is verified
   or rejected?
@@ -44,7 +62,7 @@ policy was invented.
 - **Approval needed.** "D2: approve (a)/(b)/(c); retention after verification or rejection is <rule from FRD Q8>;
   the key is held in <store>."
 
-### Q4 — deployment
+### Q4 — deployment — APPROVED 2026-11-14 as recommended (no provider, product or interval value named)
 - **Question.** Where does the worker run, who supervises and restarts it, what is the poll interval, who applies
   the schema, and are storage reads time-limited?
 - **Why.** The runner exits on connection loss and relies on a supervisor to restart it; schema application is
@@ -57,7 +75,7 @@ policy was invented.
 
 ## 2. Clinical extraction
 
-### D7 — clinical field list (step 6B)
+### D7 — clinical field list (step 6B) — APPROVED BY THE OWNER 2026-11-14 with additions; clinical reviewer NOT NAMED (sign-off pending)
 - **Question.** Which fields does each document type (prescription, laboratory report, discharge summary) have,
   which are required, and what are the validation and ambiguity rules?
 - **Why.** `SCHEMAS` is empty by design; parsers cannot be written without it. The mechanism (kinds, required marks,
@@ -90,6 +108,7 @@ available ... Proposed design"): one endpoint moving a document to `needs_review
 from `extracting` with no live claim, or from `extraction_failed`; 409 `extraction_in_progress` while a live claim
 is held; one transaction; audit entry `document.manual_entry`; and an endpoint for the existing retry path.
 
+- **APPROVED 2026-11-14:** D10 patient only; D12 yes; D14 no; retry cap 5 attempts per document (interpretation to confirm).
 - **D10 — who may start manual entry or a retry.** Options: patient only; patient and caregiver; plus verifiers
   (waits on FRD Q3). Recommended: patient only, like viewing the extraction. Approval: the allowed roles.
 - **D12 — manual entry while an adapter is configured.** Options: always allowed; only when no adapter is available.
@@ -179,20 +198,20 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 
 ---
 
-# M2 completion status (2026-11-14; local runs on Windows: 897 passed, 10 skipped, 0 failed with PostgreSQL; CI #41 on Linux: 812 passed, before this batch)
+# M2 completion status (2026-11-14; local run on Windows with PostgreSQL after the 2026-11-14 decisions were implemented: 992 passed, 10 skipped, 0 failed; last CI run #42 on Linux: 907 passed, before them)
 
 | M2 component | Implementation | Tests | Approval | Status |
 |---|---|---|---|---|
 | Capture and image processing | upload, storage, `imaging` measures, `process()`, `preprocess` option | DB-free and PostgreSQL | limits provisional (D5, D6, D11) | IMPLEMENTED AND TESTED (upload checks not wired: BLOCKED BY OWNER DECISION) |
-| Extraction privacy | secret allowlist, no temp files, constant log messages, original untouched, guards | static guards, PostgreSQL | D2, Q4 open | IMPLEMENTED AND TESTED for what is enforced; plain-text storage BLOCKED BY OWNER DECISION |
+| Extraction privacy | secret allowlist, no temp files, constant log messages, original untouched, guards, fields sealed, raw text deletable and deleted at verification or rejection | static guards, PostgreSQL | D2 (b), Q8, Q4 approved 2026-11-14 | IMPLEMENTED AND TESTED locally (Windows, PostgreSQL); no CI run; no key rotation |
 | OCR infrastructure | adapter contract v0, probe, child, Jonaki adapter and linkage | adapter, worker, process tests | v0 test-only; D18, 4B open | IMPLEMENTED AND TESTED (fake runner); final interface BLOCKED BY OWNER DECISION |
 | Real OCR execution | real runner written, never run | none | access, license | BLOCKED BY EXTERNAL ACCESS/LICENSE |
-| Clinical schemas | mechanism (kinds, required, technical rules) | DB-free | field list (D7) | IMPLEMENTED AND TESTED; field list BLOCKED BY OWNER DECISION |
-| Clinical parsers | none | none | D7 | BLOCKED BY OWNER DECISION |
+| Clinical schemas | mechanism plus the approved list in `SCHEMAS` | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; reviewer sign-off pending |
+| Clinical parsers | label-anchored transcription; rows kept whole | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies) |
 | Drug catalog matching | catalog-independent matcher | DB-free | D8, FRD Q1 | IMPLEMENTED AND TESTED (synthetic fixture); real catalog BLOCKED BY OWNER DECISION |
 | Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41) |
-| Manual entry | none (design proposed) | none | D10, D12, D14 | BLOCKED BY OWNER DECISION |
-| Retry endpoints | none (retry path exists in code) | worker retry tests | D10 | BLOCKED BY OWNER DECISION |
+| Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED locally; no CI run |
+| Retry endpoints | endpoint and function, cap 5, audited | PostgreSQL | D10 and retry cap approved 2026-11-14 (cap interpretation to confirm) | IMPLEMENTED AND TESTED locally; no CI run |
 | Provenance | engine id, model version, checksum, adapter and interface versions | PostgreSQL | confidence, boxes, preprocessing not persisted: schema approval | IMPLEMENTED AND TESTED for what v0 stores |
 | Evaluation harness | field scoring, integrity, confidence analysis, CER, WER, failure and empty rates | DB-free | no threshold approved | IMPLEMENTED AND TESTED |
 | Real OCR evaluation | none | none | data, model | BLOCKED BY EXTERNAL ACCESS/LICENSE |
