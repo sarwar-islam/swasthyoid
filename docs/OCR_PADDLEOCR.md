@@ -120,5 +120,8 @@ the preparation script's pure parts and refusals, and that nothing in the core i
 - CI run #53 (`8be3b03`; `ubuntu-latest`, Python 3.12, PostgreSQL 16): **1229 passed, 0 failed, 0 skipped**, 1 warning, 245.69 s (0:04:05).
 - CI run #52 (`91a05c9`, a docs-only commit): 1145 passed, 0 failed, 0 skipped, 1 warning, 235.28 s (0:03:55), the same count as run #51 because no code changed.
 - The two summary lines were pasted by the owner without run labels; they are attributed by the commits' contents (1229 = 1145 + 84, the new PaddleOCR tests: 81 passed and 3 symlink tests that run on Linux). The summary does not name tests.
-- What this shows: the adapter, linkage and preparation-script tests (fake runner, synthetic files) pass on Linux, and no existing
-  test regressed. What it does **not** show: anything about PaddleOCR, the weights, the real runner or accuracy: none of them ran.
+- CI run #54 (`bbc904c`, a docs-only commit): completed successfully; its pass count was not read.
+- CI run #55 (`a2c0139`; `ubuntu-latest`, Python 3.12, PostgreSQL 16): **1231 passed, 0 failed, 0 skipped**, 1 warning, 232.90 s (0:03:52) (the oneDNN fix `1482f02` plus the docs commit `a2c0139`); the summary line was supplied by the owner.
+- What this shows: the adapter, linkage and preparation-script tests (fake runner, synthetic files), including the two that pin the oneDNN
+  default, pass on Linux, and no existing test regressed. What it does **not** show: anything about PaddleOCR, the weights, the real runner
+  or accuracy: CI does not run them. The one real run is the owner's local smoke run above.

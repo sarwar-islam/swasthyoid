@@ -17,14 +17,15 @@ yourself** (`git status`, `git log origin/main..HEAD`); do not trust this file f
 - Open and waiting for the owner or an outside party: D8 and FRD Q1 (catalog source and license), D18 / 4B and its schema approval,
   Jonaki access and license, the clinical reviewer (FRD Q7), D5/D6/D11, D13 and Q4, D3, residual risks R1 to R5, key rotation
   (`docs/M2_OWNER_DECISIONS.md`). No feature work is authorized until the owner decides the next step.
-- **Second OCR adapter (owner decision 2026-11-14; committed as `c52897b` and `8be3b03`, CI run #53: 1229 passed, 0 failed, 0 skipped):** PaddleOCR English
+- **Second OCR adapter (owner decision 2026-11-14; committed as `c52897b`, `8be3b03`, `1482f02` and `a2c0139`; CI run #55: 1231 passed, 0 failed, 0 skipped):** PaddleOCR English
   (`capture/adapters/paddleocr_adapter.py`, `paddleocr_runner.py`, `paddleocr_prepare.py`; `docs/OCR_PADDLEOCR.md`) alongside Jonaki,
   tested with a fake runner in CI. **First real run (Windows, owner's machine, 2026-11-14):** the owner's `paddleocr_prepare.py` fetched
   `PP-OCRv5_mobile_det` and `en_PP-OCRv5_mobile_rec` (30 pinned files); the first smoke run failed with `engine_error` because
   PaddlePaddle 3.3.1's oneDNN CPU path breaks inside `predict()`; the runner now keeps oneDNN **off by default** (`PADDLEOCR_ENABLE_MKLDNN=1`
   to opt in); after that, 7 lines were read from one synthetic page in about 20 s and the output passed the version 0 validator. That is
   not accuracy, and not zero-network proof (an unreachable-proxy guard only; the network was on). Interface version 0 stays test-only.
-  Bangla support in PaddleOCR could not be confirmed. Details: `docs/OCR_PADDLEOCR.md`.
+  Bangla support in PaddleOCR could not be confirmed. CI run #55 (`a2c0139`) passed 1231 tests, 0 skipped; CI does not run PaddleOCR.
+  Details: `docs/OCR_PADDLEOCR.md`; the decision record is in `docs/DECISIONS.md` ("PaddleOCR English: oneDNN default and the first real run").
 - Still true: do not install `pgserver`, Docker or WSL without the owner's OK; never stage `.claude/` or `data/`.
 
 ## Next session: start here

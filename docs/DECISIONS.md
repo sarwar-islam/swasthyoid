@@ -1588,4 +1588,24 @@ CPU time per page (a provisional 120 s limit) are right: all are unconfirmed unt
 are still not stored. Evaluation needs permitted data and the clinical reviewer (FRD Q7, D11).
 
 **CI evidence for the PaddleOCR adapter (commits `c52897b` code, `8be3b03` docs).** CI run #53 (`8be3b03`; `ubuntu-latest`, Python 3.12, PostgreSQL 16): **1229 passed, 0 failed, 0 skipped**, 1 warning, 245.69 s (0:04:05). CI run #52 (`91a05c9`, a docs-only commit): 1145 passed, 0 failed, 0 skipped, 1 warning, 235.28 s (0:03:55), the same count as run #51 because no code changed. The two summary lines were pasted by the owner without run labels; they are attributed by the commits' contents (1229 = 1145 + 84, the new PaddleOCR tests: 81 passed and 3 symlink tests that run on Linux). The summary does not name tests. The tests use a fake runner;
-the real runner, the weights and any accuracy remain unexecuted and unclaimed.
+at the time of those runs the real runner and the weights had not been run; the first real run is recorded below.
+
+### PaddleOCR English: oneDNN default and the first real run (2026-11-14; commits `1482f02` code, `a2c0139` docs)
+
+- **Defect found by the first real run, and fixed.** The owner ran `paddleocr_prepare.py` on Windows: `PP-OCRv5_mobile_det` and
+  `en_PP-OCRv5_mobile_rec`, 30 files, approved-list `model_checksum` `70947f32fc9b5566e4f1bf38a5fd8d95112d4239de77ec8d92a9e056dbf7d767`
+  (recomputed from the files on disk and equal). The first smoke run through the adapter failed with `engine_error` although a direct
+  `PaddleOCR(...)` load succeeded. A diagnostic copy of the runner (scratch, outside the repository, traceback instead of the silent exit)
+  showed the cause: `predict()` raised `NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
+  [pir::ArrayAttribute<pir::DoubleAttribute>]` from the detector, in PaddlePaddle 3.3.1's oneDNN (MKLDNN) CPU path. The stripped environment
+  (`SYSTEMROOT`, `PATH`, `TEMP` kept; no `HOME`, `USERPROFILE` or `APPDATA`) was ruled out: the models loaded under it.
+- **Fix (code commit `1482f02`).** The runner passes `enable_mkldnn=os.environ.get("PADDLEOCR_ENABLE_MKLDNN") == "1"`: oneDNN is **off by
+  default** and an opt-in only, the same default the Jonaki runner uses. Two tests pin it. I omitted this default when I wrote the runner.
+- **First end-to-end real run after the fix** (the repository adapter and runner, the 30 pinned files, one synthetic English prescription page
+  from the test generator): **7 lines in about 20 s** (including model loading), recognition scores 0.983 to 1.000, the runner exited 0 and the
+  output passed the version 0 validator (`ocr.validate_result`). Windows CPU, PaddleOCR 3.7.0 and PaddlePaddle 3.3.1 (the pinned requirements).
+- **CI evidence.** CI run #55 (`a2c0139`; `ubuntu-latest`, Python 3.12, PostgreSQL 16): **1231 passed, 0 failed, 0 skipped**, 1 warning, 232.90 s (0:03:52). Run #54 (`bbc904c`, a docs-only commit) completed successfully; its pass count was not read. The summary line was
+  supplied by the owner and does not name tests. CI does not run PaddleOCR: these runs cover the fake-runner tests, including the two
+  that pin the oneDNN default.
+- Scope boundaries unchanged: no accuracy claim (one synthetic page, no ground-truth scoring), no zero-network proof (an unreachable-proxy guard only, the network stayed on; R3 stands), no Bangla claim, and interface version 0 stays test-only until the owner approves D18 / 4B. The model names, package versions and PaddleX cache layout are now confirmed for that one machine only; Linux, GPU and other
+  versions were not tried.
