@@ -274,3 +274,36 @@ def test_two_simultaneous_retries_use_exactly_one(c):
     assert sorted(map(str, outcomes)) == ["1", "not_allowed_state"]
     with c.connect() as conn:
         assert [x[0] for x in audit(conn, doc_id)] == ["document.retry"]
+
+
+def test_one_initial_run_plus_five_retries_claim_a_document_at_most_eighteen_times(c):
+    """Option A (owner decision): 1 initial run + 5 patient-triggered retries, each run with up to MAX_ATTEMPTS = 3
+    automatic attempts, so 18 claimed attempts at most; the 6th retry is refused and nothing more runs."""
+    assert (extraction.MAX_ATTEMPTS, extraction.MAX_RETRIES, extraction.MAX_TOTAL_ATTEMPTS) == (3, 5, 18)
+    doc_id = upload(c, c.headers)
+    calls = []
+
+    def always_fails(pages, doc_type):
+        calls.append(1)
+        raise RuntimeError("synthetic failure")
+
+    def run(conn):
+        before = len(calls)
+        extraction.run_due(conn, always_fails, backoff=timedelta(0))  # default max_attempts, no waiting between attempts
+        assert job(conn, doc_id)[0] == "extraction_failed"
+        return len(calls) - before
+
+    with c.connect() as conn:
+        assert run(conn) == 3  # the initial run: 3 automatic attempts, then extraction_failed
+    for n in range(1, 6):
+        r = post(c, doc_id, RETRY)
+        assert (r.status_code, r.json()["retries_used"]) == (200, n)
+        with c.connect() as conn:
+            assert run(conn) == 3  # every retry is a fresh run of 3 automatic attempts
+    assert len(calls) == 18 == extraction.MAX_TOTAL_ATTEMPTS
+    r = post(c, doc_id, RETRY)
+    assert (r.status_code, r.json()["code"]) == (409, "retry_limit_reached")
+    with c.connect() as conn:
+        assert extraction.run_due(conn, always_fails, backoff=timedelta(0)) == 0  # nothing is due: no 19th attempt
+        assert len(calls) == 18 and job(conn, doc_id)[0] == "extraction_failed"
+        assert [a[0] for a in audit(conn, doc_id)] == ["document.retry"] * 5

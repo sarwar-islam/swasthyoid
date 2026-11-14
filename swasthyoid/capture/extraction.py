@@ -641,7 +641,11 @@ def requeue(conn, document_id):
 
 # ---- manual entry and retry by the patient (slice 8.6; owner decisions D10, D12, D14, 2026-11-14)
 
-MAX_RETRIES = 5  # patient-initiated retries per document (owner decision; the worker's own attempts are separate)
+MAX_RETRIES = 5  # patient-initiated retries per document (owner decision, Option A, 2026-11-14)
+# Policy (owner-approved Option A): at most 1 initial run plus MAX_RETRIES retries, and each run has up to MAX_ATTEMPTS
+# automatic attempts (a requeue resets the run's counter). So a document is claimed at most this many times. It is a
+# documented bound derived from the two limits above, NOT a separate counter and not enforced on its own.
+MAX_TOTAL_ATTEMPTS = (1 + MAX_RETRIES) * MAX_ATTEMPTS  # 18 with the defaults
 _MANUAL_SOURCES = ("uploaded", "extracting", "extraction_failed")
 
 
