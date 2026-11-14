@@ -1414,7 +1414,7 @@ deviation, with each open question tied to the work it blocks:
 | Q5 cloud AI | Cloud AI stays off (`CLOUD_AI_THRESHOLD` unset) until decided |
 | Q7 clinical reviewer | Plan steps 6B, 7, 9B; P3 safety rules; every clinical threshold |
 
-## Worker reliability fix: process trees, crash recovery and the lifetime attempt budget (2026-11-14, local, uncommitted)
+## Worker reliability fix: process trees, crash recovery and the lifetime attempt budget (2026-11-14; commits `87404be`, `8fc1b06`, `dcf31d6`)
 
 Owner-directed, M2 worker reliability only. The owner's decision on the retry policy is explicit: **a document gets at most
 5 actual OCR executions in its whole life**, shared by every path. This **supersedes** the "Option A" bound of 18 claimed attempts
@@ -1503,6 +1503,26 @@ start from their current run's claim count (the only history kept); applying the
 ### Linux behavior and verification status
 
 Tests that need Linux (sessions, groups, `/proc`, subreaper, signals) are marked and skipped elsewhere; the rest, including a fake
-`/proc` for the walk and the kill order, runs everywhere. **Not executed on Linux in this work:** no Linux, WSL, Docker or runner was
-available and none was started (remote CI was not triggered, by instruction). The Linux-only tests and the PostgreSQL-backed tests
-are written and reviewed but unrun until CI or a Linux machine runs them; see the final report of this change for counts.
+`/proc` for the walk and the kill order, runs everywhere. Before CI nothing here had run on Linux or against PostgreSQL (the development
+machine is Windows with no PostgreSQL, WSL or Docker; the first CI run is described below).
+
+**CI evidence.**
+
+- **Run #47** (commit `8fc1b06`): failure, 3 failed and 1132 passed, 0 skipped. The three failures were older assertions that still
+  expected a retry of a permanent failure (`malformed_output` twice, `ImageRejected` once); the code behaved as decided. They were
+  corrected in `dcf31d6` (test-only change: the permanent codes now expect one run, and the lifetime counter is asserted).
+- **Run #48** (commit `dcf31d6`): GitHub Actions on `ubuntu-latest`, Python 3.12, PostgreSQL 16 service (`.github/workflows/ci.yml`),
+  `pytest -q`: **1135 passed, 0 failed, 0 skipped, 1 warning in 240 s (0:04:00)**. The warning is the existing Starlette `httpx`
+  deprecation notice.
+- **What this does and does not show.** Zero skips means no test was skipped, so the Linux-only tests and the PostgreSQL-backed tests
+  were not skipped in that environment; the PostgreSQL tests also fail rather than skip when the database is missing
+  (`tests/conftest.py`). The pytest summary alone does not name the executed tests, and the per-test results were not read; each
+  individual test was not independently verified from the summary. The `Run pytest -q` output of runs #47 and #48 was supplied by
+  the owner; it was not read from the log by this project's tools.
+
+**Limits that stand (not changed by this evidence).**
+
+- A descendant that was already orphaned and adopted by init before the cleanup runs (for example when the OCR child is killed from
+  outside, such as by the OOM killer, while a new-session descendant is alive) may escape. No test covers that case.
+- Windows relies on `taskkill /T /F` and has no equivalent normal-exit cleanup. Windows was tested here only for same-group
+  descendants (timeout, lost lease, cancellation, an already-exited child).

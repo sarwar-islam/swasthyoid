@@ -220,7 +220,7 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | Drug catalog matching | matcher plus in-memory loader for the supplied CSV (Phase A) | DB-free, synthetic data only | D8, FRD Q1 | IMPLEMENTED AND TESTED locally; license/provenance, matching parameters and a generic-level index BLOCKED BY OWNER DECISION |
 | Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41) |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED locally; no CI run |
-| Retry endpoints | endpoint and function, lifetime budget of 5 OCR executions (supersedes Option A), audited | PostgreSQL | D10 approved; budget decided by the owner 2026-11-14 | IMPLEMENTED locally; PostgreSQL and Linux tests written, NOT RUN on this machine; no CI run |
+| Retry endpoints | endpoint and function, lifetime budget of 5 OCR executions (supersedes Option A), audited | PostgreSQL | D10 approved; budget decided by the owner 2026-11-14 | IMPLEMENTED AND TESTED: CI run #48 (`dcf31d6`) 1135 passed, 0 failed, 0 skipped on Linux with PostgreSQL 16 |
 | Provenance | engine id, model version, checksum, adapter and interface versions | PostgreSQL | confidence, boxes, preprocessing not persisted: schema approval | IMPLEMENTED AND TESTED for what v0 stores |
 | Evaluation harness | field scoring, integrity, confidence analysis, CER, WER, failure and empty rates | DB-free | no threshold approved | IMPLEMENTED AND TESTED |
 | Real OCR evaluation | none | none | data, model | BLOCKED BY EXTERNAL ACCESS/LICENSE |
