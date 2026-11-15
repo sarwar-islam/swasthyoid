@@ -1781,3 +1781,21 @@ are unchanged (hashes compared before and after).
 
 **Verification.** Locally on Windows without PostgreSQL: 1095 passed, 369 skipped, 0 failed. The three PostgreSQL-backed metrics tests in
 `tests/test_worker_monitoring.py` have **not run yet**: CI needed.
+
+## CI evidence for `617db37` and `dd62069`, and the test fix `d76d0e8` (2026-11-15)
+
+- **Run on `61cd13e`** (docs commit after `617db37`; run number not supplied): **failure, 1 failed, 1430 passed**. The failing test,
+  `test_real_schema_has_the_extraction_objects`, pins every column of `extractions`; `617db37` added `schema_version` without updating
+  that list. The code behaved as intended.
+- **Run #62 on `a38e792`** (docs commit after `dd62069`): the same failure. The pasted output ended before its summary line, so its
+  counts were not seen.
+- **`d76d0e8`** (test-only): adds `schema_version` to that list. Locally (Windows, no PostgreSQL) 1095 passed, 369 skipped; the test
+  itself runs only against PostgreSQL.
+- **Run on `d76d0e8`** (`ubuntu-latest`, Python 3.12, PostgreSQL 16; run number not supplied): **1464 passed, 0 failed, 0 skipped**, 1
+  warning (the existing Starlette `httpx` deprecation notice), 325.68 s. This equals the local total (1095 passed + 369 skipped).
+- **What it shows.** With 0 skipped, the PostgreSQL-backed and Linux-only tests ran: among them the three schema-version tests
+  (`test_schema_version.py`), the updated pre-D2 row test (`test_extraction_privacy_pg.py`) and the three worker-metrics query tests
+  (`test_worker_monitoring.py`). The summary names no tests, so their passing is inferred from the totals and the zero skips. The
+  output was supplied by the owner. One green run does not rule out timing flakiness.
+- **Lesson recorded.** A new column must also be added to the pinned inventory in `test_extraction_integration.py`; that test cannot
+  run on the development machine.
