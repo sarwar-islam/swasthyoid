@@ -110,7 +110,9 @@ def test_real_schema_has_the_extraction_objects(prod):
             # D2: the hash of the raw text; the text itself lives in extraction_raw_texts
             "raw_text_sha256": ("text", "YES"),
             # Phase 5: the pre-processing operations applied for this extraction, in order (NULL: not recorded)
-            "preprocessing": ("ARRAY", "YES")}
+            "preprocessing": ("ARRAY", "YES"),
+            # 2026-11-15: the SCHEMAS version the fields were shaped by (NULL: written before the column)
+            "schema_version": ("text", "YES")}
         raw = columns("extraction_raw_texts")  # deletable, unlike extractions: no append-only triggers
         assert {k: v[:2] for k, v in raw.items()} == {
             "extraction_id": ("uuid", "NO"), "document_id": ("uuid", "NO"), "ciphertext": ("text", "NO"),
