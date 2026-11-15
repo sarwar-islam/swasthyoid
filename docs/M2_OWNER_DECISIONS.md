@@ -26,7 +26,7 @@ policy was invented.
   "Implementation record of the 2026-11-14 decisions").
 
 Still open after this: D8 and FRD Q1, D18 / 4B and the schema approval, the external model items, D5/D6/D11, the
-residual risks, D13, D3, and the reviewer's name.
+residual risks, D3, and the reviewer's name (D13 was decided on 2026-11-15).
 
 ## Priority order (items 1, 3, 4 and 5 were approved on 2026-11-14 and implemented locally; what is still open in each is stated)
 
@@ -42,7 +42,7 @@ residual risks, D13, D3, and the reviewer's name.
 4. **D10, D12, D14 (manual entry and retry): approved, implemented and covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped, Linux, PostgreSQL 16).** The retry bound is the lifetime
    budget of 5 actual OCR executions per document (it supersedes the earlier Option A, up to 18 claimed attempts). Nothing open here.
 5. **Q4 (deployment): approved; the guide is in `docs/DEPLOYMENT.md`.** Still open: hosting provider, supervisor product,
-   interval value, `connect_timeout`, alerts (D13). The worker still idles outside test mode (D18, 4B).
+   interval value, `connect_timeout` (D13 alerts decided 2026-11-15). The worker still idles outside test mode (D18, 4B).
 6. **D8 and FRD Q1 (drug matching and catalog).** The matcher runs only on synthetic fixtures; with no catalog every
    real drug name would be `unrecognised`, and no suggestion parameter exists.
 7. **External model: access, license, detector, provenance, data.** Real Jonaki never runs, so no OCR accuracy of
@@ -51,7 +51,7 @@ residual risks, D13, D3, and the reviewer's name.
    (retake = a new upload; poor pages refused with Bangla guidance unless `upload_anyway`; hard errors never bypassed); non-patients get an
    EXIF-free copy at serve time (`docs/DECISIONS.md`, "Phase 5"). The quality limits stay provisional (calibrated on synthetic pages only) and there
    is still no confidence threshold.
-9. **Residual risks (section 7), D13 alert mechanism (section 5), D3 handwritten set (Cross-cutting).** Each stays as described in that section.
+9. **Residual risks (section 7), D3 handwritten set (Cross-cutting); D13 (section 5) decided 2026-11-15.** Each stays as described in that section.
 
 ## 1. Privacy
 
@@ -155,7 +155,7 @@ is held; one transaction; audit entry `document.manual_entry`; and an endpoint f
 - **Approval needed.** The column list, what confidence means, and 4B (compatibility review) before any production
   adapter is allowed outside test mode.
 
-### D13 — alert when the adapter is unavailable
+### D13 — alert when the adapter is unavailable — DECIDED 2026-11-15, implemented in `9abaa9e`
 - **Question.** How are operators alerted when the adapter fails its checks (no claim, documents stay due)?
 - **Recommended.** Keep the queue-length counter and add the alert the supervisor already offers.
 - **Approval needed.** The mechanism.
@@ -164,6 +164,12 @@ is held; one transaction; audit entry `document.manual_entry`; and an endpoint f
   them against `monitoring.ALERT_RULES`, handing alerts to `monitoring.ALERT_SINKS`. Both are empty (OWNER-DECISION-PENDING). To decide:
   which metrics alert and at what value (`AlertRule(metric, at_least)`), where alerts go (a sink), and whether an HTTP metrics endpoint
   is wanted (and who may read it).
+- **Decided 2026-11-15 (owner; implemented in `9abaa9e`; details in `docs/DECISIONS.md`, "D13 decided").** Alerts: expired leases at
+  least 1; documents that can no longer be retried, changed in the last hour, at least 3 (`ALERT_PERMANENT_FAILURES_PER_HOUR`
+  overrides); more than 50 due documents unclaimed for over 15 minutes; adapter unavailable for 1 or more consecutive cycles when
+  `OCR_ADAPTER` is set. Sent when a condition starts, again only after it clears and returns. Sinks: JSON on stderr (always), a webhook
+  when `ALERT_WEBHOOK_URL` is set. Endpoint: `GET /api/v1/internal/metrics`, verified admins only. **Still the owner's to say:** whether
+  allowed endpoint reads should be audited (not today), and whether a Prometheus text format is wanted (JSON only today).
 
 ## 6. External model (Jonaki, temporary; PaddleOCR English added alongside, 2026-11-14)
 
@@ -249,7 +255,7 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | Clinical schemas | mechanism plus the approved list in `SCHEMAS`; schema version stored per extraction and checked on read (fails closed), 2026-11-15 | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED (schema version: CI green on `d76d0e8`, 1464 passed, 0 skipped); reviewer sign-off pending; no key version stored |
 | Clinical parsers | label-anchored transcription; rows kept whole, list markers removed, empty rows dropped; strict date and number shapes; `ROW_SPLITTERS` hook (empty), 2026-11-15 | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies plug into `ROW_SPLITTERS`) |
 | Drug catalog matching | matcher, in-memory loader (Phase A), name index, generic groups, row matching, opt-in worker integration and benchmark (Phase 7B) | DB-free, synthetic data only; one PostgreSQL test written, not yet run | D8, FRD Q1; row rules provisional | IMPLEMENTED locally (off unless configured); license/provenance and the reviewer's sign-off on the matching rules BLOCKED BY OWNER DECISION; no real prescription ever matched |
-| Worker reliability | runner: `--once`, loop, signals, recovery; per-cycle counts and empty D13 alert hooks (2026-11-15) | DB-free, PostgreSQL, Linux CI | Q4 for deployment; D13 rules and sinks | IMPLEMENTED AND TESTED (CI #41; process-tree and lifetime-budget changes: CI run #48); metrics query CI green on `d76d0e8` (1464 passed, 0 skipped); no alert configured |
+| Worker reliability | runner: `--once`, loop, signals, recovery; per-cycle counts; D13 alert rules, sinks and admin metrics endpoint (2026-11-15, `9abaa9e`) | DB-free, PostgreSQL, Linux CI | Q4 for deployment; D13 decided | IMPLEMENTED AND TESTED (CI #41; process-tree and lifetime-budget changes: CI run #48); metrics query CI green on `d76d0e8` (1464 passed, 0 skipped); D13 PostgreSQL tests NOT YET RUN (CI pending) |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED (CI run #48) |
 | Retry endpoints | endpoint and function, lifetime budget of 5 OCR executions (supersedes Option A), audited | PostgreSQL | D10 approved; budget decided by the owner 2026-11-14 | IMPLEMENTED AND TESTED: CI run #48 (`dcf31d6`) 1135 passed, 0 failed, 0 skipped on Linux with PostgreSQL 16 |
 | Provenance | engine id, model version, checksum, adapter and interface versions | PostgreSQL | confidence, boxes, preprocessing not persisted: schema approval | IMPLEMENTED AND TESTED for what v0 stores |

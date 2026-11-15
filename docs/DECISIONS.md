@@ -1799,3 +1799,42 @@ are unchanged (hashes compared before and after).
   output was supplied by the owner. One green run does not rule out timing flakiness.
 - **Lesson recorded.** A new column must also be added to the pinned inventory in `test_extraction_integration.py`; that test cannot
   run on the development machine.
+
+## D13 decided: alert rules, sinks and the metrics endpoint (owner decision 2026-11-15; code commit `9abaa9e`)
+
+**This supersedes the empty `ALERT_RULES` and `ALERT_SINKS` recorded in the section on `dd62069`.** The owner's decisions, and how
+three points the decision left open were settled by the owner's answers on 2026-11-15:
+
+| Owner rule | Implemented as (`workers/monitoring.py`, `owner_rules()`) |
+|---|---|
+| expired leases > 0 in any cycle | `lease_expired` at least 1 |
+| permanent failures >= 3 in a rolling hour (or > 0 while prototyping) | `failed_no_retry_last_hour` at least 3; `ALERT_PERMANENT_FAILURES_PER_HOUR` overrides (1 = "> 0"); 0 or a non-number stops the runner with exit 2. **Answer:** an environment setting, default 3 |
+| backlog > 50 due documents unclaimed for more than 15 minutes | `due_over_15_minutes` at least 51 |
+| adapter unavailable > 0 consecutive cycles when an adapter is configured | `adapter_unavailable_cycles` at least 1, only when `OCR_ADAPTER` is set |
+
+- **What "permanent" counts. Answer: both** a non-retryable error (`PERMANENT_CODES`) and a document that used all lifetime OCR
+  executions. The rolling hour is measured from the document's `updated_at` (when it last changed state).
+- **Backlog:** due and unclaimed for longer than 15 minutes: uploaded more than 15 minutes ago (`created_at`), or due again for more
+  than 15 minutes (`next_extraction_at`). It counts documents waiting that long, not a backlog size held for that long.
+- **Repeats. Answer: when it starts.** An alert is sent when its rule starts firing, and again only after the rule has stopped firing
+  and fires anew (`Alerter`). The runner checks after every `run_due()` call (busy and idle), not only when it prints `cycle_done`.
+- **Adapter unavailable:** `extraction.probe_failures` counts failed availability probes in the process; `AdapterWatch` turns that
+  into consecutive `run_due()` calls with a failed probe. **Expected consequence:** outside test mode no adapter is ever available
+  (D18 / 4B), so a production worker with `OCR_ADAPTER` set raises this alert once and keeps it raised.
+- **Payload (privacy rule):** `{"type": "swasthyoid.worker_alert", "metric", "value", "at_least", "at"}` (UTC, ISO 8601). Never a
+  document id, patient id, text or error message.
+- **Sinks:** one JSON line on stderr, always on; a webhook POST of the same JSON when `ALERT_WEBHOOK_URL` is set (http or https only;
+  anything else stops the runner with exit 2 before it connects; the URL is never printed, it may carry a token). The 5-second
+  webhook timeout is an engineering default, not an owner value. A failed delivery is logged by error type only and never stops the
+  worker loop.
+- **Endpoint:** `GET /api/v1/internal/metrics` (`api/internal.py`), verified admins only (RBAC; a refusal is audited as usual;
+  401 without a token, 403 for other roles). It returns the documents per status (`uploaded`, `extracting`, `needs_review`,
+  `extraction_failed`, `verified`, `rejected`), the twelve worker counts (`monitoring.METRICS`) and a timestamp, with
+  `Cache-Control: no-store`. It sits under the existing `/api/v1` prefix and login. **Two choices recorded for the owner:** an allowed
+  read is not audited (a scraper would flood `audit_logs`); `adapter_unavailable_cycles` is not in the response (only a running
+  worker knows it). JSON only; no Prometheus text format.
+- **Placement:** these are operator alerts, not patient notification (C3, `core/notification.py`), so they live in `workers/`.
+
+**Verification.** Locally on Windows without PostgreSQL: 1108 passed, 370 skipped, 0 failed. The three PostgreSQL-backed tests in
+`tests/test_worker_monitoring.py` (the full metric query, a failure with no error code, the endpoint's access rules) need CI; the
+metric-query test turns `documents_guard` off for one statement in its throwaway database to backdate an upload's `created_at`.
