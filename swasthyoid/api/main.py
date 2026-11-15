@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from swasthyoid import db
-from swasthyoid.api import caregivers, documents, m1
+from swasthyoid.api import caregivers, documents, internal, m1
 from swasthyoid.api.deps import ApiError, check_config
 
 
@@ -22,6 +22,7 @@ app = FastAPI(title="SwasthyoID", lifespan=lifespan)
 app.include_router(m1.router, prefix="/api/v1")
 app.include_router(caregivers.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(internal.router, prefix="/api/v1")
 
 
 @app.exception_handler(ApiError)

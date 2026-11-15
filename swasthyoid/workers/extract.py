@@ -189,33 +189,32 @@ def install_handlers(stop):
             signal.signal(getattr(signal, name), stop.handler)
 
 
-def queue_stats(conn):
-    """Counts only, read-only, one statement (one snapshot): monitoring.METRICS, in that order."""
-    permanent = "extraction_error = ANY(%(permanent)s)"
-    row = conn.execute(
-        "SELECT count(*) FILTER (WHERE status = 'uploaded' OR (status = 'extracting' AND next_extraction_at <= clock_timestamp())), "
-        "count(*) FILTER (WHERE status = 'extracting' AND extraction_claim IS NOT NULL AND next_extraction_at > clock_timestamp()), "
-        "count(*) FILTER (WHERE status = 'extracting' AND extraction_claim IS NOT NULL AND next_extraction_at <= clock_timestamp()), "
-        "count(*) FILTER (WHERE status = 'extraction_failed'), "
-        f"count(*) FILTER (WHERE status = 'extraction_failed' AND {permanent}), "
-        f"count(*) FILTER (WHERE status = 'extraction_failed' AND NOT coalesce({permanent}, false) "
-        "AND extraction_lifetime_attempts >= %(budget)s), "
-        f"count(*) FILTER (WHERE status = 'extraction_failed' AND NOT coalesce({permanent}, false) "
-        "AND extraction_lifetime_attempts < %(budget)s), "
-        "count(*) FILTER (WHERE status = 'extracting' AND extraction_claim IS NULL AND next_extraction_at > clock_timestamp()), "
-        "coalesce(sum(extraction_attempts) FILTER (WHERE status = 'extracting'), 0), "
-        "coalesce(sum(extraction_lifetime_attempts), 0) FROM documents",
-        {"permanent": sorted(extraction.PERMANENT_CODES), "budget": extraction.MAX_LIFETIME_ATTEMPTS}).fetchone()
-    return dict(zip(monitoring.METRICS, (int(value) for value in row)))
+queue_stats = monitoring.snapshot  # the per-cycle counts (monitoring.METRICS); a module name so tests can replace it
 
 
-def _report(conn, attempts):
-    stats = queue_stats(conn)
+class AdapterWatch:
+    """Consecutive run_due() calls whose availability probe found the configured adapter unavailable (D13). Always 0 when
+    OCR_ADAPTER is unset: then no adapter is configured, and an idle worker is not an alert."""
+
+    def __init__(self):
+        self.cycles = 0
+
+    def run(self, run, conn, **options):
+        before = extraction.probe_failures
+        done = run(conn, **options)
+        unavailable = bool(os.environ.get("OCR_ADAPTER")) and extraction.probe_failures > before
+        self.cycles = self.cycles + 1 if unavailable else 0
+        return done
+
+
+def _stats(conn, watch):
+    return {**queue_stats(conn), "adapter_unavailable_cycles": watch.cycles}
+
+
+def _report(conn, attempts, alerter, watch):
+    stats = _stats(conn, watch)
     _say("cycle_done", attempts=attempts, **stats)
-    alerts = monitoring.evaluate(stats, monitoring.ALERT_RULES)  # OWNER-DECISION-PENDING (D13): no rules yet
-    for alert in alerts:
-        _say("alert", metric=alert.metric, value=alert.value, at_least=alert.at_least)
-    monitoring.dispatch(alerts, monitoring.ALERT_SINKS)
+    alerter.check(stats)
 
 
 def _wait(seconds, stop, sleep=time.sleep):
@@ -224,10 +223,13 @@ def _wait(seconds, stop, sleep=time.sleep):
         sleep(min(WAIT_SLICE, left))
 
 
-def serve(conn, *, once, poll, stop, run=extraction.run_due, wait=_wait):
-    """The processing cycle. Returns the exit code. Connection failures propagate."""
+def serve(conn, *, once, poll, stop, run=extraction.run_due, wait=_wait, alerter=None):
+    """The processing cycle. Returns the exit code. Connection failures propagate. Alerts are checked after every run_due()
+    call; the cycle_done line is printed as before (after a busy stretch, and at the end)."""
+    alerter = monitoring.Alerter() if alerter is None else alerter
+    watch = AdapterWatch()
     if once:
-        _report(conn, run(conn))
+        _report(conn, watch.run(run, conn), alerter, watch)
         return EXIT_OK
     _say("loop_started", poll_seconds=poll)
     pending = 0
@@ -235,15 +237,17 @@ def serve(conn, *, once, poll, stop, run=extraction.run_due, wait=_wait):
         # shortcut: one claim per run_due() call so a stop signal is seen before the next claim; each
         # call runs the availability probe (a child process), so this costs one probe per document and
         # per idle poll. Known performance limitation; the owner kept limit=1 over a stop hook.
-        done = run(conn, limit=1)
+        done = watch.run(run, conn, limit=1)
         pending += done
+        stats = _stats(conn, watch)
+        alerter.check(stats)
         if done:
             continue
         if pending:
-            _report(conn, pending)
+            _say("cycle_done", attempts=pending, **stats)
             pending = 0
         wait(poll, stop)
-    _report(conn, pending)
+    _report(conn, pending, alerter, watch)
     _say("graceful_shutdown")
     return EXIT_OK
 
@@ -279,6 +283,12 @@ def main(argv=None):
         setting, reason = problem.args[0]
         _say("invalid_configuration", setting=setting, reason=reason)
         return EXIT_CONFIG
+    try:
+        alerter = monitoring.Alerter(monitoring.owner_rules(), monitoring.owner_sinks())  # D13; never prints the URL
+    except ValueError as problem:
+        setting, reason = problem.args[0]
+        _say("invalid_configuration", setting=setting, reason=reason)
+        return EXIT_CONFIG
 
     try:
         conn = db.connect_worker()
@@ -303,7 +313,7 @@ def main(argv=None):
         poll = None if args.once else parse_poll_seconds(os.environ.get(POLL_VARIABLE))
         try:
             options = {} if catalog is None else {"run": functools.partial(extraction.run_due, catalog=catalog)}
-            return serve(conn, once=args.once, poll=poll, stop=stop, **options)
+            return serve(conn, once=args.once, poll=poll, stop=stop, alerter=alerter, **options)
         except (extraction.WorkerConnectionLost, psycopg.Error):
             _say("connection_lost")  # no reconnect: the lease expiry recovers the attempt
             return EXIT_INFRASTRUCTURE

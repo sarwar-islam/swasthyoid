@@ -339,6 +339,9 @@ _MINE = "id = %s AND extraction_claim = %s AND status = 'extracting'"
 _DEFAULTS = ("threshold", "ai_threshold", "max_attempts", "backoff", "lease", "heartbeat", "hard_timeout",
              "availability_timeout", "preprocess", "catalog")
 _TEST_MODE = f"APP_ENV=test and {runtime_mode.CONFIRM}=1"
+# How many availability probes in this process found the adapter unavailable. Only grows; the runner compares it before and
+# after a run_due() call to count consecutive unavailable cycles (D13 alert). A count, no document data.
+probe_failures = 0
 
 
 def _duration(o, name, *, zero_ok=False):
@@ -430,10 +433,12 @@ def _engine(engine, o):
         if not runtime_mode.is_test_mode():
             raise RuntimeError(f"legacy engine callables are deprecated and only allowed with {_TEST_MODE}")
         return engine, None
+    global probe_failures
     started = time.monotonic()
     try:
         config = ocr.check_available(o["availability_timeout"])
     except ocr.AdapterError as e:
+        probe_failures += 1
         log.warning("ocr adapter unavailable: code=%s stage=probe ref=%s duration_ms=%d", e.code,
                     os.environ.get("OCR_ADAPTER") or "-", (time.monotonic() - started) * 1000)
         return None, None
