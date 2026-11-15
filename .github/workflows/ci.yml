@@ -26,3 +26,18 @@ jobs:
       - run: pip install -e ".[dev]"
       # pytest includes the core-only lint (swasthyoid/tests/test_core_only_lint.py)
       - run: pytest -q
+
+  # the frontend (web/): unit and accessibility tests, type check, production build. Synthetic data only, no network calls in tests.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web test
+      - run: npm --prefix web run typecheck
+      - run: npx --prefix web vite build web
