@@ -120,13 +120,15 @@ def test_a_wrong_key_makes_the_reader_fail_closed(c, monkeypatch):
             extraction.latest(conn, doc_id)
 
 
-def test_a_row_written_before_d2_is_still_readable_as_it_is(c):
+def test_a_row_written_before_d2_has_no_schema_version_and_is_refused_not_returned_plain(c):
+    # superseded behaviour: such rows were returned as they were; since schema versions are stored they fail closed
     doc_id = upload(c, c.headers)
     with c.connect() as conn:
         conn.execute("INSERT INTO extractions (id, document_id, version, engine, fields, raw_text) "
                      "VALUES (gen_random_uuid(), %s, 1, 'old', '{\"x\": 1}', 'plain old text')", [doc_id])
-        got = extraction.latest(conn, doc_id)
-    assert got["fields"] == {"x": 1} and got["raw_text"] == "plain old text" and got["raw_text_available"] is True
+        with pytest.raises(extraction.SchemaVersionError) as failure:
+            extraction.latest(conn, doc_id)
+    assert failure.value.args == ("missing",) and "plain old text" not in repr(failure.value)
 
 
 def test_the_extractions_table_is_still_append_only_but_the_raw_text_table_is_deletable(c):

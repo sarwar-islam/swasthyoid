@@ -35,6 +35,7 @@ import functools
 import logging
 import multiprocessing
 import os
+import re
 import time
 import unicodedata
 from datetime import date, datetime, timedelta
@@ -106,7 +107,23 @@ SCHEMAS = {
     },
     "other": {},
 }
-SCHEMA_VERSION = "1"  # bump with any change to SCHEMAS; not yet stored with each extraction (needs a column)
+SCHEMA_VERSION = "1"  # bump with any change to SCHEMAS; stored with each extraction (extractions.schema_version)
+# The versions latest() reads. Any other version, or none (a row written before the column), is refused, never guessed:
+# its fields may follow another list. Add an old version here only together with code that reads its shape.
+SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
+
+
+class SchemaVersionError(Exception):
+    """An extraction's schema version is "missing" or "unsupported" (args[0]). Carries no stored data."""
+
+
+def check_schema_version(version):
+    """The version if it is supported, else SchemaVersionError. Used when writing and when reading a row."""
+    if version is None:
+        raise SchemaVersionError("missing")
+    if not isinstance(version, str) or version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise SchemaVersionError("unsupported")
+    return version
 
 # Technical checks only. Clinical rules (ranges, units, thresholds) are NOT defined here: they wait
 # for the approved field list and the clinical reviewer.
@@ -117,6 +134,11 @@ RULES = {
 
 _BANGLA_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 _DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y")  # day first, as written in Bangladesh
+# Shape checks before conversion, ASCII digits only (Bangla digits are converted first): Decimal() and strptime() would
+# otherwise accept any script's digits, exponents ("1e3"), underscores ("1_000"), ".5" and mixed separators.
+# Two-digit years, month names and thousands separators are refused: the value goes to manual entry, never guessed.
+_NUMBER = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?")
+_DATE = re.compile(r"[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}|[0-9]{1,2}([/.-])[0-9]{1,2}\1[0-9]{4}")
 
 
 def normalise_numerals(text):
@@ -131,6 +153,8 @@ def parse(kind, value):
     if kind == "text":
         return text
     if kind == "number":
+        if not _NUMBER.fullmatch(text):
+            raise ValueError("not a number")
         try:
             number = Decimal(text)
         except InvalidOperation:
@@ -139,7 +163,9 @@ def parse(kind, value):
             raise ValueError("not a number")
         return str(number)
     if kind == "date":
-        for fmt in _DATE_FORMATS:
+        if not _DATE.fullmatch(text):
+            raise ValueError("not a date")
+        for fmt in _DATE_FORMATS:  # the calendar check: 31/02 and month 13 are refused here
             try:
                 return datetime.strptime(text, fmt).date().isoformat()
             except ValueError:
@@ -277,12 +303,12 @@ def _store(conn, document_id, version, engine, fields, raw_text, config=None, pr
     # token in extraction_raw_texts, deleted when the document is verified or rejected
     conn.execute(
         "INSERT INTO extractions (id, document_id, version, engine, fields, raw_text, raw_text_sha256, engine_id, "
-        "model_version, model_checksum, adapter_interface_version, adapter_version, preprocessing) "
-        "VALUES (%s, %s, %s, %s, %s, '', %s, %s, %s, %s, %s, %s, %s)",
+        "model_version, model_checksum, adapter_interface_version, adapter_version, preprocessing, schema_version) "
+        "VALUES (%s, %s, %s, %s, %s, '', %s, %s, %s, %s, %s, %s, %s, %s)",
         [extraction_id, document_id, version, engine, Jsonb(extraction_crypto.seal_fields(fields)),
          extraction_crypto.sha256(raw_text), identity.get("engine_id"),
          identity.get("model_version"), config and config["model_checksum"], config and config["interface_version"],
-         identity.get("adapter_version"), preprocessing],
+         identity.get("adapter_version"), preprocessing, check_schema_version(SCHEMA_VERSION)],
     )
     if raw_text:
         conn.execute("INSERT INTO extraction_raw_texts (extraction_id, document_id, ciphertext) VALUES (%s, %s, %s)",
@@ -799,13 +825,15 @@ def latest(conn, document_id):
     """The newest extraction of a document, decrypted, or None. `raw_text` is '' once the document is
     verified or rejected (it is deleted then; `raw_text_available` says which case). Raises
     extraction_crypto.Undecryptable, never returns garbage, if the key is wrong. `printed_name_check`
-    is advisory only (see name_check). Rows from before D2 are returned as they are."""
+    is advisory only (see name_check). Raises SchemaVersionError, before decrypting anything, for a row whose schema
+    version is missing (every row written before the column, so every row from before D2) or not supported."""
     row = conn.cursor(row_factory=dict_row).execute(
-        "SELECT e.id, e.version, e.engine, e.fields, e.raw_text, e.raw_text_sha256, e.created_at, d.patient_id "
-        "FROM extractions e JOIN documents d ON d.id = e.document_id "
+        "SELECT e.id, e.version, e.engine, e.fields, e.raw_text, e.raw_text_sha256, e.schema_version, e.created_at, "
+        "d.patient_id FROM extractions e JOIN documents d ON d.id = e.document_id "
         "WHERE e.document_id = %s ORDER BY e.version DESC LIMIT 1", [document_id]).fetchone()
     if row is None:
         return None
+    check_schema_version(row["schema_version"])
     fields = extraction_crypto.open_fields(row["fields"])
     if row["raw_text_sha256"] is None:  # written before D2: plain, in the row
         raw_text, available = row["raw_text"], True

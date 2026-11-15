@@ -85,6 +85,34 @@ def test_numerals_dates_and_numbers():
         extraction.parse("text", "   ")
 
 
+@pytest.mark.parametrize("text, iso", [("2026-1-5", "2026-01-05"), ("৫/১/২০২৬", "2026-01-05"), ("29/02/2024", "2024-02-29"),
+                                       ("০৫.১২.২০২৬", "2026-12-05"), ("1-12-2026", "2026-12-01")])
+def test_strict_dates_accepted_in_bangla_or_ascii_digits(text, iso):
+    assert extraction.parse("date", text) == iso
+
+
+@pytest.mark.parametrize("text", [
+    "29/02/2025", "00/12/2026", "05/00/2026", "32/01/2026",          # not on the calendar
+    "٠٥/١٢/٢٠٢٦", "०५/१२/२०२६", "０５/１２/２０２６",                # digits of other scripts
+    "05/12-2026", "2026/12/05", "2026.12.05", "005/12/2026", "05/12/02026", "05/12/2026 10:00",
+    "2026-12-05T00:00", "5 Dec 2026", "December 5, 2026", "05//12/2026", "+05/12/2026"])
+def test_strict_dates_refused(text):
+    with pytest.raises(ValueError):
+        extraction.parse("date", text)
+
+
+@pytest.mark.parametrize("text, value", [("৫০০", "500"), ("-3", "-3"), ("+2.5", "2.5"), ("০.৫", "0.5"), ("007", "7")])
+def test_strict_numbers_accepted_in_bangla_or_ascii_digits(text, value):
+    assert extraction.parse("number", text) == value
+
+
+@pytest.mark.parametrize("text", ["1e3", "1E3", "1_000", "1,000", ".5", "5.", "٥", "५", "５", "0x10", "--1", "1.2.3",
+                                  "∞", "inf", "- 1", "১,০০০"])
+def test_strict_numbers_refused(text):
+    with pytest.raises(ValueError):
+        extraction.parse("number", text)
+
+
 # ---- the pipeline
 
 def test_extraction_ends_in_needs_review_with_typed_fields(x):

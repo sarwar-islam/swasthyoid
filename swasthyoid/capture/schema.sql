@@ -152,6 +152,13 @@ ALTER TABLE extractions ADD CONSTRAINT extraction_preprocessing CHECK (
 -- append-only row keeps only the SHA-256 of the raw text; the text itself is a Fernet token in the table below,
 -- whose rows the trigger extraction_raw_texts_retention (below) deletes when the document is verified or rejected.
 -- Rows from before this change keep plain fields and raw_text (the table is append-only); raw_text_sha256 NULL.
+-- The version of SCHEMAS (capture/extraction.py SCHEMA_VERSION) the fields were shaped by, set on every new row. NULL: written
+-- before this column; the reader refuses such a row (and any version it does not support) instead of guessing its field list.
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS schema_version text;
+ALTER TABLE extractions DROP CONSTRAINT IF EXISTS extraction_schema_version;
+ALTER TABLE extractions ADD CONSTRAINT extraction_schema_version
+    CHECK (schema_version IS NULL OR schema_version ~ '^[1-9][0-9]{0,8}$');
+
 ALTER TABLE extractions ADD COLUMN IF NOT EXISTS raw_text_sha256 text;
 ALTER TABLE extractions DROP CONSTRAINT IF EXISTS extraction_raw_hash;
 ALTER TABLE extractions ADD CONSTRAINT extraction_raw_hash

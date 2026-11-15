@@ -152,6 +152,86 @@ def test_no_anchor_means_no_rows():
     assert "medications" not in parsers.parse("prescription", lines("SYNTH-DRUG-001", "SYNTH-DRUG-002"))
 
 
+def names(out, group="medications", field="name_as_written"):
+    return [r[field]["value"] for r in out.get(group, [])]
+
+
+def test_a_leading_list_marker_is_layout_and_is_removed_from_the_row():
+    got = lines("Rx: 1. SYNTH-A 500 mg", "2) SYNTH-B", "৩। SYNTH-C", "• SYNTH-D", "- SYNTH-E", "10 . SYNTH-F")
+    assert names(parsers.parse("prescription", got)) == ["SYNTH-A 500 mg", "SYNTH-B", "SYNTH-C", "SYNTH-D", "SYNTH-E", "SYNTH-F"]
+
+
+@pytest.mark.parametrize("row", ["5% SYNTH-SOLUTION", "0.9% SYNTH-SALINE", "1.SYNTH-X", "1+0+1 SYNTH-Y", "SYNTH-Z 1. 2."])
+def test_text_that_only_looks_like_a_marker_is_kept_verbatim(row):
+    assert names(parsers.parse("prescription", lines("Rx:", row))) == [row]
+
+
+def test_a_line_with_nothing_but_marks_is_not_a_row():
+    got = lines("Rx:", "-", "1.", "• ", "...", "SYNTH-A", "—", "২।")
+    assert names(parsers.parse("prescription", got)) == ["SYNTH-A"]
+    assert "medications" not in parsers.parse("prescription", lines("Rx:", "-", "***"))
+
+
+def test_rows_continue_across_pages_and_a_wrapped_line_stays_its_own_row():
+    got = {"pages": [{"items": [{"text": "Rx:", "confidence": 0.9}, {"text": "SYNTH-A", "confidence": 0.9}]},
+                     {"items": [{"text": "SYNTH-B", "confidence": 0.8}, {"text": "after food", "confidence": 0.8}]}]}
+    assert names(parsers.parse("prescription", got)) == ["SYNTH-A", "SYNTH-B", "after food"]  # never joined
+
+
+def test_a_second_anchor_continues_the_same_group():
+    got = lines("Rx:", "SYNTH-A", "Advice: rest", "Medicines:", "SYNTH-B")
+    out = parsers.parse("prescription", got)
+    assert names(out) == ["SYNTH-A", "SYNTH-B"] and out["advice_text"]["value"] == "rest"
+
+
+# ---- the reviewer's row splitter: an empty hook, checked when filled (test-only splitters below, not clinical rules)
+
+def test_no_row_splitter_is_registered_until_the_reviewer_supplies_vocabularies():
+    assert parsers.ROW_SPLITTERS == {}
+
+
+def test_split_fields_are_exactly_the_group_fields_other_than_the_row_field():
+    for doc_type, group in parsers.GROUPS.items():
+        name = next(g for g in group if g not in ("row_field", "split_fields"))
+        sub = set(extraction.SCHEMAS[doc_type][name][0])
+        assert set(group["split_fields"]) == sub - {group["row_field"]} and group["row_field"] in sub
+
+
+def second_word(text):  # test-only: takes the second word, whatever it is
+    return {"strength": text.split()[1]}
+
+
+def test_a_splitter_fills_its_fields_with_the_row_confidence_and_the_row_stays_whole():
+    got = lines("Rx:", ("1. SYNTH-A 500mg", 0.93))
+    row = parsers.parse("prescription", got, row_splitters={"prescription": second_word})["medications"][0]
+    assert row == {"name_as_written": {"value": "SYNTH-A 500mg", "confidence": 0.93},
+                   "strength": {"value": "500mg", "confidence": 0.93}}
+    fields = extraction.structure(extraction.SCHEMAS["prescription"], {"medications": [row]}, THRESHOLD)
+    assert fields["medications"][0]["strength"]["value"] == "500mg" and fields["medications"][0]["form"]["manual_entry"]
+
+
+def test_a_registered_splitter_is_used_by_default(monkeypatch):
+    monkeypatch.setitem(parsers.ROW_SPLITTERS, "lab_report", lambda text: {"result": "5.4"})
+    row = parsers.parse("lab_report", lines("Tests:", "SYNTH-TEST 5.4"))["tests"][0]
+    assert row["result"]["value"] == "5.4" and row["test_name"]["value"] == "SYNTH-TEST 5.4"
+
+
+def boom(text):
+    raise RuntimeError("SYNTH-ROW-TEXT")
+
+
+@pytest.mark.parametrize("splitter", [
+    lambda t: {"strength": "750mg"},                     # not in the row
+    lambda t: {"name_as_written": "SYNTH-A"},             # the row field is never replaced
+    lambda t: {"potency": "500mg"},                       # not a split field
+    lambda t: {"strength": "500mg", "form": "syrup"},     # one bad part refuses all
+    lambda t: {"strength": "  "}, lambda t: {"strength": 500}, lambda t: ["500mg"], lambda t: None, boom])
+def test_a_splitter_output_that_is_not_text_from_the_row_is_refused_whole(splitter, caplog):
+    row = parsers.parse("prescription", lines("Rx:", "SYNTH-A 500mg"), row_splitters={"prescription": splitter})
+    assert row["medications"] == [{"name_as_written": {"value": "SYNTH-A 500mg", "confidence": 0.95}}]
+    assert "SYNTH" not in caplog.text  # refusals are logged by code only
+
+
 # ---- the other document types
 
 def test_a_lab_report_keeps_test_rows_whole_and_result_unit_and_range_empty():

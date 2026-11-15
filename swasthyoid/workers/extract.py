@@ -62,7 +62,8 @@ REQUIRED_SCHEMA = {
                   "extraction_lifetime_attempts"),
     "document_images": ("document_id", "n", "storage_key", "content_type", "size_bytes", "sha256", "quality_warnings"),
     "extractions": ("id", "document_id", "version", "engine", "fields", "raw_text", "raw_text_sha256", "engine_id",
-                    "model_version", "model_checksum", "adapter_interface_version", "adapter_version", "preprocessing"),
+                    "model_version", "model_checksum", "adapter_interface_version", "adapter_version", "preprocessing",
+                    "schema_version"),
     "extraction_raw_texts": ("extraction_id", "document_id", "ciphertext"),
 }
 

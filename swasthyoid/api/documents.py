@@ -164,10 +164,11 @@ _CONFLICTS = {
 
 
 def _latest(conn, document_id):
-    """The decrypted extraction, or a controlled 500 that says nothing about its content (wrong or lost key)."""
+    """The decrypted extraction, or a controlled 500 that says nothing about its content (wrong or lost key, or a
+    missing or unsupported schema version)."""
     try:
         return extraction.latest(conn, document_id)
-    except extraction_crypto.Undecryptable:
+    except (extraction_crypto.Undecryptable, extraction.SchemaVersionError):
         raise ApiError(500, "extraction_unreadable", "The stored extraction could not be read.")
 
 
