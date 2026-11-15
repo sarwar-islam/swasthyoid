@@ -159,6 +159,11 @@ is held; one transaction; audit entry `document.manual_entry`; and an endpoint f
 - **Question.** How are operators alerted when the adapter fails its checks (no claim, documents stay due)?
 - **Recommended.** Keep the queue-length counter and add the alert the supervisor already offers.
 - **Approval needed.** The mechanism.
+- **Update 2026-11-15 (commit `dd62069`): the hooks exist, empty.** The runner prints ten counts per cycle (due, in flight, expired
+  leases, failures split into permanent, budget exhausted and retryable, backoff, open-run attempts, total OCR executions) and checks
+  them against `monitoring.ALERT_RULES`, handing alerts to `monitoring.ALERT_SINKS`. Both are empty (OWNER-DECISION-PENDING). To decide:
+  which metrics alert and at what value (`AlertRule(metric, at_least)`), where alerts go (a sink), and whether an HTTP metrics endpoint
+  is wanted (and who may read it).
 
 ## 6. External model (Jonaki, temporary; PaddleOCR English added alongside, 2026-11-14)
 
@@ -244,12 +249,12 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | Clinical schemas | mechanism plus the approved list in `SCHEMAS`; schema version stored per extraction and checked on read (fails closed), 2026-11-15 | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; schema-version PostgreSQL tests NOT YET RUN (CI pending); reviewer sign-off pending; no key version stored |
 | Clinical parsers | label-anchored transcription; rows kept whole, list markers removed, empty rows dropped; strict date and number shapes; `ROW_SPLITTERS` hook (empty), 2026-11-15 | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies plug into `ROW_SPLITTERS`) |
 | Drug catalog matching | matcher, in-memory loader (Phase A), name index, generic groups, row matching, opt-in worker integration and benchmark (Phase 7B) | DB-free, synthetic data only; one PostgreSQL test written, not yet run | D8, FRD Q1; row rules provisional | IMPLEMENTED locally (off unless configured); license/provenance and the reviewer's sign-off on the matching rules BLOCKED BY OWNER DECISION; no real prescription ever matched |
-| Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41; process-tree and lifetime-budget changes: CI run #48) |
+| Worker reliability | runner: `--once`, loop, signals, recovery; per-cycle counts and empty D13 alert hooks (2026-11-15) | DB-free, PostgreSQL, Linux CI | Q4 for deployment; D13 rules and sinks | IMPLEMENTED AND TESTED (CI #41; process-tree and lifetime-budget changes: CI run #48); metrics query PostgreSQL tests NOT YET RUN (CI pending); no alert configured |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED (CI run #48) |
 | Retry endpoints | endpoint and function, lifetime budget of 5 OCR executions (supersedes Option A), audited | PostgreSQL | D10 approved; budget decided by the owner 2026-11-14 | IMPLEMENTED AND TESTED: CI run #48 (`dcf31d6`) 1135 passed, 0 failed, 0 skipped on Linux with PostgreSQL 16 |
 | Provenance | engine id, model version, checksum, adapter and interface versions | PostgreSQL | confidence, boxes, preprocessing not persisted: schema approval | IMPLEMENTED AND TESTED for what v0 stores |
-| Evaluation harness | field scoring, integrity, confidence analysis, CER, WER, failure and empty rates | DB-free | no threshold approved | IMPLEMENTED AND TESTED |
-| Real OCR evaluation | none | none | data, model | BLOCKED BY EXTERNAL ACCESS/LICENSE |
+| Evaluation harness | field scoring, integrity, confidence analysis, CER, WER, failure and empty rates; whole-row precision and recall, manual-entry rate, quality-gate false refusals, p50/p95 latency, peak memory and CPU (2026-11-15) | DB-free | no threshold approved (D11) | IMPLEMENTED AND TESTED (raw numbers only) |
+| Real OCR evaluation | synthetic printed-English baseline command for the configured adapter (`ocr_baseline`, 2026-11-15); handwritten (D3) and Bangla refused | fake runner only | data, model, D11; D3; Bangla font licence and Jonaki access | COMMAND BUILT, NOT YET RUN with the real PaddleOCR weights; handwritten and Bangla BLOCKED |
 
 **M2 is not complete.** All independent work is done; the blocked rows above need the decisions in this sheet or
 external access.

@@ -1729,3 +1729,55 @@ separators. **No year bound or value range was added**: that would be an invente
 **Verification.** Locally on Windows without PostgreSQL: 1064 passed, 367 skipped, 0 failed. The three PostgreSQL-backed tests in
 `tests/test_schema_version.py` (both write paths store the version; a wrong version fails in the reader and the API; the database
 refuses malformed values) and the updated `test_extraction_privacy_pg.py` test have **not run yet**: CI needed.
+
+## Worker metrics and D13 alert hooks; 9A metric gaps; synthetic OCR baseline command (2026-11-15; code commit `dd62069`)
+
+Owner-approved (2026-11-15). No threshold, pass mark, alert destination, clinical rule or licence was invented.
+
+**Worker metrics (`workers/extract.py` `queue_stats`, `workers/monitoring.py`).** One read-only statement per cycle, counts only (no
+document id, patient, text or error message), printed on the runner's `cycle_done` line in this order: `due`, `in_flight`,
+`lease_expired`, `failed`, `failed_permanent` (error in `PERMANENT_CODES`), `failed_budget_exhausted` (other error, all lifetime OCR
+executions used), `failed_retryable` (the patient may retry; the three partition `failed`, a NULL error counts as retryable),
+`waiting_backoff` (extracting, no claim, not yet due), `attempts_open_runs`, `ocr_executions_total`. The first four keep their names and
+order, so earlier log readers still match. **No HTTP endpoint** was added: who may read operational metrics (role, authentication) is
+not decided.
+
+**D13 alert hooks: OWNER-DECISION-PENDING.** `AlertRule(metric, at_least)` (a known metric, an integer of 1 or more), `evaluate()`
+(alerts in rule order; a missing metric fires nothing) and `dispatch()` (each alert to each sink; a failing sink is logged by type name
+and never stops the worker). `ALERT_RULES` and `ALERT_SINKS` are **empty**: nothing alerts and nothing is sent until the owner decides
+which metrics alert, at what values, and where alerts go. The hooks send nothing themselves and are not patient notification (C3,
+`core/notification.py`); a transport chosen under D13 that is a notification channel belongs in `core/`.
+
+**9A metric gaps (`tests/evaluation/harness.py`).** Raw numbers with their counts, no pass marks (D11):
+- whole-row precision and recall (`rows` in every score): a row counts only when every field equals a truth row of the same document;
+  matching ignores position, so one missed row does not make later rows wrong;
+- the manual-entry rate (with a threshold): expected field slots with no accepted value, over expected slots; an accepted wrong value is
+  pre-filled, counted as accepted-but-wrong, not as manual entry;
+- `quality_gate_report()`: the Phase 5 check (`imaging.check_measures`, provisional limits unless given) on the synthetic pages; the
+  clean pages' refusal rate is the **false-refusal rate**; degraded copies get a refusal rate and reasons per degradation and amount, not
+  called detection accuracy (whether a copy should be refused is undecided, D11);
+- `percentile()` (nearest rank) and `latency_report()` (p50, p95, max, mean);
+- the predictor is now called once per image (it was called twice per document when a threshold was given).
+
+**Resources (`tests/evaluation/resources.py`, standard library).** Peak memory and CPU of the harness process and the processes it starts
+(the OCR runner is a child). Windows: a job object, the largest committed memory of any one process and the user plus kernel time of all;
+Linux and macOS: `getrusage` of self and waited-for children, the largest maximum resident set size. The report names which (`kind`); the
+two are not the same quantity. Checked on Windows: a child holding 300 MB read as about 308 MB.
+
+**Synthetic OCR baseline (`python -m swasthyoid.tests.evaluation.ocr_baseline --out FILE`).** Runs the configured adapter exactly as the
+worker does (`ocr.check_available`, then `ocr.run_attempt` per page, one page per document) on the synthetic printed English set, in test
+mode only (interface version 0). For PaddleOCR English, oneDNN stays off unless `PADDLEOCR_ENABLE_MKLDNN=1` (recorded). The report holds
+field-level and whole-row scores, the manual-entry and accepted-but-wrong rates at `extraction.CONFIDENCE_THRESHOLD` (the review setting,
+recorded, not a pass mark), CER and WER against the rendered text, per-page latency (each read starts the runner, so model loading is
+inside every page), resources, OCR failure codes and the quality gate. Fields are read by a reader for the synthetic generator's own
+layout: test tooling, not the production parser. The report holds no OCR text, image or path; the command refuses to write inside the
+repository or over an existing file. pytest runs it only with the fake runner; **it has not been run with the real weights, so no
+baseline number exists yet.**
+
+**Gated, not generated (`tests/evaluation/generate.py` `PENDING`, `require`).** Handwritten sets (D3) and any language but English
+(Bangla: no approved licensed font, Jonaki access pending) are refused by `build()` and the baseline command with the reason, and listed
+under `not_evaluated` in every report. `page_lines()` now supplies the text that `render()` draws and the reference text; rendered bytes
+are unchanged (hashes compared before and after).
+
+**Verification.** Locally on Windows without PostgreSQL: 1095 passed, 369 skipped, 0 failed. The three PostgreSQL-backed metrics tests in
+`tests/test_worker_monitoring.py` have **not run yet**: CI needed.
