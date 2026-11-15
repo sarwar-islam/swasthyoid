@@ -1,0 +1,69 @@
+/* SwasthyoID design tokens (owner-approved design system, 2026-11-15). Every text/background pair below is >= 4.5:1. */
+:root {
+  --bg: #f7fafb;
+  --surface: #ffffff;
+  --surface-2: #eef4f6;
+  --ink: #0f2a35;
+  --muted: #475569;
+  --line: #d5e2e6;
+  --primary: #0e7490;          /* patient app */
+  --primary-soft: #e0f2f6;
+  --clinical: #1e40af;         /* staff portals */
+  --clinical-soft: #e8edfb;
+  --on-fill: #ffffff;
+  --verified: #047857;
+  --verified-soft: #ecfdf5;
+  --verified-line: #6ee7b7;
+  --reported: #92400e;
+  --reported-soft: #fef3c7;
+  --reported-line: #d97706;
+  --low-confidence: #92400e;
+  --low-confidence-soft: #fffbeb;
+  --low-confidence-line: #d97706;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --emergency: #b42318;
+  --focus: #1d4ed8;
+
+  /* One stack for both languages: Atkinson has no Bengali glyphs, so Latin renders in Atkinson and Bangla falls through to
+     Hind Siliguri, even inside one sentence. */
+  --font-sans: "Atkinson Hyperlegible", "Hind Siliguri", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --leading-body: 1.6;
+  --leading-heading: 1.3;
+  --leading-body-bn: 1.7;     /* room for matras above and below and for stacked conjuncts (যুক্তাক্ষর) */
+  --leading-heading-bn: 1.35;
+
+  --radius: 10px;
+  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --target: 44px;             /* minimum touch target */
+  --dur: 180ms;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1517; --surface: #111e21; --surface-2: #17282c; --ink: #e2e8f0; --muted: #a3b3bd; --line: #2a3e44;
+    --primary: #5eead4; --primary-soft: #133a3d; --clinical: #93b4ff; --clinical-soft: #1a2647; --on-fill: #04141a;
+    --verified: #6ee7b7; --verified-soft: #0f2e25; --verified-line: #2f7d62;
+    --reported: #fcd34d; --reported-soft: #3a2a0c; --reported-line: #b7791f;
+    --low-confidence: #fcd34d; --low-confidence-soft: #33260b; --low-confidence-line: #b7791f;
+    --danger: #fca5a5; --danger-soft: #3b1515; --emergency: #b42318; --focus: #93b4ff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1517; --surface: #111e21; --surface-2: #17282c; --ink: #e2e8f0; --muted: #a3b3bd; --line: #2a3e44;
+  --primary: #5eead4; --primary-soft: #133a3d; --clinical: #93b4ff; --clinical-soft: #1a2647; --on-fill: #04141a;
+  --verified: #6ee7b7; --verified-soft: #0f2e25; --verified-line: #2f7d62;
+  --reported: #fcd34d; --reported-soft: #3a2a0c; --reported-line: #b7791f;
+  --low-confidence: #fcd34d; --low-confidence-soft: #33260b; --low-confidence-line: #b7791f;
+  --danger: #fca5a5; --danger-soft: #3b1515; --emergency: #b42318; --focus: #93b4ff;
+  color-scheme: dark;
+}
