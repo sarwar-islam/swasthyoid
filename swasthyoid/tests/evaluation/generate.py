@@ -32,15 +32,42 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+# Sets that do not exist. require() and build() refuse them; nothing is generated, rendered or guessed in their place.
+PENDING = {
+    "handwritten": "D3 pending: who writes the handwritten set, and how many, is not decided; no handwritten data exists",
+    "bn": "no Bangla font with a licence that allows rendering is approved (plan step 3A); Bangla field-level accuracy "
+          "also waits for Jonaki access and licence",
+}
+LANGUAGES = ("en",)
+
+
+class NotAvailable(Exception):
+    """args[0] is the PENDING reason."""
+
+
+def require(language="en", handwritten=False):
+    if handwritten:
+        raise NotAvailable(PENDING["handwritten"])
+    if language not in LANGUAGES:
+        raise NotAvailable(PENDING.get(language, f"no synthetic set for language {language!r}"))
+
+
+def page_lines(document_id, items):
+    """The text render() prints, as (heading, [lines of each item]). Also the reference text for OCR scoring."""
+    return (f"SYNTHETIC PRESCRIPTION {document_id}",
+            [[f"Drug: {item['drug']}", f"Dose: {item['dose']}", f"Frequency: {item['frequency']}"] for item in items])
+
+
 def render(prescription):
     """One clean printed page for a prescription, plus its ground truth."""
     image = Image.new("L", SIZE, PAPER)
     draw, font = ImageDraw.Draw(image), ImageFont.load_default(size=34)
+    heading, item_lines = page_lines(prescription["prescription_id"], prescription["items"])
     y = 80
-    draw.text((60, y), f"SYNTHETIC PRESCRIPTION {prescription['prescription_id']}", fill=20, font=font)
+    draw.text((60, y), heading, fill=20, font=font)
     y += 90
-    for item in prescription["items"]:
-        for text in (f"Drug: {item['drug']}", f"Dose: {item['dose']}", f"Frequency: {item['frequency']}"):
+    for lines in item_lines:
+        for text in lines:
             draw.text((90, y), text, fill=20, font=font)
             y += 60
         y += 40
@@ -72,9 +99,10 @@ def degrade(image, kind, amount, seed):
 AMOUNTS = {"rotate": (3, 8), "blur": (2, 5), "noise": (10, 30), "glare": (0.3, 0.5), "low_contrast": (0.3, 0.15)}
 
 
-def build(seed=0, patients=8):
+def build(seed=0, patients=8, *, language="en", handwritten=False):
     """The dataset: documents with ground truth and a split, and degraded copies that record
-    their degradation type and amount."""
+    their degradation type and amount. Printed English only: other sets raise NotAvailable (PENDING)."""
+    require(language, handwritten)
     people = synthetic.make_patients(patients, seed)
     prescriptions = synthetic.make_prescriptions(people, seed, per_patient=1)
     ids = sorted(p["prescription_id"] for p in prescriptions)

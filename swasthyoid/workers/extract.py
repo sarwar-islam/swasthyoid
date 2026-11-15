@@ -40,6 +40,7 @@ from psycopg.conninfo import conninfo_to_dict
 
 from swasthyoid import db, runtime_mode
 from swasthyoid.capture import drugcatalog, extraction, extraction_crypto
+from swasthyoid.workers import monitoring
 
 EXIT_OK = 0
 EXIT_INFRASTRUCTURE = 1
@@ -189,18 +190,32 @@ def install_handlers(stop):
 
 
 def queue_stats(conn):
-    """Counts only, read-only: due documents, attempts in flight under a live lease, claims whose
-    lease has expired (also counted as due) and documents that gave up."""
+    """Counts only, read-only, one statement (one snapshot): monitoring.METRICS, in that order."""
+    permanent = "extraction_error = ANY(%(permanent)s)"
     row = conn.execute(
         "SELECT count(*) FILTER (WHERE status = 'uploaded' OR (status = 'extracting' AND next_extraction_at <= clock_timestamp())), "
         "count(*) FILTER (WHERE status = 'extracting' AND extraction_claim IS NOT NULL AND next_extraction_at > clock_timestamp()), "
         "count(*) FILTER (WHERE status = 'extracting' AND extraction_claim IS NOT NULL AND next_extraction_at <= clock_timestamp()), "
-        "count(*) FILTER (WHERE status = 'extraction_failed') FROM documents").fetchone()
-    return dict(zip(("due", "in_flight", "lease_expired", "failed"), row))
+        "count(*) FILTER (WHERE status = 'extraction_failed'), "
+        f"count(*) FILTER (WHERE status = 'extraction_failed' AND {permanent}), "
+        f"count(*) FILTER (WHERE status = 'extraction_failed' AND NOT coalesce({permanent}, false) "
+        "AND extraction_lifetime_attempts >= %(budget)s), "
+        f"count(*) FILTER (WHERE status = 'extraction_failed' AND NOT coalesce({permanent}, false) "
+        "AND extraction_lifetime_attempts < %(budget)s), "
+        "count(*) FILTER (WHERE status = 'extracting' AND extraction_claim IS NULL AND next_extraction_at > clock_timestamp()), "
+        "coalesce(sum(extraction_attempts) FILTER (WHERE status = 'extracting'), 0), "
+        "coalesce(sum(extraction_lifetime_attempts), 0) FROM documents",
+        {"permanent": sorted(extraction.PERMANENT_CODES), "budget": extraction.MAX_LIFETIME_ATTEMPTS}).fetchone()
+    return dict(zip(monitoring.METRICS, (int(value) for value in row)))
 
 
 def _report(conn, attempts):
-    _say("cycle_done", attempts=attempts, **queue_stats(conn))
+    stats = queue_stats(conn)
+    _say("cycle_done", attempts=attempts, **stats)
+    alerts = monitoring.evaluate(stats, monitoring.ALERT_RULES)  # OWNER-DECISION-PENDING (D13): no rules yet
+    for alert in alerts:
+        _say("alert", metric=alert.metric, value=alert.value, at_least=alert.at_least)
+    monitoring.dispatch(alerts, monitoring.ALERT_SINKS)
 
 
 def _wait(seconds, stop, sleep=time.sleep):

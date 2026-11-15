@@ -148,7 +148,8 @@ def test_values_below_the_threshold_go_to_manual_entry_and_are_not_counted_as_ac
     report = harness.run(dataset, with_confidence(dataset, levels), include_copies=False, threshold=0.85)
     held = report["confidence"]["held_out"]
     assert held == {"accepted": 2 * items, "accepted_wrong": 0, "manual_entry": items,
-                    "accepted_but_wrong_rate": 0.0}
+                    "accepted_but_wrong_rate": 0.0, "expected_fields": 3 * items, "left_for_manual_entry": items,
+                    "manual_entry_rate": 1 / 3}
 
 
 def test_a_confident_wrong_value_is_counted_as_accepted_but_wrong(dataset):

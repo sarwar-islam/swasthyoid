@@ -391,7 +391,9 @@ def test_queue_stats_count_due_in_flight_expired_and_failed(prod):
                      "next_extraction_at = clock_timestamp() - interval '1 minute' WHERE id = %s", [ids[1]])
         conn.execute("UPDATE documents SET status = 'extraction_failed' WHERE id = %s", [ids[2]])
         # ids[3] is still uploaded; the expired claim is due as well
-        assert extract.queue_stats(conn) == {"due": 2, "in_flight": 1, "lease_expired": 1, "failed": 1}
+        stats = extract.queue_stats(conn)
+        assert {k: stats[k] for k in ("due", "in_flight", "lease_expired", "failed")} == \
+            {"due": 2, "in_flight": 1, "lease_expired": 1, "failed": 1}
 
 
 # ---- slice 8.2 without a database: the loop, the stop signals and the statistics line
