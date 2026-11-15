@@ -33,8 +33,9 @@ residual risks, D13, D3, and the reviewer's name.
 1. **D2 and FRD Q8 (privacy and retention): approved and implemented; covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped, Linux, PostgreSQL 16) and verified with canary strings in CI run #51 (`bdca92c`; 1145 passed, 0 failed, 0 skipped): no plaintext in a full data dump, a rotated key fails closed on both paths, no canary or key in logs or errors (details and scope limits: `docs/DECISIONS.md`, "Extraction data privacy verification").** Still open: no key rotation,
    plain legacy rows, a lawyer's view on retention not recorded; synthetic data only until deployed and reviewed.
 2. **D18 / 4B and the schema approval (OCR interface).** Interface version 0 stays test-only: no OCR adapter is
-   available outside test mode, so no production extraction; per-line confidence, boxes, the preprocessing record and
-   the schema version are never stored, so M3 receives no OCR confidence.
+   available outside test mode, so no production extraction; per-line confidence and boxes are never stored, so M3
+   receives no OCR confidence. (The preprocessing record is stored since Phase 5; the schema version since 2026-11-15,
+   commit `617db37`, and a missing or unsupported version fails closed on read.)
 3. **D7 (clinical field list): approved and implemented locally; a named clinical reviewer (FRD Q7) is still missing.**
    Transcription parsers run; rows are not split into strength, form, dose, duration, result, unit or range until the
    reviewer supplies vocabularies, so those fields are left for manual entry.
@@ -140,8 +141,9 @@ is held; one transaction; audit entry `document.manual_entry`; and an endpoint f
 ### Final interface and persistence
 - **Question.** What is interface version 1, and which of its fields are persisted?
 - **Why.** Interface version 0 is test-only and validates, then discards, per-line confidence and boxes. Persisting
-  them needs a schema change. Also not persisted today: the preprocessing operations applied and the schema
-  version of an extraction.
+  them needs a schema change. (Update: the preprocessing operations applied are persisted since Phase 5, in
+  `extractions.preprocessing`, and the schema version since 2026-11-15, in `extractions.schema_version`; the
+  `processing JSONB` proposal below would now hold only adapter timings.)
 - **Migration proposal (not applied).** Add nullable columns to `extractions`: `line_meta JSONB` (per page and line:
   confidence and box, no text) and `processing JSONB` (preprocessing operations, schema version, adapter timings).
   Nullable and additive, so existing rows and the append-only rule are unaffected; `IF NOT EXISTS` for the runner's
@@ -239,8 +241,8 @@ None of these has been approved by the owner as an accepted limit for the Jonaki
 | OCR infrastructure | adapter contract v0, probe, child, Jonaki adapter and linkage | adapter, worker, process tests | v0 test-only; D18, 4B open | IMPLEMENTED AND TESTED (fake runner); final interface BLOCKED BY OWNER DECISION |
 | Real OCR execution | Jonaki runner written, never run; PaddleOCR English runner run once end to end on the owner's Windows machine (7 lines from one synthetic page, about 20 s, output accepted by the version 0 validator) | owner's local smoke run | Jonaki: access, license; PaddleOCR: owner decision 2026-11-14 | Jonaki BLOCKED BY EXTERNAL ACCESS/LICENSE; PaddleOCR RUN ONCE LOCALLY, no accuracy and no zero-network claim |
 | PaddleOCR English adapter (second adapter) | adapter, runner, requirements, preparation script, fake runner and tests | DB-free, fake runner | owner decision 2026-11-14; models, versions and weights unconfirmed | IMPLEMENTED AND TESTED (fake runner; CI run #55 on `a2c0139`: 1231 passed, 0 failed, 0 skipped) and run once for real on the owner's machine; oneDNN off by default; no accuracy claim; interface version 0 stays test-only |
-| Clinical schemas | mechanism plus the approved list in `SCHEMAS` | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; reviewer sign-off pending |
-| Clinical parsers | label-anchored transcription; rows kept whole | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies) |
+| Clinical schemas | mechanism plus the approved list in `SCHEMAS`; schema version stored per extraction and checked on read (fails closed), 2026-11-15 | DB-free, PostgreSQL | D7 approved by the owner 2026-11-14; reviewer not named | IMPLEMENTED AND TESTED locally; schema-version PostgreSQL tests NOT YET RUN (CI pending); reviewer sign-off pending; no key version stored |
+| Clinical parsers | label-anchored transcription; rows kept whole, list markers removed, empty rows dropped; strict date and number shapes; `ROW_SPLITTERS` hook (empty), 2026-11-15 | DB-free, PostgreSQL | D7 approved by the owner; reviewer vocabularies missing | IMPLEMENTED AND TESTED locally (transcription only); row splitting BLOCKED BY OWNER DECISION (reviewer vocabularies plug into `ROW_SPLITTERS`) |
 | Drug catalog matching | matcher, in-memory loader (Phase A), name index, generic groups, row matching, opt-in worker integration and benchmark (Phase 7B) | DB-free, synthetic data only; one PostgreSQL test written, not yet run | D8, FRD Q1; row rules provisional | IMPLEMENTED locally (off unless configured); license/provenance and the reviewer's sign-off on the matching rules BLOCKED BY OWNER DECISION; no real prescription ever matched |
 | Worker reliability | runner: `--once`, loop, signals, recovery | DB-free, PostgreSQL, Linux CI | Q4 for deployment | IMPLEMENTED AND TESTED (CI #41; process-tree and lifetime-budget changes: CI run #48) |
 | Manual entry | endpoint and function, audited, race-safe | PostgreSQL | D10, D12, D14 approved 2026-11-14 | IMPLEMENTED AND TESTED (CI run #48) |

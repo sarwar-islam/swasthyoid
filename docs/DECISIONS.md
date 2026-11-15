@@ -1686,3 +1686,46 @@ entry per record; the status for one multi-record group is `ambiguous` / `generi
 **Not verified here.** The PostgreSQL-backed test could not run on this machine (CI needed). Real prescriptions were never matched, so
 the usefulness and the noise of phrase windows on real text are unknown; no accuracy is claimed. Timings are from one Windows machine.
 Production use of the owner-supplied data still waits for the licence (FRD Q1) and the reviewer's sign-off on the matching rules (D8).
+
+## Schema version per extraction, row parsing hook, strict date and number checks (2026-11-15; code commit `617db37`)
+
+Owner-approved (2026-11-15): persist `SCHEMA_VERSION` per extraction with fail-closed validation, and complete the repeated-row
+parser and the date and number checks without inventing clinical vocabulary.
+
+**Schema version (`capture/extraction.py`, `capture/schema.sql`, `api/documents.py`, `workers/extract.py`).**
+- New nullable column `extractions.schema_version text` with the CHECK `extraction_schema_version` (NULL or `^[1-9][0-9]{0,8}$`).
+  Additive and idempotent, applied by `db.apply_schema` at API start like every earlier column; the runner never migrates and now lists
+  the column in `REQUIRED_SCHEMA`. **Deploy order: apply the schema before starting a new worker.**
+- `SUPPORTED_SCHEMA_VERSIONS = {SCHEMA_VERSION}` (`"1"`). `_store` writes `SCHEMA_VERSION` on every row (OCR result, manual entry, the
+  test-only engine path) and raises `SchemaVersionError` without writing if the constant is not supported (a bump of the version
+  without a reader for it).
+- `latest()` checks the stored version **before decrypting anything**: NULL raises `SchemaVersionError("missing")`, any version not in
+  the supported set raises `SchemaVersionError("unsupported")`. The error carries no stored data. The API maps it to the existing
+  500 `extraction_unreadable` with no content. The newest row is checked; an older row is never used in its place.
+- **Behaviour change (supersedes "rows from before D2 are returned as they are"):** every row written before the column, including
+  the plain pre-D2 rows, now fails closed instead of being returned. This also removes the D2 verification limit that plain legacy
+  `fields` did not fail closed through the reader. Only synthetic data is affected; a `needs_review` document whose newest row has no
+  version answers 500 until it is extracted or entered again.
+- **Not done: key version.** No key identifier exists (`EXTRACTION_KEY` is one Fernet key), so there is nothing to store. Choosing a key
+  identifier and rotation scheme (for example several keys with ids) is an owner decision; key rotation stays open.
+
+**Repeated rows (`capture/parsers.py`).** Structural rules only, no clinical vocabulary:
+- A leading list marker (`1.`, `2)`, `১।`, `•`, `-` and similar, followed by a space or the end of the line) is layout and is removed;
+  `5% ...`, `0.9% ...` and `1.SYNTH` are not markers. A line with no letter or digit left is not a row. Rows continue across pages and
+  after a second anchor. A wrapped row is **not** joined to the line before (telling a continuation from a new row needs vocabulary).
+- `ROW_SPLITTERS` (doc_type -> `RowSplitter`, row text -> {split field: text as written}) is the hook for the reviewer's vocabularies.
+  It is **empty and marked REVIEWER-PENDING (FRD Q7)**, so strength, form, dose instruction, duration, result, unit and reference range
+  stay empty for manual entry. `GROUPS[...]["split_fields"]` lists the allowed fields (a test ties them to `SCHEMAS`). A splitter's
+  output is accepted only whole: every part must be an allowed field (never the row field itself) and a non-empty string found in the
+  row as written; otherwise, or if the splitter raises, the row stays unsplit and a code-only warning is logged. `parse()` takes
+  `row_splitters=` to override the registry per call.
+
+**Dates and numbers (`extraction.parse`).** After Bangla digits are converted, the text must match a fixed ASCII shape before
+conversion: numbers `[+-]digits[.digits]`; dates ISO `YYYY-M-D` or day first `D/M/YYYY` with one separator (`/`, `-` or `.`) used
+twice, then the calendar check. Refused (manual entry, never guessed): digits of other scripts (which `Decimal` and `strptime` would
+otherwise accept), exponents, underscores, thousands separators, `.5`, `5.`, two-digit years, month names, attached times, mixed
+separators. **No year bound or value range was added**: that would be an invented threshold.
+
+**Verification.** Locally on Windows without PostgreSQL: 1064 passed, 367 skipped, 0 failed. The three PostgreSQL-backed tests in
+`tests/test_schema_version.py` (both write paths store the version; a wrong version fails in the reader and the API; the database
+refuses malformed values) and the updated `test_extraction_privacy_pg.py` test have **not run yet**: CI needed.

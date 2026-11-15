@@ -290,7 +290,7 @@ Planned work, in order, after those conditions are met:
 
 ## Step 6 — Clinical schemas and document parsers (your area 4)
 
-- **Status.** Partly implemented locally 2026-11-14: the approved field list in SCHEMAS and label-anchored transcription parsers; row splitting waits for reviewer vocabularies; reviewer not named. See docs/DECISIONS.md. Pushed; covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped).
+- **Status.** Partly implemented locally 2026-11-14: the approved field list in SCHEMAS and label-anchored transcription parsers; row splitting waits for reviewer vocabularies; reviewer not named. See docs/DECISIONS.md. Pushed; covered by CI run #48 (`dcf31d6`; 1135 passed, 0 failed, 0 skipped). **Update 2026-11-15 (owner-approved, commit `617db37`, not pushed, no CI run):** the schema version is stored with each extraction (`extractions.schema_version`) and a missing or unsupported version fails closed on read; rows are parsed with list markers removed and empty rows dropped; `ROW_SPLITTERS` is the empty, reviewer-pending hook for splitting rows, checked when filled; dates and numbers accept only ASCII or Bangla digits in fixed shapes. No key version is stored (needs a key-identifier decision). See `docs/DECISIONS.md`, "Schema version per extraction, row parsing hook, strict date and number checks".
 - **FRD requirement.** M2: "Parse to a typed schema with per-field confidence, validate types and dates". Invariant 1. CLAUDE.md: no invented clinical content.
 
 ### 6A — Schema mechanism (model-independent)
