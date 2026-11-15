@@ -1838,3 +1838,33 @@ three points the decision left open were settled by the owner's answers on 2026-
 **Verification.** Locally on Windows without PostgreSQL: 1108 passed, 370 skipped, 0 failed. The three PostgreSQL-backed tests in
 `tests/test_worker_monitoring.py` (the full metric query, a failure with no error code, the endpoint's access rules) need CI; the
 metric-query test turns `documents_guard` off for one statement in its throwaway database to backdate an upload's `created_at`.
+
+## Scope reduction: M9, M11 and M12 removed (owner decision 2026-11-15)
+
+**Decision.** M9 Referral Passport, M11 e-Prescription and Pharmacist Dispensing, and M12 Appointment-Bound Explicit Consent are
+removed from SwasthyoID. In scope: C1–C4 and M1–M8, M10 (still conditional on the clinical reviewer and the lawyer), M13. Recorded in
+`docs/FRD.md` v4. Module numbers are not reused.
+
+**What goes with them.**
+- Roles: Pharmacist and Receiving Doctor. The Verifier no longer checks patients in.
+- C1 consent purposes `APPOINTMENT`, `REFERRAL`, `DISPENSING`, and the appointment `max_window_ends_at`. Doctor access is the `TIMELINE`
+  consent the patient grants by OTP or QR (M1).
+- Event types `dispense`, `referral`, `referral_feedback`; provenance `clinician_authored`, `pharmacist_recorded`, `doctor_submitted`
+  (no module left produces them). The timeline shows `document_verified` and `patient_reported` only.
+- Roadmap phases P4, P5 and P7, edge cases 1–6, 8 and 20, open questions 10 and 11 (kept as numbered "Removed in v4" rows so earlier
+  references stay valid). The remaining phases keep their dates; the freed weeks are unallocated until the owner reschedules.
+
+**M6 changes (owner decisions of the same day).**
+- **Trigger:** a prescription document a human has just verified (M3 confirm), checked against the patient's `document_verified`
+  active medications, allergies and diagnoses. There is no e-prescription writer.
+- **Acknowledgment:** only the treating doctor, viewing the record under an active consent, acknowledges or overrides with a reason.
+- **Patients do not see raw M6 alerts** in the prototype or pilot (invariant 6); they see only the non-diagnostic M13 escalation cards.
+
+**Frontend decisions of the same day.** The UI (`web/`, React + TypeScript + Vite, self-hosted Atkinson Hyperlegible, Noto Sans Bengali
+and JetBrains Mono) covers the Patient app (with a caregiver mode limited to the granted `upload_documents`, `view_documents`,
+`view_timeline` scopes), the Doctor portal, the Verifier/CHW app and the Reviewer/Admin console; no screens for the removed modules.
+`frontend demo/` stays untracked as a read-only reference.
+
+**Not changed yet (separate code change later):** the backend still carries the removed purposes in `core/consent_authz.py` and the
+`core/schema.sql` CHECKs, the `pharmacist` role in `identity/schema.sql` and `api/m1.py`, the removed event types and provenance values
+in `core/schema.sql`, and the empty `appointments/`, `referral/` and `prescribing/` packages.

@@ -1,7 +1,11 @@
-# SwasthyoID — Functional Requirements & Architecture (v3)
+# SwasthyoID — Functional Requirements & Architecture (v4)
 
-**Date:** 12 November 2026
-**Status:** v3 revision, pending owner approval. Decisions it relies on are recorded in `docs/DECISIONS.md`; M2 work is planned in `docs/M2_COMPLETION_PLAN.md`.
+**Date:** 15 November 2026 (v3: 12 November 2026)
+**Scope change in v4 (owner decision 2026-11-15, `docs/DECISIONS.md`, "Scope reduction"):** M9 Referral Passport, M11 e-Prescription
+and Pharmacist Dispensing, and M12 Appointment-Bound Consent are removed, with the Pharmacist and Receiving Doctor roles and the
+`APPOINTMENT`, `REFERRAL` and `DISPENSING` consent purposes. M6 now checks prescriptions once they are human-verified. Module numbers
+are not reused.
+**Status:** v4 revision, pending owner approval. Decisions it relies on are recorded in `docs/DECISIONS.md`; M2 work is planned in `docs/M2_COMPLETION_PLAN.md`.
 **Principle:** *AI reads → Human verifies → Rules check → Doctor decides → Every access is consented and audited.*
 
 > All diagrams are written in **Mermaid**. They render on GitHub, GitLab, VS Code (Markdown Preview Mermaid Support extension), Obsidian, Notion, or by pasting a block into https://mermaid.live.
@@ -12,7 +16,7 @@
 2. Actors and roles
 3. System architecture (context, layered, module map, deployment)
 4. Shared core services (C1 Consent and Authorization, C2 Audit, C3 Notification, C4 Event and Provenance)
-5. Modules M1–M13 (functionality, rules, sequence and state diagrams)
+5. Modules M1–M8, M10, M13 (functionality, rules, sequence and state diagrams)
 6. Data model (overview ERD + detailed ERDs)
 7. API summary
 8. AI integration architecture and pipeline
@@ -27,12 +31,12 @@
 ## 1. Purpose, scope, invariants
 
 ### 1.1 Purpose
-SwasthyoID turns the paper prescriptions and lab reports a patient already holds into a **verified, consent-controlled, patient-owned health record**. Doctors get a one-minute timeline summary. Referrals, appointments, pharmacy dispensing and emergencies share only the data the patient allows. Medicines are checked with clinician-approved rules. Patients can also log home BP and glucose, clearly labelled as patient-reported.
+SwasthyoID turns the paper prescriptions and lab reports a patient already holds into a **verified, consent-controlled, patient-owned health record**. Doctors get a one-minute timeline summary under consent the patient grants by OTP or QR. Emergencies share only the minimal card the patient set up. Verified prescriptions are checked with clinician-approved rules. Patients can also log home BP and glucose, clearly labelled as patient-reported.
 
 ### 1.2 Scope
-**In scope (prototype and pilot):** thirteen modules M1–M13 and four shared core services C1–C4, plus the AI integration architecture (provider interfaces and adapter contracts, section 8).
+**In scope (prototype and pilot):** ten modules (M1–M8, M10, M13) and four shared core services C1–C4, plus the AI integration architecture (provider interfaces and adapter contracts, section 8).
 
-**Out of scope:** diagnosis or dosing advice, replacing a hospital information system, selling or sharing data with pharma, payments, wearables and device-verified vitals, genomics, medical-image diagnosis, training or selecting AI models (models are supplied and integrated by the project owner; the platform provides the architecture they plug into).
+**Out of scope:** referrals (former M9), e-prescribing and pharmacy dispensing (former M11), appointment booking and appointment-bound consent (former M12), diagnosis or dosing advice, replacing a hospital information system, selling or sharing data with pharma, payments, wearables and device-verified vitals, genomics, medical-image diagnosis, training or selecting AI models (models are supplied and integrated by the project owner; the platform provides the architecture they plug into).
 
 ### 1.3 Invariants (every module must keep these)
 
@@ -50,7 +54,7 @@ SwasthyoID turns the paper prescriptions and lab reports a patient already holds
 | 10 | The platform never selects, downloads, bundles or integrates an AI model on its own initiative. Models are supplied by the project owner and reach the system only through versioned provider interfaces. An owner-supplied artifact enters a deployment only with the owner's explicit approval, by the delivery method the owner sets. There is no automatic fallback from one model to another, and test or fake adapters never run in production. |
 
 ### 1.4 Prototype acceptance scenario (end to end, synthetic data)
-1. Photograph a prescription, 2. the configured OCR adapter extracts it (a test adapter on synthetic data until the owner's model is integrated), 3. a human verifies it, 4. it appears on the timeline, 5. a new prescription triggers a drug-conflict alert, 6. the patient books an appointment with consent and the doctor opens the summary after check-in, 7. a referral snapshot is sent and feedback returns, 8. the patient logs home BP and it appears labelled patient-reported.
+1. Photograph a prescription, 2. the configured OCR adapter extracts it (a test adapter on synthetic data until the owner's model is integrated), 3. a human verifies it, 4. it appears on the timeline, 5. a second verified prescription triggers a drug-conflict alert that the doctor acknowledges or overrides, 6. the doctor requests consent by Health ID, the patient grants it by OTP or QR, and the doctor opens the summary, 7. the patient revokes the consent and the doctor's next read is refused, 8. the patient logs home BP and it appears labelled patient-reported.
 
 ---
 
@@ -60,9 +64,7 @@ SwasthyoID turns the paper prescriptions and lab reports a patient already holds
 flowchart LR
     P["Patient"]
     D["Doctor"]
-    RD["Receiving Doctor"]
     ED["Emergency-enabled Doctor"]
-    PH["Pharmacist"]
     V["Verifier (staff or CHW)"]
     CR["Clinical Reviewer"]
     A["Admin"]
@@ -73,13 +75,8 @@ flowchart LR
         U2["Grant, view and revoke consent"]
         U3["View own timeline and access history"]
         U4["Log home vitals"]
-        U5["Book appointment and check in"]
-        U6["Approve referral"]
         U7["Read summary and timeline with consent"]
-        U8["Write e-prescription and run safety check"]
-        U9["Create referral"]
-        U10["Read referral snapshot and submit feedback"]
-        U11["Dispense against a prescription"]
+        U8["Acknowledge or override safety alerts"]
         U12["Break-glass emergency card"]
         U13["Capture and verify on behalf of patient"]
         U14["Author and approve rules and thresholds"]
@@ -91,13 +88,8 @@ flowchart LR
     P --> U2
     P --> U3
     P --> U4
-    P --> U5
-    P --> U6
     D --> U7
     D --> U8
-    D --> U9
-    RD --> U10
-    PH --> U11
     ED --> U12
     V --> U13
     CR --> U14
@@ -107,21 +99,21 @@ flowchart LR
 
 | Role | Can do | Cannot do |
 |---|---|---|
-| **Patient** (phone OTP) | Upload, verify own extractions, view own timeline and access history, grant/revoke consent, log vitals, reminders, triage, set emergency profile | See other patients |
-| **Doctor** (BMDC verified, admin approved) | Request consent, read summary/timeline under consent, e-prescribe, safety check, ack/override alerts, create referrals, run visits | Read without consent, edit verified events |
-| **Receiving Doctor** | Read the referral snapshot only, submit feedback | See beyond the snapshot, live timeline |
+| **Patient** (phone OTP) | Upload, verify own extractions, view own timeline and access history, grant/revoke consent, log vitals, reminders, triage, set emergency profile | See other patients, see raw M6 safety alerts (owner decision 2026-11-15) |
+| **Doctor** (BMDC verified, admin approved) | Request consent, read summary/timeline under consent, acknowledge or override M6 safety alerts with a reason (the treating doctor, under active consent) | Read without consent, edit verified events |
 | **Emergency-enabled Doctor** | Break-glass access to the minimal emergency card | Full timeline, documents, search |
-| **Pharmacist** (licence verified) | Prescription-bound access, safety check, record dispensing, ack/override alerts | See the timeline, edit prescriptions |
-| **Verifier** (staff/CHW) | Capture and verify for a present, consenting patient, check patients in | Read timelines, grant consent for a patient |
+| **Verifier** (staff/CHW) | Capture and verify for a present, consenting patient | Read timelines, grant consent for a patient |
 | **Clinical Reviewer** | Draft/approve rules, thresholds, red-flag lists, emergency messages, review break-glass sessions | Access patient data |
 | **Admin** | Users, credential approval, catalog import, audit export | Read clinical content |
 | **Caregiver** (own person account, phone OTP) | With a patient-approved `CAREGIVER` authorization, only the scopes granted: `upload_documents`, `view_documents`, `view_timeline`; request an authorization | Verify extractions, grant or revoke consent for the patient, read the patient's access history, approve their own request |
 
-**Authorization model:** RBAC (which endpoints a role may call) plus ABAC (per request: actor, patient, purpose, data categories, resource binding such as appointment, referral or prescription ID, consent state, appointment status, time window, device).
+**Removed roles (v4):** Pharmacist (with M11) and Receiving Doctor (with M9).
+
+**Authorization model:** RBAC (which endpoints a role may call) plus ABAC (per request: actor, patient, purpose, data categories, resource binding such as an emergency session, consent state, time window, device).
 
 **Health ID:** `SID-` + 10 digits with a check digit. Random, unique, not derived from a phone number or national ID.
 
-**Doctor and pharmacist verification:** register with BMDC number or pharmacy licence number plus a credential document, admin reviews (clinical reviewer may double-check), status `pending → verified → suspended`. An unverified doctor or pharmacist cannot create referrals or prescriptions, request consent, or dispense. Suspension revokes all active grants immediately.
+**Doctor verification:** register with BMDC number plus a credential document, admin reviews (clinical reviewer may double-check), status `pending → verified → suspended`. An unverified doctor cannot request consent or act on safety alerts. Suspension revokes all active grants immediately.
 
 ---
 
@@ -132,8 +124,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     P["Patient"] --> SYS
-    D["Doctor / Receiving Doctor / Emergency Doctor"] --> SYS
-    PH["Pharmacist"] --> SYS
+    D["Doctor / Emergency Doctor"] --> SYS
     V["Verifier / CHW"] --> SYS
     CR["Clinical Reviewer"] --> SYS
     A["Admin"] --> SYS
@@ -154,7 +145,6 @@ flowchart TB
     subgraph Clients["Clients"]
         PA["Patient App"]
         DW["Doctor Web"]
-        PW["Pharmacist Web"]
         VA["Verifier App"]
         AC["Admin and Reviewer Console"]
     end
@@ -181,10 +171,7 @@ flowchart TB
         M6["M6 Safety Rules"]
         M7["M7 Triage"]
         M8["M8 Reminders"]
-        M9["M9 Referral Passport"]
         M10["M10 Emergency Access"]
-        M11["M11 e-Prescription and Pharmacist"]
-        M12["M12 Appointment Consent"]
         M13["M13 Home Vitals"]
     end
 
@@ -216,20 +203,14 @@ flowchart LR
     M4 --> M5["M5 Summary and Search"]
     M4 --> M6["M6 Safety Rules"]
     M4 --> M8["M8 Reminders"]
-    M6 --> M11["M11 Prescription and Pharmacist"]
-    M12["M12 Appointment Consent"] --> C1
-    M9["M9 Referral"] --> C1
-    M9 --> M4
+    M3 --> M6
     M10["M10 Emergency"] --> C1
-    M11 --> C1
-    M11 --> C4
     M13["M13 Home Vitals"] --> C4
     M13 --> M6
     M7["M7 Triage"] --> M6
     C1 --> C2["C2 Audit"]
     M1 --> C3["C3 Notification"]
     M8 --> C3
-    M9 --> C3
     M10 --> C3
     M13 --> C3
 ```
@@ -266,16 +247,13 @@ One service decides every non-patient access. It answers: who is asking, for whi
 | Purpose | Grantee | Bound to | Data scope | Activates when | Ends when |
 |---|---|---|---|---|---|
 | `TIMELINE` | Doctor | Doctor + patient | Categories patient picks (timeline, documents, safety) | Doctor submits patient OTP or QR | Expiry or revoke |
-| `APPOINTMENT` | Doctor | Appointment ID | Categories patient approved at booking | Patient **checked in** | Visit completed, cancelled, grace period over, or max window |
-| `REFERRAL` | Receiving doctor | Referral ID | Selected events in a frozen snapshot, not the live timeline | Patient approves | Token expiry, revoke, closed |
-| `DISPENSING` | Pharmacist | Prescription ID | That prescription plus active medications and allergies for safety check | Patient shows QR or OTP | Dispense complete or expiry |
 | `EMERGENCY` | Emergency-enabled doctor | Emergency session | Emergency card fields only | Break-glass with reason | Short time-boxed session |
 | `CLOUD_AI` | System | Patient | Document image to external AI | Patient opts in | Patient opts out |
 | `CAREGIVER` | Caregiver (person account) | Patient + caregiver | Scopes granted separately: `upload_documents`, `view_documents`, `view_timeline`. Never verification | Patient approves (in the app, or by reading out a code sent to the patient's own phone) | Expiry, revoke, or replacement by a newly approved request |
 
 **Caregiver rules** (`docs/DECISIONS.md`, "Caregiver access"): scopes never change on an existing authorization; more scopes or time is a new request that, once approved, replaces the old one in one transaction. One active and one pending authorization per patient-caregiver pair. Provisional values, to be confirmed: default 30 days, maximum 90 days (no permanent authorization), an unapproved request closes after 24 hours.
 
-**Unified consent record:** `consent_id, patient_id, grantee_id, grantee_role, purpose, resource_binding {type,id}, allowed_categories[], method (OTP/QR/in-app), status, activated_at, expires_at, max_window_ends_at, revoked_at, revoked_by, consent_version, policy_version`.
+**Unified consent record:** `consent_id, patient_id, grantee_id, grantee_role, purpose, resource_binding {type,id}, allowed_categories[], method (OTP/QR/in-app), status, activated_at, expires_at, revoked_at, revoked_by, consent_version, policy_version`.
 
 **Consent state machine**
 
@@ -311,7 +289,7 @@ flowchart TD
     A3 -- no --> DENY
     A3 -- yes --> A4{"Status active and not expired or revoked?"}
     A4 -- no --> DENY
-    A4 -- yes --> A5{"Resource binding valid? (appointment checked in, referral token live, prescription open)"}
+    A4 -- yes --> A5{"Resource binding valid? (consent bound to this doctor and patient)"}
     A5 -- no --> DENY
     A5 -- yes --> A6{"Requested categories subset of allowed?"}
     A6 -- no --> DENY
@@ -327,8 +305,7 @@ def authorize_access(req, user, patient, consent):
     if consent.grantee_id != user.id:                      return deny("grantee_mismatch")
     if consent.purpose != req.purpose:                     return deny("purpose_mismatch")
     if consent.status != "active":                         return deny("not_active")
-    if now() > consent.expires_at or now() > consent.max_window_ends_at:
-                                                           return deny("expired")
+    if now() > consent.expires_at:                         return deny("expired")
     if not binding_valid(consent, req.resource):           return deny("binding_invalid")
     if not req.data_categories.issubset(consent.allowed_categories):
                                                            return deny("category_not_allowed")
@@ -349,7 +326,7 @@ Every deny is audited too. If C1 is down, all non-patient access stops (fail clo
 | Fail closed | If the audit write fails, the request fails. Emergency uses a write-ahead local buffer and reconciles later |
 | Patient transparency | Patient sees who read what and when |
 
-**Logged:** logins, consent create/activate/revoke/expire, every patient-data read, alert ack/override, rule approval, referral status changes (by whom), dispensing, break-glass, credential approval, threshold changes, notification failures.
+**Logged:** logins, consent create/activate/revoke/expire, every patient-data read, alert ack/override, rule approval, break-glass, credential approval, threshold changes, notification failures.
 
 ```mermaid
 flowchart LR
@@ -391,26 +368,26 @@ Bangla by default, quiet hours in Asia/Dhaka (emergency-access alerts and critic
 
 **Mandatory fields on every event:** `event_id, event_type, patient_id, date + date_precision, actor_id, actor_role, source_type, source_document_id, recorded_at, verified_by, verified_at, verification_status, related_record_id, version, supersedes, payload`.
 
-**Event types:** visit, diagnosis, medication, lab_result, allergy, follow_up, prescription, dispense, vital_reading, referral, referral_feedback.
+**Event types:** visit, diagnosis, medication, lab_result, allergy, follow_up, prescription, vital_reading. (`dispense`, `referral` and `referral_feedback` were removed with M11 and M9 in v4.)
 
 | verification_status | Meaning | Example |
 |---|---|---|
 | `document_verified` | A human verified data extracted from paper | Verified prescription |
-| `clinician_authored` | Authenticated doctor created it | e-Prescription |
-| `pharmacist_recorded` | Authenticated pharmacist recorded it | Dispense event |
-| `doctor_submitted` | Authenticated doctor submitted it (not clinically verified) | Referral feedback |
 | `patient_reported` | Patient entered it | Home BP |
 | `pending` | Awaiting verification | Not on the timeline |
 
-**Rules:** events are never overwritten, a change is a new event linked by `supersedes`. Prescribed, dispensed and patient-taking are three separate events so the timeline shows which is current. Duplicates merge on `(type, date, generic, dose)`. Patient-reported events are never used as verified facts in safety rules and appear in their own summary section.
+**Rules:** events are never overwritten, a change is a new event linked by `supersedes`. A verified prescription and what the patient reports taking are separate events, so the timeline shows which is current. Duplicates merge on `(type, date, generic, dose)`. Patient-reported events are never used as verified facts in safety rules and appear in their own summary section.
 
 ---
 
 ## 5. Modules
 
+**Removed in v4 (owner decision 2026-11-15):** M9 Referral Passport, M11 e-Prescription and Pharmacist Dispensing, M12
+Appointment-Bound Explicit Consent. Their numbers are not reused; doctor access is the `TIMELINE` consent the patient grants by OTP or QR (M1).
+
 ### M1 — Identity, Health ID and Consent Center
 - Patient registration by phone OTP, profile (name, date of birth, sex, language), Health ID issue.
-- Doctor, pharmacist and verifier onboarding with credential verification (section 2).
+- Doctor and verifier onboarding with credential verification (section 2).
 - Short-lived JWT access and refresh tokens, device binding.
 - **Consent Center:** one list of every consent (who, purpose, categories, expiry), one-tap revoke, access history from the audit log, separate cloud-AI opt-in toggle, emergency profile settings.
 - Doctor requests consent by Health ID, the patient confirms by OTP or QR.
@@ -513,7 +490,7 @@ stateDiagram-v2
 - **Done when:** order is stable, history survives corrections, every event links to its source.
 
 ### M5 — Doctor Summary and Search
-- **Sections:** active medications, allergies, documented diagnoses, recent labs with trend, recent visits, pending follow-ups, recent referral feedback, and patient-reported vitals (separate, labelled "reported by patient, not verified").
+- **Sections:** active medications, allergies, documented diagnoses, recent labs with trend, recent visits, pending follow-ups, and patient-reported vitals (separate, labelled "reported by patient, not verified").
 - If an **LLM adapter** is configured, it writes the text from structured events only. Every sentence carries citations. A code validator checks each drug, number and date against the cited events. On failure, provider error, or when no LLM adapter is configured, return a deterministic template summary (`mode: template`). Vitals appear only as template lines (values and dates), never interpreted.
 - Cache by `(patient_id, events_version)`.
 - **Search:** keyword always; semantic (Bangla and English) when an **embedding adapter** is configured. `patient_id` and consent categories are hard filters in every keyword and vector query in PostgreSQL. Results are event IDs with source links, not generated answers.
@@ -552,7 +529,8 @@ sequenceDiagram
 ```
 
 ### M6 — Prescription Safety Rule Engine
-- **Input:** drugs in a new or just-verified prescription plus the patient's active medications, allergies and documented diagnoses (verified, authored or pharmacist-recorded events only, never patient-reported).
+- **Trigger (v4):** a prescription document that a human has just verified (M3 confirm). There is no e-prescription writer.
+- **Input:** the drugs of that verified prescription plus the patient's active medications, allergies and documented diagnoses (`document_verified` events only, never patient-reported).
 - Normalise each brand to generic ingredients, then run the checks:
 
 | Check | Rule source | Output |
@@ -565,7 +543,8 @@ sequenceDiagram
 | Unrecognised drug | Not in catalog | `unrecognised` flag, never silently passed |
 
 - Only rules with status `approved` run. Every change creates a new rule version.
-- Each alert shows rule ID, severity, Bangla and English explanation, and links to the triggering events. The doctor or pharmacist must **acknowledge** or **override with a reason**, both audited.
+- Each alert shows rule ID, severity, Bangla and English explanation, and links to the triggering events. Only the treating doctor, viewing the record under an active consent, may **acknowledge** or **override with a reason**, both audited. Alerts stay open until a doctor acts.
+- **Patients do not see raw M6 alerts** in the prototype or pilot (owner decision 2026-11-15, invariant 6): no unreviewed diagnostic or dosing message reaches the patient. Patients see only the non-diagnostic M13 escalation cards.
 - One rule registry holds all rule types: `ddi, allergy, duplicate, drug_disease, class_lookback, vital_threshold, red_flag, emergency_message`, with one approval workflow.
 - Rule load error blocks the check with an explicit error.
 - M6 uses no AI model. Rules are deterministic.
@@ -598,7 +577,7 @@ flowchart TD
 ```
 
 ### M8 — Reminders and Follow-up
-- Proposals come only from verified events: medicine times from the written frequency and duration, follow-up visits, advised tests, refill nudges after a dispense event.
+- Proposals come only from verified events: medicine times from the written frequency and duration, follow-up visits, advised tests.
 - **Nothing activates until the patient confirms.** Delivery by push and SMS in Bangla with quiet hours (Asia/Dhaka).
 - Log taken, skipped, snoozed. If an advised test has no result in its window, send a nudge.
 - Reminders repeat what the prescription says and never suggest a dose. A patient may create their own "measure BP" reminder, labelled as self-created.
@@ -613,77 +592,6 @@ stateDiagram-v2
     proposed --> ended : patient dismisses
     ended --> [*]
 ```
-
-### M9 — Referral Passport
-A verified, patient-controlled digital referral workflow, not a plain link.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor RF as Referring Doctor
-    participant M9 as M9 Referral
-    participant C4 as C4 Events
-    actor Pat as Patient
-    participant C1 as C1 Consent
-    actor RC as Receiving Doctor
-    participant C3 as C3 Notification
-    participant C2 as C2 Audit
-
-    RF->>M9: create referral (reason, specialty, urgency, notes, selected events)
-    M9->>C4: freeze verified events into snapshot
-    M9->>C3: ask patient to approve
-    C3-->>Pat: referral and shared data preview
-    Pat->>M9: approve
-    M9->>C1: create REFERRAL consent bound to referral and snapshot
-    M9->>RC: deliver to verified account with time-limited token
-    M9->>C2: audit status sent
-    RC->>M9: open snapshot (status received, then seen)
-    RC->>M9: submit feedback (authenticated)
-    M9->>C4: write referral_feedback event (doctor_submitted)
-    M9->>C3: notify referring doctor and patient
-    RF->>M9: close referral
-```
-
-```mermaid
-stateDiagram-v2
-    [*] --> draft
-    draft --> pending_patient_approval
-    pending_patient_approval --> sent : patient approves
-    pending_patient_approval --> declined : patient declines
-    sent --> received
-    received --> seen
-    seen --> feedback_submitted
-    feedback_submitted --> closed
-    sent --> revoked : patient revokes
-    received --> revoked
-    seen --> revoked
-    sent --> expired : token expires
-    received --> expired
-    seen --> expired
-    declined --> [*]
-    revoked --> [*]
-    expired --> [*]
-    closed --> [*]
-```
-
-| Component | Solution |
-|---|---|
-| Verification | Verified referring and receiving doctors |
-| Referral ID | UUID |
-| Snapshot | Timestamped, source-attributed, immutable |
-| Consent | Referral-specific record, purpose `REFERRAL` |
-| Access | RBAC + referral-specific ABAC bound to snapshot ID |
-| Expiry | Configurable, plus patient revocation |
-| Feedback | Authenticated doctor submission, author and timestamp verifiable. **Not automatically clinically verified** |
-| Audit | Append-only, records who changed each status |
-| Duplicates | Idempotency key |
-| Offline (after pilot) | Encrypted PDF snapshot with QR verification, only if security policy allows |
-
-**Urgent referral:** if the patient cannot approve in time, the referring doctor records the urgency reason, only the minimum categories are shared, the patient and emergency contact are notified immediately, the patient can revoke, and the case enters post-hoc review. Behind a feature flag until clinical and legal sign-off.
-
-**Rules:** the receiving doctor sees only the snapshot. The snapshot date is always shown. New data needs a new consent request.
-
-**Acceptance:** unverified doctors cannot refer; no clinical data is shared without approval (except the urgent workflow); only approved data is visible; expired or revoked access shows nothing; feedback author and timestamp are verifiable; every status change is audited; duplicate requests create one referral.
 
 ### M10 — Emergency Access (feature-flagged)
 Minimal emergency card for an unconscious or incapable patient. Enabled only after clinical reviewer and legal approval.
@@ -729,114 +637,6 @@ stateDiagram-v2
 ```
 
 **Done when:** no break-glass access without a reason, every session notifies the patient, nothing beyond the card ever returns, all sessions reach review.
-
-### M11 — e-Prescription and Pharmacist Dispensing
-- **Doctor:** adds drugs from the catalog, M6 runs **before signing**, alerts acknowledged or overridden with reason, signing creates a `prescription` event (`clinician_authored`).
-- **Pharmacist:** the patient presents a prescription QR or OTP (`DISPENSING` consent, bound to the prescription). The pharmacist sees only that prescription plus the active medications and allergies needed for the safety check. After the check, dispensing is recorded with items, quantity, substitution flag and date, creating a `dispense` event (`pharmacist_recorded`). Partial dispense and refills are separate events. The pharmacist cannot edit the prescription and can only query the doctor.
-- Consent ends when dispensing completes. Prescribed, dispensed and patient-taking stay separate events.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Doc as Doctor
-    participant M11 as M11 Prescribing
-    participant M6 as M6 Safety Rules
-    participant C4 as C4 Events
-    actor Pat as Patient
-    actor PH as Pharmacist
-    participant C1 as C1 Consent
-    participant C2 as C2 Audit
-
-    Doc->>M11: draft prescription
-    M11->>M6: safety check
-    M6-->>Doc: alerts
-    Doc->>M11: acknowledge or override with reason, sign
-    M11->>C4: prescription event (clinician_authored)
-    Pat->>PH: shows prescription QR or OTP
-    PH->>C1: DISPENSING consent bound to prescription
-    C1-->>PH: active
-    PH->>M6: safety check with active meds and allergies
-    M6-->>PH: alerts
-    PH->>M11: acknowledge or override, record dispense
-    M11->>C4: dispense event (pharmacist_recorded)
-    M11->>C1: end consent on completion
-    M11->>C2: audit dispense and reads
-```
-
-```mermaid
-stateDiagram-v2
-    [*] --> active : doctor signs
-    active --> partially_dispensed
-    partially_dispensed --> partially_dispensed : another partial
-    partially_dispensed --> dispensed
-    active --> dispensed
-    active --> expired
-    active --> cancelled
-    partially_dispensed --> expired
-    dispensed --> [*]
-    expired --> [*]
-    cancelled --> [*]
-```
-
-**Done when:** unverified pharmacists cannot dispense; dispensing needs a safety check (overrides carry a reason); consent ends at completion; the dispense event carries provenance.
-
-### M12 — Appointment-Bound Explicit Consent
-- Booking: patient picks a doctor and time, sees a **consent preview** of which categories the doctor could see, then gives a separate explicit approval. Booking works without consent, only clinical access is withheld.
-- Access is tied to appointment ID + doctor ID + patient ID + categories.
-- Clock time alone never decides expiry. **Appointment status plus a maximum access window** does:
-
-| Appointment status | Access |
-|---|---|
-| `scheduled` | Pending (no access) |
-| `checked_in` | Active, until the max window ends |
-| `visit_completed` | Revoked |
-| `no_show` | Expires after the configured grace period |
-| `cancelled` | Revoked immediately |
-| `rescheduled` | Old consent void, new consent required |
-
-- Check-in is done by the patient (app or QR) or by a clinic verifier with the patient present. Multiple doctors are authorized individually. A follow-up appointment needs a new consent.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Pat as Patient
-    participant M12 as M12 Appointments
-    participant C1 as C1 Consent
-    actor Doc as Doctor
-    participant M5 as M5 Summary
-    participant C2 as C2 Audit
-
-    Pat->>M12: book appointment (doctor, time)
-    M12-->>Pat: consent preview of categories
-    Pat->>M12: explicit approval (separate confirmation)
-    M12->>C1: create APPOINTMENT consent (pending)
-    Pat->>M12: check in (app, QR, or verifier)
-    M12->>C1: activate with max window
-    Doc->>M5: open pre-visit summary
-    M5->>C1: authorize
-    C1-->>M5: allow
-    M5->>C2: audit read
-    Doc->>M12: complete visit
-    M12->>C1: revoke consent
-    M12-->>Pat: notify access ended
-```
-
-```mermaid
-stateDiagram-v2
-    [*] --> scheduled
-    scheduled --> checked_in : check-in
-    checked_in --> visit_completed : doctor completes
-    scheduled --> no_show : grace period over
-    scheduled --> cancelled
-    checked_in --> cancelled
-    scheduled --> rescheduled : new appointment and new consent
-    visit_completed --> [*]
-    no_show --> [*]
-    cancelled --> [*]
-    rescheduled --> [*]
-```
-
-**Done when:** no consent means no clinical access; the approved categories are visible to the patient; cancel and complete revoke access; a reschedule never inherits the old consent; every access is audited.
 
 ### M13 — Home Vitals (patient-reported BP and glucose)
 MVP is **manual entry only**, no wearables.
@@ -898,21 +698,8 @@ erDiagram
     PATIENTS ||--o{ EVENTS : owns
     EVENTS ||--o| EVENTS : supersedes
     PATIENTS ||--o{ SUMMARIES : caches
-    PATIENTS ||--o{ APPOINTMENTS : books
-    USERS ||--o{ APPOINTMENTS : attends
-    APPOINTMENTS ||--o| CONSENTS : "scopes"
-    PATIENTS ||--o{ PRESCRIPTIONS : receives
-    USERS ||--o{ PRESCRIPTIONS : signs
-    PRESCRIPTIONS ||--o{ PRESCRIPTION_ITEMS : contains
-    PRESCRIPTION_ITEMS }o--|| DRUG_CATALOG : "maps to"
-    PRESCRIPTIONS ||--o{ DISPENSE_RECORDS : "is dispensed by"
-    USERS ||--o{ DISPENSE_RECORDS : records
-    PRESCRIPTIONS ||--o{ SAFETY_ALERTS : triggers
+    DOCUMENTS ||--o{ SAFETY_ALERTS : triggers
     RULES ||--o{ SAFETY_ALERTS : "raised by"
-    PATIENTS ||--o{ REFERRALS : "is subject of"
-    REFERRALS ||--|| REFERRAL_SNAPSHOTS : freezes
-    REFERRALS ||--o{ REFERRAL_EVENTS : tracks
-    REFERRALS ||--o{ REFERRAL_FEEDBACK : receives
     PATIENTS ||--o{ VITAL_MEASUREMENTS : reports
     VITAL_MEASUREMENTS ||--o{ VITAL_ALERTS : raises
     VITAL_THRESHOLD_RULES ||--o{ VITAL_ALERTS : evaluates
@@ -983,7 +770,6 @@ erDiagram
         string status
         datetime activated_at
         datetime expires_at
-        datetime max_window_ends_at
         datetime revoked_at
         interval requested_ttl
         int consent_version
@@ -1098,20 +884,8 @@ erDiagram
 
 ```mermaid
 erDiagram
-    PATIENTS ||--o{ APPOINTMENTS : books
-    USERS ||--o{ APPOINTMENTS : attends
-    PATIENTS ||--o{ PRESCRIPTIONS : receives
-    USERS ||--o{ PRESCRIPTIONS : signs
-    PRESCRIPTIONS ||--o{ PRESCRIPTION_ITEMS : contains
-    PRESCRIPTION_ITEMS }o--|| DRUG_CATALOG : "maps to"
-    PRESCRIPTIONS ||--o{ DISPENSE_RECORDS : "is dispensed by"
-    USERS ||--o{ DISPENSE_RECORDS : records
-    PRESCRIPTIONS ||--o{ SAFETY_ALERTS : triggers
+    DOCUMENTS ||--o{ SAFETY_ALERTS : triggers
     RULES ||--o{ SAFETY_ALERTS : "raised by"
-    PATIENTS ||--o{ REFERRALS : "is subject of"
-    REFERRALS ||--|| REFERRAL_SNAPSHOTS : freezes
-    REFERRALS ||--o{ REFERRAL_EVENTS : tracks
-    REFERRALS ||--o{ REFERRAL_FEEDBACK : receives
     PATIENTS ||--o{ VITAL_MEASUREMENTS : reports
     VITAL_MEASUREMENTS ||--o{ VITAL_ALERTS : raises
     VITAL_THRESHOLD_RULES ||--o{ VITAL_ALERTS : evaluates
@@ -1121,85 +895,15 @@ erDiagram
     REMINDERS ||--o{ ADHERENCE_LOGS : logs
     PATIENTS ||--o{ TRIAGE_SESSIONS : runs
 
-    APPOINTMENTS {
-        uuid id PK
-        uuid patient_id FK
-        uuid doctor_id FK
-        datetime slot
-        string status
-        datetime checked_in_at
-        datetime completed_at
-        uuid consent_id FK
-    }
-    PRESCRIPTIONS {
-        uuid id PK
-        uuid patient_id FK
-        uuid doctor_id FK
-        string status
-        datetime signed_at
-        uuid event_id FK
-    }
-    PRESCRIPTION_ITEMS {
-        uuid id PK
-        uuid prescription_id FK
-        uuid catalog_id FK
-        string strength
-        string frequency
-        int duration_days
-    }
-    DISPENSE_RECORDS {
-        uuid id PK
-        uuid prescription_id FK
-        uuid pharmacist_id FK
-        json items
-        boolean substituted
-        datetime dispensed_at
-        uuid event_id FK
-    }
     SAFETY_ALERTS {
         uuid id PK
         uuid rule_id FK
-        uuid prescription_id FK
+        uuid document_id FK
         string severity
         uuid[] evidence_event_ids
         string ack_action
         string override_reason
         uuid ack_by FK
-    }
-    REFERRALS {
-        uuid id PK
-        uuid patient_id FK
-        uuid from_doctor FK
-        uuid to_doctor FK
-        string reason
-        string specialty
-        string urgency
-        string status
-        datetime token_expires_at
-        string idempotency_key UK
-    }
-    REFERRAL_SNAPSHOTS {
-        uuid id PK
-        uuid referral_id FK
-        uuid[] event_refs
-        json frozen_payload
-        datetime created_at
-    }
-    REFERRAL_EVENTS {
-        uuid id PK
-        uuid referral_id FK
-        string status_from
-        string status_to
-        uuid changed_by FK
-        datetime at
-    }
-    REFERRAL_FEEDBACK {
-        uuid id PK
-        uuid referral_id FK
-        uuid doctor_id FK
-        string text
-        datetime submitted_at
-        uuid event_id FK
     }
     VITAL_MEASUREMENTS {
         uuid id PK
@@ -1350,7 +1054,7 @@ All endpoints need a bearer token except OTP request and verify. Errors use `{ "
 | Module | Endpoints | Role |
 |---|---|---|
 | M1 | `POST /auth/otp/request`, `/auth/otp/verify`, `/auth/refresh` | Any |
-| M1 | `POST /credentials`, `POST /credentials/{id}/approve` | Doctor, pharmacist; admin |
+| M1 | `POST /credentials`, `POST /credentials/{id}/approve` | Doctor; admin |
 | M1/C1 | `POST /consents/requests`, `POST /consents/requests/{id}/confirm` | Doctor |
 | M1/C1 | `GET /consents`, `POST /consents/{id}/revoke`, `GET /me/access-history` | Patient |
 | M1/C1 | `POST /caregiver-authorizations`, `POST /caregiver-authorizations/confirm` (patient's code read out) | Caregiver |
@@ -1361,14 +1065,10 @@ All endpoints need a bearer token except OTP request and verify. Errors use `{ "
 | M3 | `PUT /documents/{id}/review`, `POST /documents/{id}/confirm`, `/reject` | Patient, verifier |
 | M4 | `GET /patients/{id}/timeline?from&to&type` | Patient; doctor with consent |
 | M5 | `GET /patients/{id}/summary`, `GET /patients/{id}/search?q=` | Doctor with consent |
-| M6 | `POST /safety/check`, `POST /safety/alerts/{id}/ack` | Doctor, pharmacist |
+| M6 | `POST /safety/check` (run on M3 confirm of a prescription), `POST /safety/alerts/{id}/ack` | System; treating doctor under consent |
 | M7 | `POST /triage/sessions`, `POST /triage/sessions/{id}/answer` | Patient |
 | M8 | `GET /reminders`, `PATCH /reminders/{id}`, `POST /reminders/{id}/log` | Patient |
-| M9 | `POST /referrals`, `/referrals/{id}/approve`, `/decline`, `/revoke` | Doctor; patient |
-| M9 | `GET /referrals/{id}`, `POST /referrals/{id}/received`, `/seen`, `/feedback`, `/close` | Receiving doctor; referrer |
 | M10 | `PUT /me/emergency-profile`; `POST /emergency/access`; `GET /admin/emergency/reviews`, `POST .../{id}/review` | Patient; emergency doctor; reviewer |
-| M11 | `POST /prescriptions`, `/prescriptions/{id}/sign`, `/prescriptions/{id}/dispense`; `POST /dispensing/requests`, `/confirm` | Doctor; pharmacist; patient |
-| M12 | `POST /appointments`, `/appointments/{id}/consent`, `/checkin`, `/complete`, `/cancel`, `/reschedule`, `/no-show` | Patient, verifier, doctor |
 | M13 | `POST /vitals`, `GET /vitals`, `POST /vitals/{id}/correct`, `PUT /patients/{id}/vital-thresholds` | Patient; treating doctor |
 | Admin | `POST /rules`, `/rules/{id}/approve`, `POST /catalog/import`, `GET /audit` | Reviewer, admin |
 
@@ -1498,13 +1198,13 @@ The held-out evaluation split is never used to train or tune any model.
 | Encryption | TLS everywhere. Encryption at rest for database and object storage. Field-level encryption for phone and name |
 | Access control | RBAC + ABAC on every request. No direct client database access |
 | PII in logs | Application logs never contain names, phones or document text |
-| Data minimisation | Store only schema fields. Referral and emergency share the minimum |
+| Data minimisation | Store only schema fields. Emergency access shares the minimum |
 | Retention and deletion | Patient can export and delete data. Define the audit-log exception with a lawyer |
 | Residency | Decide hosting location before the pilot (open question) |
 | AI models | The platform never bundles or integrates a model on its own initiative. Owner-supplied models enter a deployment only with the owner's explicit approval, load from pinned, checksum-verified artifacts, run offline when local, and are recorded with every result. No automatic fallback between models. Test adapters refused outside test |
 | Performance targets | Timeline under 2 s, cached summary under 2 s, fresh summary under 10 s, extraction under 60 s per page, authorization check under 100 ms. Tune after measuring. The extraction target is measured on the integrated OCR model. Known risk: 10 pages at 60 s equals the 10-minute hard timeout of an extraction attempt, leaving no room for model load; revisit after the model is measured (M2 plan step 4B) |
 | Availability | Single region, daily backups, documented recovery steps |
-| Offline (year 2) | Mobile offline capture and triage, offline referral PDF and emergency QR |
+| Offline (year 2) | Mobile offline capture and triage, offline emergency QR |
 | Localisation | Bangla UI first, English second, Bangla numerals, Bangla and English OCR and search |
 | Accessibility | Large text, simple flows for low literacy, voice input later |
 | Observability | Structured logs, queue metrics, correction rate, summary validation failure rate, consent deny rate, notification failure rate, break-glass count, adapter error counts by type |
@@ -1516,15 +1216,15 @@ The held-out evaluation split is never used to train or tune any model.
 
 | # | Case | Handling |
 |---|---|---|
-| 1 | Patient arrives late for an appointment | Status plus max window, not clock time |
-| 2 | Check-in done but visit never completed | Max window auto-expires access |
-| 3 | Reschedule, cancel, no-show | Old consent void, new consent needed, cancel revokes immediately, no-show expires after grace |
-| 4 | Referral token expired or revoked | Request denied and audited |
-| 5 | Same referral or dispense submitted twice | Idempotency key |
-| 6 | Receiving doctor's credential suspended | All active grants suspended |
-| 7 | New allergy verified after a prescription was signed | Re-run check and flag the prescription |
-| 8 | Substitution, partial dispense, out of stock | Recorded as separate dispense events |
-| 9 | Patient edits medication after dispensing | New patient-reported event, three events stay distinct |
+| 1 | Removed in v4 (was: appointment lateness, M12) | — |
+| 2 | Removed in v4 (was: check-in without completion, M12) | — |
+| 3 | Removed in v4 (was: reschedule, cancel, no-show, M12) | — |
+| 4 | Removed in v4 (was: referral token, M9) | — |
+| 5 | Removed in v4 (was: duplicate referral or dispense, M9 and M11) | — |
+| 6 | Removed in v4 (was: receiving doctor suspended, M9) | — |
+| 7 | New allergy verified after a prescription was verified | Re-run the check and flag the prescription for the treating doctor |
+| 8 | Removed in v4 (was: substitution and partial dispense, M11) | — |
+| 9 | Patient reports a different medication than the verified prescription | New patient-reported event; both events stay distinct |
 | 10 | BP 180/120 entered | Reviewed escalation message is mandatory |
 | 11 | Wrong unit or implausible value | Confirmation step, correction event |
 | 12 | Break-glass notification fails | Retry, in-app fallback, failure audited |
@@ -1534,8 +1234,8 @@ The held-out evaluation split is never used to train or tune any model.
 | 16 | Document confirmed twice | Idempotent, no duplicate events |
 | 17 | Search returns a category outside the consent | Must never happen, covered by tests |
 | 18 | Patient revokes just before a request | Next request is denied |
-| 19 | Fake doctor or pharmacist | Credential verification, suspension revokes grants |
-| 20 | Stale referral snapshot | Snapshot date always visible, new data needs new consent |
+| 19 | Fake doctor | Credential verification, suspension revokes grants |
+| 20 | Removed in v4 (was: stale referral snapshot, M9) | — |
 | 21 | No OCR adapter configured | Nothing is claimed, documents stay `uploaded` (due) with no attempt counted, none is marked read or failed, direct manual entry available |
 | 22 | Model artifact checksum mismatch | Adapter refuses to load. Proposed (open sub-decision, `docs/DECISIONS.md`): checked before any claim, so the adapter counts as unavailable, documents stay due and an alert is raised |
 | 23 | OCR adapter returns malformed output | Attempt fails, nothing stored, no other engine tried |
@@ -1550,6 +1250,8 @@ The held-out evaluation split is never used to train or tune any model.
 ## 11. Roadmap (fixed)
 
 **Assumptions:** a team of 3 to 4 engineers plus part-time clinical reviewer access. Start date Monday 16 November 2026. If the team size differs, keep the order and the exit gates, and rescale the durations. Each phase ends with a demo and an exit gate, and the next phase does not start until the gate passes. AI models are selected, trained and supplied by the project owner and integrated only with the owner's specification and explicit approval; phases build the architecture and verify it with test adapters.
+
+**v4:** P4, P5 and P7 are removed with M12, M9 and M11. The remaining phases keep their dates, so those weeks stay unallocated until the owner reschedules.
 
 ```mermaid
 gantt
@@ -1566,12 +1268,9 @@ gantt
     P3 Summary, search, safety rules     :p3, after p2, 42d
 
     section Workflows
-    P4 Appointment consent               :p4, after p3, 28d
-    P5 Referral Passport                 :p5, after p4, 35d
-    P6 Home Vitals                       :p6, after p5, 21d
+    P6 Home Vitals                       :p6, 2027-06-21, 21d
     Prototype milestone                  :milestone, after p6, 0d
-    P7 e-Prescription and Pharmacist     :p7, after p6, 35d
-    P8 Triage and Reminders              :p8, after p7, 28d
+    P8 Triage and Reminders              :p8, 2027-08-16, 28d
     P9 Emergency Access (conditional)    :p9, after p8, 28d
 
     section Release
@@ -1585,15 +1284,15 @@ gantt
 | **P1 Core platform** | 30 Nov 2026 – 10 Jan 2027 | M1, C1, C2, C3, C4 skeleton, idempotency framework, authorization matrix test suite | Registration, Health ID, credentials, consent engine, hash-chained audit, event store with provenance, notification queue | Doctor without consent gets 403 plus audit entry. Revoke blocks the next request. Audit chain verifies |
 | **P2 Capture, verify, timeline** | 11 Jan – 7 Mar 2027 | M2, M3, M4. In parallel, M6 core: catalog import, brand normalisation, rule loader, reviewer test cases. **AI architecture (model-independent, D17):** OCR infrastructure with version 0 as an infrastructure-test interface only, loader, versioned validator, infrastructure conformance tests, availability check, offline and no-fallback enforcement, test adapters. Synthetic document set and evaluation framework | Photo to adapter-based extraction (test adapter on synthetic data) to verified events to timeline | **Infrastructure ready** (M2 plan, "Readiness levels", proposed and pending owner approval): every document claimed while an adapter is available ends in `needs_review` or `extraction_failed` within the bounded time; with no adapter, documents stay due and can go to manual entry. No unverified events. Correction rate recorded. The infrastructure conformance tests pass for the test adapters. No fallback engine is invoked. Production readiness of the OCR model is not part of this gate, and the provisional interface is not frozen by it |
 | **P3 Summary, search, safety** | 8 Mar – 18 Apr 2027 | M5, M6 wiring. LLM and embedding adapter contracts with template and keyword defaults | Validated summary with template fallback, patient-filtered search, `/safety/check` on real events, ack and override | Summary has no unsupported entity. Golden safety cases all pass. Search leaks nothing. With no LLM or embedding adapter configured, template summary and keyword search work |
-| **P4 Appointment consent** | 19 Apr – 16 May 2027 | M12 | Booking, consent preview, check-in, status and window access, auto-expiry | Appointment status matrix passes. Reschedule never inherits consent |
-| **P5 Referral Passport** | 17 May – 20 Jun 2027 | M9 | Snapshot, patient approval, token, status machine, authenticated feedback event, urgent workflow behind a flag | Referral acceptance criteria 1 to 7 pass |
+| **P4** | — | Removed in v4 (was M12, appointment consent) | — | — |
+| **P5** | — | Removed in v4 (was M9, referral passport) | — | — |
 | **P6 Home Vitals** | 21 Jun – 11 Jul 2027 | M13 | Manual entry, validation, reviewer-approved thresholds, escalation messages, summary section | Vitals acceptance criteria pass. Escalation always shown for critical range |
 | **Prototype milestone** | 12 Jul 2027 | End-to-end scenario from section 1.4 on synthetic data | Demo | Scenario passes |
-| **P7 e-Prescription and Pharmacist** | 12 Jul – 15 Aug 2027 | M11 | e-prescription signing with safety check, dispensing flow, pharmacist credentials | Unverified pharmacist blocked. Dispense needs a check. Consent ends on completion |
+| **P7** | — | Removed in v4 (was M11, e-prescription and pharmacist) | — | — |
 | **P8 Triage and Reminders** | 16 Aug – 12 Sep 2027 | M7, M8 | Red-flag triage, department guide, confirmed reminders, adherence log | Every red-flag case routes to emergency. No reminder without verified source and confirmation |
 | **P9 Emergency Access (conditional)** | 13 Sep – 10 Oct 2027 | M10, **only if** the clinical reviewer and lawyer approve the policy; otherwise skipped and the time moves to P10 | Emergency profile, break-glass, notifications, post-hoc review | Reason mandatory, patient always notified, nothing beyond the card returns |
 | **P10 Hardening and evaluation** | 11 Oct – 21 Nov 2027 | All modules. Evaluation of every integrated model against the gates in section 8.5 | All evaluation gates in section 8.5, security review, clinical review, backup and recovery drill, legal review of consent wording and data protection status | Every gate passes for the models that are integrated |
-| **Pilot** | 22 Nov 2027 – 20 Jan 2028 | Limited clinics and pharmacies, staff-assisted verification | Real-world metrics: correction rate, alert override rate, consent deny rate, notification failure rate | Pilot report with threshold tuning decisions |
+| **Pilot** | 22 Nov 2027 – 20 Jan 2028 | Limited clinics, staff-assisted verification | Real-world metrics: correction rate, alert override rate, consent deny rate, notification failure rate | Pilot report with threshold tuning decisions |
 
 **Owner-led model integration (a dependency, not a scheduled phase).** The owner independently selects, trains, owns and supplies each model and its specification (open question 15); OCR model development had not started on 12 November 2026. Integration of the OCR model is an adapter module added to the P2 architecture. It requires the OCR specification, a compatibility review of the provisional interface and the worker constraints against it (revising the interface to fit the model, with the owner's approval), and the owner's explicit approval to integrate and to deploy. It must then pass the infrastructure conformance tests unchanged and the model-output conformance tests written for its approved contract. The extraction-accuracy gate in P10 can only be run on an integrated OCR model. **Infrastructure readiness** (architecture verified with test adapters, P2) and **production readiness** (an integrated owner model that has passed its gates, P10) are separate; passing the first never implies the second. Whether the pilot may start without an integrated OCR model (manual entry only) is an open owner decision (open question 15).
 
@@ -1601,9 +1300,9 @@ gantt
 
 | Tier | Includes |
 |---|---|
-| Prototype (by 12 Jul 2027) | C1–C4, M1–M6, M12, M9, M13, and the AI provider interfaces with test adapters |
-| Pilot | Everything above plus M7, M8, M11, M10 if approved, and the owner-supplied models that are integrated and have passed their gates |
-| Year 2 | Offline mobile, encrypted referral PDF with QR, offline emergency QR, automated credential checks, voice input, guardian flow. Wearables stay out of scope |
+| Prototype (by 12 Jul 2027) | C1–C4, M1–M6, M13, and the AI provider interfaces with test adapters |
+| Pilot | Everything above plus M7, M8, M10 if approved, and the owner-supplied models that are integrated and have passed their gates |
+| Year 2 | Offline mobile, offline emergency QR, automated credential checks, voice input, guardian flow. Wearables stay out of scope |
 
 ---
 
@@ -1619,9 +1318,9 @@ gantt
 | 6 | Is emergency access in scope, and what is the break-glass policy? | P8 |
 | 7 | Which clinician signs off rules, red flags, thresholds and emergency messages? | P0 |
 | 8 | What does a lawyer say about the data protection law status and Bangla consent wording? | P1 |
-| 9 | How do we verify BMDC and pharmacy licences beyond manual checking? | P5 |
-| 10 | Appointment max access window and no-show grace period | P4 |
-| 11 | Default referral token lifetime | P5 |
+| 9 | How do we verify BMDC registrations beyond manual checking? | P10 |
+| 10 | Removed in v4 (was: appointment access window, M12) | — |
+| 11 | Removed in v4 (was: referral token lifetime, M9) | — |
 | 12 | Minors and guardian consent | P10 |
 | 13 | Who sets vital plausibility and escalation ranges? | P6 |
 | 14 | Is the emergency audit write-ahead buffer policy acceptable? | P9 |
@@ -1644,10 +1343,7 @@ swasthyoid/
 ├─ safety/          # M6 and rule registry
 ├─ triage/          # M7
 ├─ reminders/       # M8
-├─ referral/        # M9
 ├─ emergency/       # M10 (feature flag)
-├─ prescribing/     # M11
-├─ appointments/    # M12
 ├─ vitals/          # M13
 ├─ ai/              # provider interfaces for VLM, LLM, embedding, classifier; no model weights
 ├─ workers/         # background job runners
