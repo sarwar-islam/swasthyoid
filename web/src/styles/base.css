@@ -73,7 +73,7 @@ button:hover { border-color: var(--muted); }
 .side-nav a { padding: 0 var(--space-3); }
 .side-nav a[aria-current="page"] { background: var(--accent-soft); }
 @media (max-width: 767px) {
-  .staff-body { grid-template-columns: 1fr; }
+  .staff-body { grid-template-columns: minmax(0, 1fr); } /* minmax: a wide child (a file input) must not widen the page */
   .side-nav { border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
   .side-nav ul { flex-direction: row; }
 }
@@ -106,7 +106,7 @@ input[type="text"], input[type="tel"], input[type="date"], input:not([type]), se
   font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--muted);
   border-radius: var(--radius); min-height: var(--target); padding: var(--space-2) var(--space-3); width: 100%;
 }
-input[type="file"] { font: inherit; min-height: var(--target); }
+input[type="file"] { font: inherit; min-height: var(--target); max-width: 100%; }
 .field.low input { border: 2px solid var(--low-confidence-line); background: var(--low-confidence-soft); }
 .field .flag { display: flex; gap: var(--space-1); align-items: center; color: var(--low-confidence); font-size: 0.9em; }
 fieldset { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); margin: 0 0 var(--space-4); }
@@ -173,6 +173,7 @@ legend { font-weight: 700; padding: 0 var(--space-2); }
   padding: var(--space-3) var(--space-4); margin: 0 0 var(--space-4); background: var(--accent-soft); border: 1px solid var(--accent);
   border-radius: var(--radius); }
 .context-bar span { display: inline-flex; align-items: center; gap: var(--space-1); }
+.context-bar svg { flex-shrink: 0; } /* the icon keeps its size when the text beside it wraps */
 .context-bar.expired { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 .tabs-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
 .tabs-nav a { display: inline-flex; align-items: center; min-height: var(--target); padding: 0 var(--space-4); border-radius: 999px;

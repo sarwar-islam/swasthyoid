@@ -5,17 +5,19 @@ import { ApiError } from "../../api/client";
 import type { DocType, DocumentView, QualityWarningDetails } from "../../api/types";
 import { ErrorNote, Loading, Section, StatusChip } from "../../components/ui";
 import { formatDate, formatNumber, useI18n } from "../../i18n/i18n";
+import type { Key } from "../../i18n/strings";
 import { useLoad, useSession } from "../../session";
 
 const DOC_TYPES: DocType[] = ["prescription", "lab_report", "discharge_summary", "other"];
 
 /** M2 capture: upload, then the Phase 5 quality warning with the approved Bangla guidance, a retake, or "upload anyway". Hard
- * errors (wrong file type, damaged, too large) are never bypassed, by the server or here. */
-export function Capture() {
+ * errors (wrong file type, damaged, too large) are never bypassed, by the server or here. With `patientId` it uploads for that
+ * patient (a caregiver or a verifier; the server decides). `docBase` null: the uploader may not view documents, so no list. */
+export function Capture({ patientId, docBase = "/patient/documents", listTitle }: { patientId?: string; docBase?: string | null; listTitle?: Key }) {
   const { t, lang } = useI18n();
-  const { api, claims } = useSession();
+  const { claims, api } = useSession();
   const navigate = useNavigate();
-  const docs = useLoad(() => api.request<DocumentView[]>("GET", `/patients/${claims?.sub}/documents`), [claims?.sub]);
+  const [sent, setSent] = useState(false);
   const [docType, setDocType] = useState<DocType>("prescription");
   const [files, setFiles] = useState<File[]>([]);
   const [warning, setWarning] = useState<QualityWarningDetails | null>(null);
@@ -33,13 +35,18 @@ export function Capture() {
     }
     setBusy(true);
     setError(null);
+    setSent(false);
     const form = new FormData();
     form.append("doc_type", docType);
     form.append("upload_anyway", anyway ? "true" : "false");
     files.forEach((f) => form.append("images", f, f.name));
     try {
-      const created = await api.request<DocumentView>("POST", "/documents", { body: form });
-      navigate(`/patient/documents/${created.id}`);
+      const created = await api.request<DocumentView>("POST", patientId ? `/patients/${patientId}/documents` : "/documents", { body: form });
+      if (docBase) navigate(`${docBase}/${created.id}`);
+      else {
+        retake();
+        setSent(true);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.code === "image_quality_warning") setWarning(e.details as unknown as QualityWarningDetails);
       else setError(e);
@@ -84,6 +91,7 @@ export function Capture() {
           </ul>
         )}
         <ErrorNote error={error} />
+        {sent && <p className="ok-note" role="status">{t("capture.sent")}</p>}
         {warning ? (
           <div className="stack" role="alert">
             <p className="error-note" style={{ color: "var(--reported)", background: "var(--reported-soft)", borderColor: "var(--reported-line)" }}>
@@ -115,20 +123,30 @@ export function Capture() {
         )}
       </form>
 
-      <Section id="your-docs" title={t("capture.yourDocs")}>
-        {docs.loading ? <Loading /> : <ErrorNote error={docs.error} />}
-        {docs.data?.length === 0 && <p className="muted">{t("capture.noDocs")}</p>}
-        <ul className="list">
-          {docs.data?.map((d) => (
-            <li key={d.id}>
-              <Link to={`/patient/documents/${d.id}`} className="card row">
-                <span><strong>{t(`doc.${d.doc_type}`)}</strong><br /><span className="muted">{formatDate(d.created_at, lang)}</span></span>
-                <StatusChip status={d.status} />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </Section>
+      {docBase && <DocList patientId={patientId ?? claims?.sub ?? ""} base={docBase} title={listTitle} />}
     </>
+  );
+}
+
+/** A patient's documents, each linking to `${base}/{id}`. The server decides what this viewer may list. */
+export function DocList({ patientId, base, title = "capture.yourDocs" }: { patientId: string; base: string; title?: Key }) {
+  const { t, lang } = useI18n();
+  const { api } = useSession();
+  const docs = useLoad(() => api.request<DocumentView[]>("GET", `/patients/${patientId}/documents`), [patientId]);
+  return (
+    <Section id="your-docs" title={t(title)}>
+      {docs.loading ? <Loading /> : <ErrorNote error={docs.error} />}
+      {docs.data?.length === 0 && <p className="muted">{t("capture.noDocs")}</p>}
+      <ul className="list">
+        {docs.data?.map((d) => (
+          <li key={d.id}>
+            <Link to={`${base}/${d.id}`} className="card row">
+              <span><strong>{t(`doc.${d.doc_type}`)}</strong><br /><span className="muted">{formatDate(d.created_at, lang)}</span></span>
+              <StatusChip status={d.status} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }

@@ -9,6 +9,7 @@ import { DoctorFrame } from "./pages/doctor/doctor";
 import { AllAlerts, BreakGlass, Credentials } from "./pages/doctor/Other";
 import { Patients } from "./pages/doctor/Patients";
 import { AlertsPage, DoctorDocument, DoctorTimeline, SearchPage, SummaryPage, Workspace } from "./pages/doctor/Workspace";
+import { CareDocument, CaregiverFrame, CareIndex, CareRoute, CARE_TABS, Caregiving } from "./pages/patient/Caregiver";
 import { ConsentCenter } from "./pages/patient/Consent";
 import { Capture } from "./pages/patient/Capture";
 import { DocumentPage } from "./pages/patient/Document";
@@ -20,6 +21,7 @@ import { Reminders } from "./pages/patient/Reminders";
 import { Timeline } from "./pages/patient/Timeline";
 import { EmergencyPage, FirstAid, Triage } from "./pages/patient/Triage";
 import { Vitals } from "./pages/patient/Vitals";
+import { AssistDocument, AssistQueue, AssistStart, VerifierFrame } from "./pages/verifier/Verifier";
 import { RequireRole } from "./session";
 import { PATIENT_NAV, PatientShell, STAFF_NAV, StaffShell, visible, type NavItem } from "./shells/Shells";
 
@@ -88,6 +90,12 @@ export function AppRoutes() {
           <Route path="first-aid" element={<FirstAid />} />
           <Route path="emergency" element={<EmergencyPage />} />
           {flags.emergencyAccess && <Route path="emergency-profile" element={<EmergencyProfile />} />}
+          <Route path="caregiving" element={<Caregiving />} />
+          <Route path="for/:pid" element={<CaregiverFrame />}>
+            <Route index element={<CareIndex />} />
+            {CARE_TABS.map((tab) => <Route key={tab.path} path={tab.path} element={<CareRoute scope={tab.scope} />} />)}
+            <Route path="documents/:docId" element={<CareDocument />} />
+          </Route>
           <Route path="*" element={<Navigate to="/patient" replace />} />
         </Route>
       </Route>
@@ -110,11 +118,20 @@ export function AppRoutes() {
           </Route>
         </Route>
       </Route>
-      {(["verifier", "console"] as const).map((portal) => (
-        <Route key={portal} path={`/${portal}`} element={<StaffShell portal={portal} />}>
-          {pages(visible(STAFF_NAV[portal].items), `/${portal}`)}
+      <Route path="/verifier/login" element={<Login portal="verifier" />} />
+      <Route element={<RequireRole role="verifier" login="/verifier/login" />}>
+        <Route path="/verifier" element={<StaffShell portal="verifier" />}>
+          <Route element={<VerifierFrame />}>
+            <Route index element={<AssistStart />} />
+            <Route path="queue" element={<AssistQueue />} />
+            <Route path="documents/:id" element={<AssistDocument />} />
+            <Route path="*" element={<Navigate to="/verifier" replace />} />
+          </Route>
         </Route>
-      ))}
+      </Route>
+      <Route path="/console" element={<StaffShell portal="console" />}>
+        {pages(visible(STAFF_NAV.console.items), "/console")}
+      </Route>
     </Routes>
   );
 }

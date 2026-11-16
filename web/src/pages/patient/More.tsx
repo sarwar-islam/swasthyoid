@@ -1,4 +1,4 @@
-import { AlarmClock, BriefcaseMedical, HeartPulse, IdCard, LifeBuoy, Siren, type LucideIcon } from "lucide-react";
+import { AlarmClock, BriefcaseMedical, HeartHandshake, HeartPulse, IdCard, LifeBuoy, Siren, type LucideIcon } from "lucide-react";
 import { Link } from "react-router";
 import { flags } from "../../flags";
 import { useI18n } from "../../i18n/i18n";
@@ -10,10 +10,11 @@ const TILES: Array<{ to: string; title: Key; desc: Key; icon: LucideIcon; flag?:
   { to: "/patient/help", title: "more.help", desc: "more.help.desc", icon: LifeBuoy },
   { to: "/patient/first-aid", title: "more.firstAid", desc: "more.firstAid.desc", icon: BriefcaseMedical },
   { to: "/patient/emergency", title: "more.emergency", desc: "more.emergency.desc", icon: Siren },
+  { to: "/patient/caregiving", title: "more.care", desc: "more.care.desc", icon: HeartHandshake },
   { to: "/patient/emergency-profile", title: "more.profile", desc: "more.profile.desc", icon: IdCard, flag: "emergencyAccess" },
 ];
 
-/** F2: the patient's health tools (M13, M8, M7, M10 when its flag is on). */
+/** F2: the patient's health tools (M13, M8, M7, M10 when its flag is on); F4: caregiver mode. */
 export function More() {
   const { t } = useI18n();
   return (

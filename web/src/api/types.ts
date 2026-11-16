@@ -263,7 +263,7 @@ export type StaffStatus = "pending" | "verified" | "suspended";
  * to know whether they may request consent. Mocked; owner to decide. */
 export interface StaffMe {
   id: string;
-  role: "doctor";
+  role: "doctor" | "verifier";
   name: string;
   status: StaffStatus;
   emergency_enabled: boolean;
@@ -335,4 +335,51 @@ export interface EmergencySession {
   expires_at: string;
   card: { blood_group?: string; allergies?: string[]; active_medications?: string[]; conditions?: string[];
           emergency_contacts?: Array<{ name: string; phone: string }> } | null; // null: the patient has no emergency profile on
+}
+
+// ---- F4 caregiver mode (M1/C1 caregiver routes, BUILT in swasthyoid/api/caregivers.py)
+
+export type CaregiverScope = "upload_documents" | "view_documents" | "view_timeline";
+
+/** POST /caregiver-authorizations { patient_health_id, scopes, duration_days } -> 202 { status: "pending" }, whether or not the
+ * Health ID exists (nothing is granted until the patient approves). BUILT. */
+export interface CaregiverRequestBody {
+  patient_health_id: string;
+  scopes: CaregiverScope[];
+  duration_days: number; // 1 to 90, default 30 (PROVISIONAL values, docs/DECISIONS.md "Caregiver access")
+}
+
+/** An item of GET /caregiver-authorizations (active, unexpired only; pending requests are never listed), and the answer of
+ * POST /caregiver-authorizations/confirm { patient_health_id, code }. BUILT. */
+export interface CaregiverAuthorization {
+  id: string;
+  patient_id: string;
+  caregiver_id: string;
+  scopes: CaregiverScope[];
+  status: ConsentStatus;
+  requested_days: number;
+  activated_at: string | null;
+  expires_at: string | null;
+  patient_name: string;
+}
+
+// ---- F4 verifier/CHW assisted capture (M2/M3). GAP, FRD open question 3: the backend gives a verifier no access to uploads or
+// extractions yet. Proposed here and mocked: the verifier enters the Health ID, a one-time code goes to the patient's own phone, the
+// present patient reads it out, and a short session opens for this verifier and patient only. While it is active the verifier may
+// upload (POST /patients/{id}/documents), list the documents not yet verified (GET /patients/{id}/documents, filtered by the
+// server), and check one beside its image (GET /documents/{id}, /images/{n}, /extraction; PUT /documents/{id}/review;
+// POST /documents/{id}/confirm, /reject, /manual-entry, /retry-extraction). Never the timeline, verified documents or consent.
+
+/** POST /verifier/sessions { health_id } -> 201 (pending; the code is sent to the patient's phone, never returned);
+ * POST /verifier/sessions/{id}/confirm { code } -> active (403 invalid_code for a wrong, expired, used or dead code);
+ * POST /verifier/sessions/{id}/end. GAP: the routes, and the C1 purpose name `ASSISTED_CAPTURE`, are proposals for the owner. The
+ * session length is REVIEWER-PENDING (the server sets `expires_at`). */
+export interface AssistSession {
+  id: string;
+  purpose: "ASSISTED_CAPTURE"; // GAP: C1 purpose mapping to decide
+  status: "pending" | "active" | "expired" | "revoked";
+  health_id: string;
+  patient_id: string | null; // only once active
+  activated_at: string | null;
+  expires_at: string | null;
 }

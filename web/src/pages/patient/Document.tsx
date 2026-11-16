@@ -154,8 +154,8 @@ function Verify({ doc, data, threshold, onDone }:
 }
 
 /** M2/M3: a document's state, and the side-by-side check when it needs review. Raw M6 safety alerts are never shown to the
- * patient (owner decision 2026-11-15). */
-export function DocumentPage() {
+ * patient (owner decision 2026-11-15). A verifier uses it too, with no timeline link (`toTimeline` null): verifiers never read it. */
+export function DocumentPage({ toTimeline = "/patient/timeline" }: { toTimeline?: string | null }) {
   const { id = "" } = useParams();
   const { t, lang } = useI18n();
   const { api } = useSession();
@@ -186,7 +186,7 @@ export function DocumentPage() {
       </div>
       <ErrorNote error={error} />
       {done && d.status === "verified" && (
-        <p className="ok-note" role="status">{t("verify.done")} <Link to="/patient/timeline">{t("verify.toTimeline")}</Link></p>
+        <p className="ok-note" role="status">{toTimeline ? <>{t("verify.done")} <Link to={toTimeline}>{t("verify.toTimeline")}</Link></> : t("verify.doneForPatient")}</p>
       )}
       {d.status === "uploaded" && (
         <div className="stack"><p className="notice">{t("docpage.uploaded")}</p>

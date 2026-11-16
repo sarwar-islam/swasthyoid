@@ -18,8 +18,28 @@ export const MOCK_DOCTOR_PHONE = "+8801900000002"; // a verified, emergency-enab
 export const MOCK_PENDING_DOCTOR_PHONE = "+8801900000003"; // a synthetic doctor whose BMDC credential is still pending
 export const MOCK_HEALTH_ID = "SID-4827190356";
 const PENDING_DOCTOR_ID = "55555555-5555-4555-8555-555555555555";
-const CAREGIVER_ID = "33333333-3333-4333-8333-333333333333";
+export const MOCK_CAREGIVER_ID = "33333333-3333-4333-8333-333333333333"; // another person account, asking to care for the mock patient
+const CAREGIVER_ID = MOCK_CAREGIVER_ID;
 const OTHER_DOCTOR_ID = "44444444-4444-4444-8444-444444444444";
+export const MOCK_VERIFIER_ID = "77777777-7777-4777-8777-777777777777";
+export const MOCK_VERIFIER_PHONE = "+8801900000004"; // a verified synthetic verifier (CHW)
+
+// Fictional patients the mock patient may act for as a caregiver, one per authorization state (caregiver mode, F4).
+export const MOCK_OTHERS = {
+  full: { id: "a1111111-1111-4111-8111-111111111111", health_id: "SID-9000000011", name: "সিনথেটিক রোগী ক" }, // active: all three scopes
+  timeline: { id: "b2222222-2222-4222-8222-222222222222", health_id: "SID-9000000022", name: "সিনথেটিক রোগী খ" }, // active: view_timeline only
+  revoked: { id: "c3333333-3333-4333-8333-333333333333", health_id: "SID-9000000033", name: "সিনথেটিক রোগী গ" }, // revoked
+  pending: { id: "d4444444-4444-4444-8444-444444444444", health_id: "SID-9000000044", name: "সিনথেটিক রোগী ঘ" }, // a pending request
+} as const;
+
+const CODE_TTL_MS = 5 * 60_000; // the backend's OTP CODE_TTL (identity/otp.py)
+const MAX_CODE_ATTEMPTS = 5; // the backend's otp.MAX_ATTEMPTS
+// REVIEWER-PENDING: how long a verifier may work after the patient's code. A placeholder, not a decided value.
+export const MOCK_ASSIST_MINUTES = 30;
+export const ASSIST_PURPOSE = "ASSISTED_CAPTURE"; // GAP: the C1 purpose name is the owner's to decide (types.ts AssistSession)
+const CARE_SCOPES = ["upload_documents", "view_documents", "view_timeline"] as const;
+type CareScope = (typeof CARE_SCOPES)[number];
+const CLOSED_DOCS: DocumentView["status"][] = ["verified", "rejected"];
 
 type Handler = (request: ApiRequest, params: Record<string, string>) => ApiResponse | Promise<ApiResponse>;
 const ok = (body: unknown, status = 200): ApiResponse => ({ status, body });
@@ -87,8 +107,8 @@ function createState() {
     { at: iso(-3), actor_id: OTHER_DOCTOR_ID, actor_role: "doctor", action: "timeline.read", purpose: "TIMELINE", result: "deny",
       reason: "consent_required", consent_id: null, actor_name: "ডা. দ্বিতীয় সিনথেটিক" },
   ];
-  const doc = (id: string, status: DocumentView["status"], hoursAgo: number, docType: DocType = "prescription"): DocumentView =>
-    ({ id, patient_id: MOCK_PATIENT_ID, doc_type: docType, status, uploaded_by: MOCK_PATIENT_ID, created_at: iso(-hoursAgo),
+  const doc = (id: string, status: DocumentView["status"], hoursAgo: number, docType: DocType = "prescription", patient = MOCK_PATIENT_ID): DocumentView =>
+    ({ id, patient_id: patient, doc_type: docType, status, uploaded_by: patient, created_at: iso(-hoursAgo),
        images: [{ n: 1, content_type: "image/png", size_bytes: 48213, sha256: "0".repeat(64), quality_warnings: [] }] });
   const documents: DocumentView[] = [
     doc("d-review", "needs_review", 2), doc("d-verified", "verified", 72), doc("d-failed", "extraction_failed", 30, "lab_report"),
@@ -126,16 +146,43 @@ function createState() {
   ];
   const emergency: EmergencyProfile = { enabled: false, fields: [], contacts: [],
     available: { blood_group: null, allergies: [], active_medications: ["SYNTH-DRUG-003"], conditions: [] } };
+
+  // every patient's records, by patient id; the mock patient's are the arrays above
+  const records: Record<string, { health_id: string; name: string; documents: DocumentView[]; timeline: TimelineEvent[] }> = {
+    [MOCK_PATIENT_ID]: { health_id: me.health_id, name: me.name, documents, timeline },
+  };
+  const histories: Record<string, AccessEntry[]> = { [MOCK_PATIENT_ID]: history };
+  const patientOf: Record<string, string> = Object.fromEntries(consents.map((c) => [c.id, MOCK_PATIENT_ID])); // consent id -> patient id
+  const codes = new Map<string, { sentAt: number; tries: number; used: boolean }>(); // one-time code state by request id (never the code)
+  Object.entries(MOCK_OTHERS).forEach(([key, o], i) => {
+    const verified = doc(`d-${key}-verified`, "verified", 96, "prescription", o.id);
+    records[o.id] = { health_id: o.health_id, name: o.name, documents: [doc(`d-${key}-review`, "needs_review", 5, "prescription", o.id), verified],
+      timeline: [ev(`e-${key}-med`, "medication", "2026-10-20", "document_verified", { name_as_written: `SYNTH-DRUG-10${i}` }, { source_document_id: verified.id })] };
+    extractions[`d-${key}-review`] = prescriptionFields();
+    histories[o.id] = [];
+    const scopes = key === "timeline" ? ["view_timeline"] : [...CARE_SCOPES];
+    const status = key === "pending" ? "pending" : key === "revoked" ? "revoked" : "active";
+    const c: Consent = { id: `c-care-${key}`, grantee_id: MOCK_PATIENT_ID, grantee_role: "caregiver", purpose: "CAREGIVER", allowed_categories: scopes,
+      status, activated_at: status === "pending" ? null : iso(-24), expires_at: status === "pending" ? null : iso(24 * 29),
+      created_at: iso(-24), grantee_name: me.name, grantee_phone_tail: "0001", requested_days: 30 };
+    consents.push(c);
+    patientOf[c.id] = o.id;
+    if (status === "pending") codes.set(c.id, { sentAt: now, tries: 0, used: false });
+  });
+
   return { me, consents, history, documents, extractions, timeline, phones: new Set([MOCK_PHONE]), reviews: {} as Record<string, ReviewBody["fields"]>,
-           vitals, reminders, emergency, triage: {} as Record<string, number>,
-           doctors: {
+           vitals, reminders, emergency, triage: {} as Record<string, number>, records, histories, patientOf, codes,
+           sessions: [] as Array<{ id: string; verifier_id: string; patient_id: string; status: "pending" | "active" | "expired" | "revoked";
+                                   activated_at: string | null; expires_at: string | null }>,
+           staff: {
              [DOCTOR_ID]: { id: DOCTOR_ID, role: "doctor", name: "ডা. সিনথেটিক চিকিৎসক", status: "verified", emergency_enabled: true,
                             credential: { type: "BMDC", number: "SYNTH-BMDC-0001", status: "verified" } },
              [PENDING_DOCTOR_ID]: { id: PENDING_DOCTOR_ID, role: "doctor", name: "ডা. নতুন সিনথেটিক", status: "pending", emergency_enabled: false,
                                     credential: null },
+             [MOCK_VERIFIER_ID]: { id: MOCK_VERIFIER_ID, role: "verifier", name: "সিনথেটিক স্বাস্থ্যকর্মী", status: "verified", emergency_enabled: false,
+                                   credential: null },
            } as Record<string, StaffMe>,
-           staffPhones: new Map([[MOCK_DOCTOR_PHONE, DOCTOR_ID], [MOCK_PENDING_DOCTOR_PHONE, PENDING_DOCTOR_ID]]),
-           patientOf: {} as Record<string, string>, // consent id -> patient id, for doctor consents
+           staffPhones: new Map([[MOCK_DOCTOR_PHONE, DOCTOR_ID], [MOCK_PENDING_DOCTOR_PHONE, PENDING_DOCTOR_ID], [MOCK_VERIFIER_PHONE, MOCK_VERIFIER_ID]]),
            alerts: [
              { id: "a-1", rule_id: "SYNTH-DDI-0001", severity: "major", source_document_id: "d-verified", evidence_event_ids: ["e-med", "e-rx"],
                explanation: pendingText("Approved interaction explanation for SYNTH-DRUG-003 goes here.", "SYNTH-DRUG-003-এর অনুমোদিত ব্যাখ্যা এখানে বসবে।"),
@@ -229,11 +276,115 @@ export function mockTransport(): Transport {
       return null;
     }
   };
-  const authed = (r: ApiRequest) => who(r)?.role === "patient";
-  const doctorOf = (r: ApiRequest) => (who(r)?.role === "doctor" ? s.doctors[who(r)!.sub] ?? null : null);
-  const record = (doctor: StaffMe, action: string, result: "allow" | "deny", reason: string | null, consentId: string | null) =>
-    s.history.unshift({ at: new Date().toISOString(), actor_id: doctor.id, actor_role: "doctor", action, purpose: "TIMELINE", result,
-                        reason, consent_id: consentId, actor_name: doctor.name });
+  // shortcut: only the mock patient has app data of their own (vitals, consents, reminders...); any other patient account is a
+  // caregiver only here, and the own-data routes refuse it. Upgrade if a test needs a second full patient.
+  const authed = (r: ApiRequest) => who(r)?.role === "patient" && who(r)!.sub === MOCK_PATIENT_ID;
+  const staffOf = (r: ApiRequest, role: StaffMe["role"]) => (who(r)?.role === role ? s.staff[who(r)!.sub] ?? null : null);
+  const doctorOf = (r: ApiRequest) => staffOf(r, "doctor");
+  const live = (iso: string | null) => iso !== null && Date.parse(iso) > Date.now();
+  /** C2 for the mock: append to that patient's access history. Never a code or any clinical content. */
+  const audit = (patientId: string, entry: Omit<AccessEntry, "at">) =>
+    (s.histories[patientId] ??= []).unshift({ at: new Date().toISOString(), ...entry });
+  const record = (doctor: StaffMe, action: string, result: "allow" | "deny", reason: string | null, consentId: string | null, patientId = MOCK_PATIENT_ID) =>
+    audit(patientId, { actor_id: doctor.id, actor_role: "doctor", action, purpose: "TIMELINE", result, reason, consent_id: consentId, actor_name: doctor.name });
+  const roleDenied = () => error(403, "role_not_allowed", "You are not allowed to do this.");
+  const invalidCode = () => error(403, "invalid_code", "The code is wrong or has expired.");
+  const patientByHealthId = (hid: unknown) =>
+    Object.keys(s.records).find((id) => s.records[id].health_id === String(hid ?? "").trim().toUpperCase()) ?? null;
+  /** A one-time code "sent to the patient's own phone" (the mock has no SMS; the code is always MOCK_CODE). Single use, expires
+   * after CODE_TTL_MS, dead after MAX_CODE_ATTEMPTS wrong tries. */
+  const issueCode = (ref: string) => s.codes.set(ref, { sentAt: Date.now(), tries: 0, used: false });
+  const useCode = (ref: string, code: unknown): boolean => {
+    const c = s.codes.get(ref);
+    if (!c || c.used || Date.now() - c.sentAt > CODE_TTL_MS || c.tries >= MAX_CODE_ATTEMPTS) return false;
+    if (code !== MOCK_CODE) {
+      c.tries += 1;
+      return false;
+    }
+    c.used = true;
+    return true;
+  };
+  /** C1 for a caregiver: an active, unexpired CAREGIVER authorization of this person for this patient holding the scope. Audited. */
+  const careFor = (sub: string, patientId: string, scope: CareScope, action: string): ApiResponse | null => {
+    const c = s.consents.find((x) => x.purpose === "CAREGIVER" && x.grantee_id === sub && s.patientOf[x.id] === patientId
+      && x.status === "active" && live(x.expires_at));
+    const reason = !c ? "consent_required" : !c.allowed_categories.includes(scope) ? "category_not_allowed" : null;
+    audit(patientId, { actor_id: sub, actor_role: "caregiver", action, purpose: "CAREGIVER", result: reason ? "deny" : "allow", reason,
+                       consent_id: c?.id ?? null, actor_name: c?.grantee_name ?? null });
+    return reason ? error(403, reason, "The patient has not allowed this access.") : null;
+  };
+  /** C1 for a verifier: an active assisted session (opened with the patient's own code) for this patient. A verifier never reaches
+   * a verified or rejected document's content: that is the record, not work to check. Audited. */
+  const sessionFor = (r: ApiRequest, patientId: string, action: string, doc?: DocumentView): ApiResponse | null => {
+    const v = staffOf(r, "verifier");
+    if (!v || v.status !== "verified") return error(403, "user_not_verified", "You are not allowed to do this.");
+    const x = s.sessions.find((y) => y.verifier_id === v.id && y.patient_id === patientId && y.status === "active" && live(y.expires_at));
+    const reason = !x ? "consent_required" : doc && CLOSED_DOCS.includes(doc.status) ? "document_closed" : null;
+    audit(patientId, { actor_id: v.id, actor_role: "verifier", action, purpose: ASSIST_PURPOSE, result: reason ? "deny" : "allow", reason,
+                       consent_id: x?.id ?? null, actor_name: v.name });
+    if (reason === "document_closed") return error(404, "not_found", "No document with this id.");
+    return reason ? error(403, reason, "The patient has not allowed this access.") : null;
+  };
+  /** RBAC -> C1 -> C2 for one patient's data: the patient themself passes; otherwise only the roles this route names, each through
+   * its own consent check, which writes the audit entry. Everyone else is refused. */
+  type Gate = { doctor?: "timeline" | "documents"; care?: CareScope; verifier?: boolean };
+  const gate = (r: ApiRequest, patientId: string, g: Gate, action: string, doc?: DocumentView): ApiResponse | null => {
+    const w = who(r);
+    if (!w) return unauthenticated;
+    if (w.role === "patient" && w.sub === patientId) return null;
+    if (w.role === "doctor" && g.doctor) return consentFor(r, patientId, g.doctor, action);
+    if (w.role === "verifier" && g.verifier) return sessionFor(r, patientId, action, doc);
+    if (w.role === "patient" && g.care) return careFor(w.sub, patientId, g.care, action);
+    return roleDenied();
+  };
+  const VIEW: Gate = { doctor: "documents", care: "view_documents", verifier: true };
+  const WORK: Gate = { verifier: true }; // checking a document: the patient or a verifier in session, never a caregiver or doctor
+  const allDocs = () => Object.values(s.records).flatMap((x) => x.documents);
+  /** The document, then the gate for its patient. `closedToo` lets a verifier read the status line of a document they just closed. */
+  const withDoc = (r: ApiRequest, id: string, g: Gate, action: string, then: (d: DocumentView) => ApiResponse, closedToo = false): ApiResponse => {
+    if (!who(r)) return unauthenticated;
+    const d = allDocs().find((x) => x.id === id);
+    if (!d) return notFound;
+    return gate(r, d.patient_id, g, action, closedToo ? undefined : d) ?? then(d);
+  };
+  const careView = (c: Consent) => ({ id: c.id, patient_id: s.patientOf[c.id], caregiver_id: c.grantee_id, scopes: c.allowed_categories,
+    status: c.status, requested_days: c.requested_days ?? 30, activated_at: c.activated_at, expires_at: c.expires_at,
+    patient_name: s.records[s.patientOf[c.id]]?.name ?? null });
+  const sessionView = (x: (typeof s.sessions)[number]) => ({ id: x.id, purpose: ASSIST_PURPOSE, status: x.status,
+    health_id: s.records[x.patient_id].health_id, patient_id: x.status === "active" ? x.patient_id : null,
+    activated_at: x.activated_at, expires_at: x.expires_at });
+  /** Approve a pending caregiver request; it replaces the pair's active authorization (DECISIONS.md, "Caregiver access"). */
+  const approveCare = (c: Consent) => {
+    const pid = s.patientOf[c.id];
+    s.consents.filter((x) => x !== c && x.purpose === "CAREGIVER" && x.grantee_id === c.grantee_id && s.patientOf[x.id] === pid && x.status === "active")
+      .forEach((x) => { x.status = "revoked"; });
+    c.status = "active";
+    c.activated_at = new Date().toISOString();
+    c.expires_at = new Date(Date.now() + (c.requested_days ?? 30) * 86400_000).toISOString();
+    audit(pid, { actor_id: c.grantee_id, actor_role: "caregiver", action: "caregiver.granted", purpose: "CAREGIVER", result: "allow", reason: null,
+                 consent_id: c.id, actor_name: c.grantee_name });
+  };
+  const ownConsent = (id: string) => s.consents.find((x) => x.id === id && s.patientOf[x.id] === MOCK_PATIENT_ID);
+  /** Upload for `patientId` (M2); the mock-only "blur" file name rule lets the retake flow be tried. */
+  const upload = (r: ApiRequest, patientId: string): ApiResponse => {
+    const form = r.body instanceof FormData ? r.body : new FormData();
+    const images = form.getAll("images").filter((f): f is File => f instanceof File);
+    if (images.length < 1 || images.length > 10) return error(422, "invalid_document", "Send 1 to 10 images.");
+    const poor = images.map((f, i) => ({ page: i + 1, f })).filter(({ f }) => /blur/i.test(f.name));
+    if (poor.length && form.get("upload_anyway") !== "true") {
+      return error(422, "image_quality_warning", "Some pages look poor. Retake them, or upload anyway.", {
+        pages: poor.map(({ page }) => ({ page, reasons: ["image_blurry"],
+          // the owner-approved text from capture/guidance.py, copied as-is
+          guidance: [{ code: "image_blurry", bn: "ছবিটি ঝাপসা হয়েছে। ক্যামেরা স্থির রেখে আবার পরিষ্কার ছবি তুলুন।" }] })) });
+    }
+    const created: DocumentView = { id: `d-${crypto.randomUUID().slice(0, 8)}`, patient_id: patientId,
+      doc_type: (form.get("doc_type") as DocType) ?? "prescription", status: "uploaded", uploaded_by: who(r)!.sub,
+      created_at: new Date().toISOString(),
+      images: images.map((f, i) => ({ n: i + 1, content_type: f.type || "image/png", size_bytes: f.size, sha256: "0".repeat(64),
+        quality_warnings: poor.some((x) => x.page === i + 1) ? ["image_blurry"] : [] })) };
+    s.records[patientId].documents.unshift(created);
+    return ok(created, 201);
+  };
   /** C1 for the mock: an active, unexpired TIMELINE consent of this doctor for this patient covering the category; every
    * allow and deny is written to the patient's access history (C2). */
   const consentFor = (r: ApiRequest, patientId: string, category: "timeline" | "documents" | "safety", action: string): ApiResponse | null => {
@@ -242,14 +393,13 @@ export function mockTransport(): Transport {
     const c = s.consents.find((x) => x.grantee_id === doctor.id && s.patientOf[x.id] === patientId && x.status === "active"
       && x.expires_at !== null && Date.parse(x.expires_at) > Date.now());
     const reason = !c ? "consent_required" : !c.allowed_categories.includes(category) ? "category_not_allowed" : null;
-    record(doctor, action, reason ? "deny" : "allow", reason, c?.id ?? null);
+    record(doctor, action, reason ? "deny" : "allow", reason, c?.id ?? null, patientId);
     return reason ? error(403, reason, reason === "consent_required" ? "No active consent." : "This consent does not cover that.") : null;
   };
   const doctorView = (c: Consent): DoctorConsent => ({ id: c.id, purpose: "TIMELINE", allowed_categories: c.allowed_categories as DoctorConsent["allowed_categories"],
     status: c.status, activated_at: c.activated_at, expires_at: c.expires_at, created_at: c.created_at, patient_id: s.patientOf[c.id],
     health_id: s.me.health_id });
   const unauthenticated = error(401, "unauthenticated", "Sign in first.");
-  const findDoc = (id: string) => s.documents.find((d) => d.id === id);
   const notFound = error(404, "not_found", "No document with this id.");
 
   const routes: Array<[Method, string, Handler]> = [
@@ -265,12 +415,13 @@ export function mockTransport(): Transport {
         let id = s.staffPhones.get(body.phone ?? "");
         if (!id) {
           if (!body.staff?.name) return error(409, "registration_required", "Request a new code and send your profile with it.");
+          if (body.staff.role !== "doctor" && body.staff.role !== "verifier") return error(422, "invalid_role", "This role cannot register here.");
           id = crypto.randomUUID();
           s.staffPhones.set(body.phone ?? "", id);
-          s.doctors[id] = { id, role: "doctor", name: body.staff.name, status: "pending", emergency_enabled: false, credential: null };
+          s.staff[id] = { id, role: body.staff.role, name: body.staff.name, status: "pending", emergency_enabled: false, credential: null };
         }
-        if (s.doctors[id].status === "suspended") return error(403, "user_suspended", "This account is suspended.");
-        return ok({ access_token: mockJwt(id, "doctor"), refresh_token: "synthetic-refresh-token" });
+        if (s.staff[id].status === "suspended") return error(403, "user_suspended", "This account is suspended.");
+        return ok({ access_token: mockJwt(id, s.staff[id].role), refresh_token: "synthetic-refresh-token" });
       }
       if (!s.phones.has(body.phone ?? "")) {
         if (!body.profile) return error(409, "registration_required", "Request a new code and send your profile with it.");
@@ -278,13 +429,16 @@ export function mockTransport(): Transport {
       }
       return ok({ access_token: mockJwt(MOCK_PATIENT_ID, "patient"), refresh_token: "synthetic-refresh-token" });
     }],
-    ["GET", "/me", (r) => (authed(r) ? ok(s.me) : doctorOf(r) ? ok(doctorOf(r)) : unauthenticated)],
+    ["GET", "/me", (r) => {
+      const staff = doctorOf(r) ?? staffOf(r, "verifier");
+      return authed(r) ? ok(s.me) : staff ? ok(staff) : unauthenticated;
+    }],
     ["POST", "/credentials", (r) => {
       const doctor = doctorOf(r);
       if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
       const number = String((r.body as { number?: unknown }).number ?? "").trim();
       if (!number) return error(422, "invalid_credential", "Enter the registration number.");
-      if (Object.values(s.doctors).some((d) => d.credential?.number === number)) return error(409, "credential_exists", "This credential number is already registered.");
+      if (Object.values(s.staff).some((d) => d.credential?.number === number)) return error(409, "credential_exists", "This credential number is already registered.");
       doctor.credential = { type: "BMDC", number, status: "pending" };
       return ok({ id: `cred-${doctor.id.slice(0, 8)}`, status: "pending" }, 201);
     }],
@@ -354,10 +508,10 @@ export function mockTransport(): Transport {
       const session: EmergencySession = { session_id: `es-${crypto.randomUUID().slice(0, 8)}`, expires_at: new Date(Date.now() + 2 * 3600_000).toISOString(), card };
       return ok(session, 201);
     }],
-    ["GET", "/consents", (r) => (authed(r) ? ok(s.consents) : unauthenticated)],
+    ["GET", "/consents", (r) => (authed(r) ? ok(s.consents.filter((c) => s.patientOf[c.id] === MOCK_PATIENT_ID)) : unauthenticated)],
     ["POST", "/consents/{id}/revoke", (r, p) => {
       if (!authed(r)) return unauthenticated;
-      const c = s.consents.find((x) => x.id === p.id);
+      const c = ownConsent(p.id);
       if (!c) return error(404, "not_found", "No consent with this id.");
       if (c.status !== "active") return error(409, "not_revocable", "This consent is not active.");
       c.status = "revoked";
@@ -366,78 +520,133 @@ export function mockTransport(): Transport {
     ["GET", "/me/access-history", (r) => (authed(r) ? ok(s.history) : unauthenticated)],
     ...(["approve", "decline"] as const).map((verb): [Method, string, Handler] => ["POST", `/caregiver-authorizations/{id}/${verb}`, (r, p) => {
       if (!authed(r)) return unauthenticated;
-      const c = s.consents.find((x) => x.id === p.id && x.purpose === "CAREGIVER");
-      if (!c) return error(404, "not_found", "No caregiver request with this id.");
+      const c = ownConsent(p.id);
+      if (c?.purpose !== "CAREGIVER") return error(404, "not_found", "No caregiver request with this id.");
       if (c.status !== "pending") return error(409, "not_pending", "This request is no longer open.");
-      c.status = verb === "approve" ? "active" : "declined";
-      if (verb === "approve") {
-        c.activated_at = new Date().toISOString();
-        c.expires_at = new Date(Date.now() + (c.requested_days ?? 30) * 86400_000).toISOString();
-      }
+      if (verb === "approve") approveCare(c);
+      else c.status = "declined";
       return ok(c);
     }]),
-    ["GET", "/patients/{id}/documents", (r) => (authed(r) ? ok(s.documents) : unauthenticated)],
-    ["POST", "/documents", (r) => {
-      if (!authed(r)) return unauthenticated;
-      const form = r.body instanceof FormData ? r.body : new FormData();
-      const images = form.getAll("images").filter((f): f is File => f instanceof File);
-      if (images.length < 1 || images.length > 10) return error(422, "invalid_document", "Send 1 to 10 images.");
-      // mock-only rule so the retake flow can be tried: a file whose name contains "blur" is a poor page
-      const poor = images.map((f, i) => ({ page: i + 1, f })).filter(({ f }) => /blur/i.test(f.name));
-      if (poor.length && form.get("upload_anyway") !== "true") {
-        return error(422, "image_quality_warning", "Some pages look poor. Retake them, or upload anyway.", {
-          pages: poor.map(({ page }) => ({ page, reasons: ["image_blurry"],
-            // the owner-approved text from capture/guidance.py, copied as-is
-            guidance: [{ code: "image_blurry", bn: "ছবিটি ঝাপসা হয়েছে। ক্যামেরা স্থির রেখে আবার পরিষ্কার ছবি তুলুন।" }] })) });
+    // M1/C1 caregiver side (BUILT): ask, confirm with the code the patient reads out, list who I may act for right now.
+    ["GET", "/caregiver-authorizations", (r) => {
+      const w = who(r);
+      if (!w) return unauthenticated;
+      if (w.role !== "patient") return roleDenied();
+      // pending requests are never listed (the backend's rule: listing them would confirm a guessed Health ID)
+      return ok(s.consents.filter((c) => c.purpose === "CAREGIVER" && c.grantee_id === w.sub && c.status === "active" && live(c.expires_at)).map(careView));
+    }],
+    ["POST", "/caregiver-authorizations", (r) => {
+      const w = who(r);
+      if (!w) return unauthenticated;
+      if (w.role !== "patient") return roleDenied();
+      const body = (r.body ?? {}) as { patient_health_id?: unknown; scopes?: unknown; duration_days?: unknown };
+      const scopes = Array.isArray(body.scopes) ? body.scopes : [];
+      const days = body.duration_days ?? 30;
+      if (!scopes.length || scopes.some((x) => !CARE_SCOPES.includes(x)) || !Number.isInteger(days) || (days as number) < 1 || (days as number) > 90) {
+        return error(422, "invalid_request", "Check the scopes and the number of days.");
       }
-      const created: DocumentView = { id: `d-${crypto.randomUUID().slice(0, 8)}`, patient_id: MOCK_PATIENT_ID,
-        doc_type: (form.get("doc_type") as DocType) ?? "prescription", status: "uploaded", uploaded_by: MOCK_PATIENT_ID,
-        created_at: new Date().toISOString(),
-        images: images.map((f, i) => ({ n: i + 1, content_type: f.type || "image/png", size_bytes: f.size, sha256: "0".repeat(64),
-          quality_warnings: poor.some((x) => x.page === i + 1) ? ["image_blurry"] : [] })) };
-      s.documents.unshift(created);
-      return ok(created, 201);
+      const pid = patientByHealthId(body.patient_health_id);
+      if (pid && pid !== w.sub) { // an unknown Health ID gets the same answer and grants nothing
+        s.consents.filter((c) => c.purpose === "CAREGIVER" && c.grantee_id === w.sub && s.patientOf[c.id] === pid && c.status === "pending")
+          .forEach((c) => { c.status = "expired"; }); // one pending request per pair: the newest replaces it
+        const c: Consent = { id: `c-care-${crypto.randomUUID().slice(0, 8)}`, grantee_id: w.sub, grantee_role: "caregiver", purpose: "CAREGIVER",
+          allowed_categories: [...new Set(scopes as string[])], status: "pending", activated_at: null, expires_at: null, created_at: new Date().toISOString(),
+          grantee_name: s.records[w.sub]?.name ?? null, grantee_phone_tail: null, requested_days: days as number };
+        s.consents.push(c);
+        s.patientOf[c.id] = pid;
+        issueCode(c.id);
+        audit(pid, { actor_id: w.sub, actor_role: "caregiver", action: "caregiver.request", purpose: "CAREGIVER", result: "allow", reason: null,
+                     consent_id: c.id, actor_name: c.grantee_name });
+      }
+      return ok({ status: "pending" }, 202);
     }],
-    ["GET", "/documents/{id}", (r, p) => (doctorOf(r) ? consentFor(r, s.me.id, "documents", "document.read") ?? (findDoc(p.id) ? ok(findDoc(p.id)) : notFound)
-      : !authed(r) ? unauthenticated : findDoc(p.id) ? ok(findDoc(p.id)) : notFound)],
-    ["GET", "/documents/{id}/extraction", (r, p) => {
-      if (!authed(r)) return unauthenticated;
-      const d = findDoc(p.id);
-      return d ? ok({ document_id: d.id, status: d.status, threshold: 0.85, extraction: s.extractions[d.id] ?? null }) : notFound;
+    ["POST", "/caregiver-authorizations/confirm", (r) => {
+      const w = who(r);
+      if (!w) return unauthenticated;
+      if (w.role !== "patient") return roleDenied();
+      const body = (r.body ?? {}) as { patient_health_id?: unknown; code?: unknown };
+      const pid = patientByHealthId(body.patient_health_id);
+      const c = pid && pid !== w.sub ? s.consents.find((x) => x.purpose === "CAREGIVER" && x.grantee_id === w.sub && s.patientOf[x.id] === pid
+        && x.status === "pending") : undefined;
+      if (!c || !useCode(c.id, body.code)) return invalidCode(); // every failure looks the same
+      approveCare(c);
+      return ok(careView(c));
     }],
-    ["GET", "/documents/{id}/images/{n}", (r, p) => (doctorOf(r) ? consentFor(r, s.me.id, "documents", "document.image.read") ?? (findDoc(p.id) ? ok(syntheticPage()) : notFound)
-      : !authed(r) ? unauthenticated : findDoc(p.id) ? ok(syntheticPage()) : notFound)],
-    ["POST", "/documents/{id}/manual-entry", (r, p) => {
-      if (!authed(r)) return unauthenticated;
-      const d = findDoc(p.id);
-      if (!d) return notFound;
+    // M3 assisted verification (GAP, FRD question 3): the patient's own code, read out, opens a short session for one verifier.
+    ["POST", "/verifier/sessions", (r) => {
+      const v = staffOf(r, "verifier");
+      if (!v) return who(r) ? roleDenied() : unauthenticated;
+      if (v.status !== "verified") return error(403, "user_not_verified", "You are not allowed to do this.");
+      const pid = patientByHealthId((r.body as { health_id?: unknown } | undefined)?.health_id);
+      if (!pid) return error(404, "patient_not_found", "No patient has this Health ID.");
+      s.sessions.filter((x) => x.verifier_id === v.id && x.patient_id === pid && x.status === "pending").forEach((x) => { x.status = "expired"; });
+      const x = { id: `vs-${crypto.randomUUID().slice(0, 8)}`, verifier_id: v.id, patient_id: pid, status: "pending" as const, activated_at: null, expires_at: null };
+      s.sessions.push(x);
+      issueCode(x.id);
+      audit(pid, { actor_id: v.id, actor_role: "verifier", action: "assist.request", purpose: ASSIST_PURPOSE, result: "allow", reason: null,
+                   consent_id: x.id, actor_name: v.name });
+      return ok(sessionView(x), 201);
+    }],
+    ["POST", "/verifier/sessions/{id}/confirm", (r, p) => {
+      const v = staffOf(r, "verifier");
+      if (!v) return who(r) ? roleDenied() : unauthenticated;
+      const x = s.sessions.find((y) => y.id === p.id && y.verifier_id === v.id && y.status === "pending");
+      if (!x || !useCode(x.id, (r.body as { code?: unknown } | undefined)?.code)) {
+        if (x) audit(x.patient_id, { actor_id: v.id, actor_role: "verifier", action: "assist.confirm", purpose: ASSIST_PURPOSE, result: "deny",
+                                      reason: "invalid_code", consent_id: x.id, actor_name: v.name });
+        return invalidCode();
+      }
+      x.status = "active";
+      x.activated_at = new Date().toISOString();
+      x.expires_at = new Date(Date.now() + MOCK_ASSIST_MINUTES * 60_000).toISOString();
+      audit(x.patient_id, { actor_id: v.id, actor_role: "verifier", action: "assist.granted", purpose: ASSIST_PURPOSE, result: "allow", reason: null,
+                            consent_id: x.id, actor_name: v.name });
+      return ok(sessionView(x));
+    }],
+    ["POST", "/verifier/sessions/{id}/end", (r, p) => {
+      const v = staffOf(r, "verifier");
+      if (!v) return who(r) ? roleDenied() : unauthenticated;
+      const x = s.sessions.find((y) => y.id === p.id && y.verifier_id === v.id);
+      if (!x) return error(404, "not_found", "No session with this id.");
+      if (x.status === "active") {
+        x.status = "revoked";
+        audit(x.patient_id, { actor_id: v.id, actor_role: "verifier", action: "assist.ended", purpose: ASSIST_PURPOSE, result: "allow", reason: null,
+                              consent_id: x.id, actor_name: v.name });
+      }
+      return ok(sessionView(x));
+    }],
+    ["GET", "/patients/{id}/documents", (r, p) => {
+      const denied = gate(r, p.id, VIEW, "documents.list");
+      if (denied) return denied;
+      const docs = s.records[p.id]?.documents ?? [];
+      return ok(who(r)!.role === "verifier" ? docs.filter((d) => !CLOSED_DOCS.includes(d.status)) : docs); // a verifier sees only work to check
+    }],
+    ["POST", "/documents", (r) => (authed(r) ? upload(r, MOCK_PATIENT_ID) : unauthenticated)],
+    ["POST", "/patients/{id}/documents", (r, p) =>
+      gate(r, p.id, { care: "upload_documents", verifier: true }, "document.upload") ?? (s.records[p.id] ? upload(r, p.id) : notFound)],
+    ["GET", "/documents/{id}", (r, p) => withDoc(r, p.id, VIEW, "document.read", ok, true)],
+    ["GET", "/documents/{id}/extraction", (r, p) => withDoc(r, p.id, WORK, "extraction.read",
+      (d) => ok({ document_id: d.id, status: d.status, threshold: 0.85, extraction: s.extractions[d.id] ?? null }))],
+    ["GET", "/documents/{id}/images/{n}", (r, p) => withDoc(r, p.id, VIEW, "document.image.read", () => ok(syntheticPage()))],
+    ["POST", "/documents/{id}/manual-entry", (r, p) => withDoc(r, p.id, WORK, "document.manual_entry", (d) => {
       if (!["uploaded", "extracting", "extraction_failed"].includes(d.status)) return error(409, "not_allowed_state", "The document is not in a state that allows this.");
       d.status = "needs_review";
       const blank = prescriptionFields()!;
       for (const [k, v] of Object.entries(blank.fields)) blank.fields[k] = Array.isArray(v) ? [] : empty();
       s.extractions[d.id] = { ...blank, engine: "manual", raw_text: "", raw_text_available: false };
       return ok({ document_id: d.id, status: d.status, extraction: s.extractions[d.id] });
-    }],
-    ["POST", "/documents/{id}/retry-extraction", (r, p) => {
-      if (!authed(r)) return unauthenticated;
-      const d = findDoc(p.id);
-      if (!d) return notFound;
+    })],
+    ["POST", "/documents/{id}/retry-extraction", (r, p) => withDoc(r, p.id, WORK, "document.retry", (d) => {
       if (d.status !== "extraction_failed") return error(409, "not_allowed_state", "The document is not in a state that allows this.");
       d.status = "extracting";
       return ok({ document_id: d.id, status: d.status, retries_used: 1, attempts_used: 3, attempts_allowed: 5 });
-    }],
-    ["PUT", "/documents/{id}/review", (r, p) => {
-      if (!authed(r)) return unauthenticated;
-      const d = findDoc(p.id);
-      if (!d) return notFound;
+    })],
+    ["PUT", "/documents/{id}/review", (r, p) => withDoc(r, p.id, WORK, "document.review", (d) => {
       if (d.status !== "needs_review") return error(409, "not_allowed_state", "Only a document in review can be changed.");
       s.reviews[d.id] = (r.body as ReviewBody).fields;
       return ok({ document_id: d.id, status: d.status, fields: s.reviews[d.id] });
-    }],
-    ["POST", "/documents/{id}/confirm", (r, p) => {
-      if (!authed(r)) return unauthenticated;
-      const d = findDoc(p.id);
-      if (!d) return notFound;
+    })],
+    ["POST", "/documents/{id}/confirm", (r, p) => withDoc(r, p.id, WORK, "document.confirm", (d) => {
       if (d.status !== "needs_review") return error(409, "not_allowed_state", "Only a document in review can be confirmed.");
       d.status = "verified";
       // what the patient checked becomes document_verified events (a sketch of M3 -> C4; the real mapping is the backend's)
@@ -450,20 +659,18 @@ export function mockTransport(): Transport {
         source_document_id: d.id, recorded_at: new Date().toISOString(), version: 1, supersedes: null, payload });
       const prescriber = text(reviewed.prescriber_name);
       const rows = Array.isArray(reviewed.medications) ? reviewed.medications : [];
-      s.timeline.unshift(event(0, "prescription", prescriber ? { prescriber_name: prescriber } : {}),
+      s.records[d.patient_id].timeline.unshift(event(0, "prescription", prescriber ? { prescriber_name: prescriber } : {}),
         ...rows.filter((row) => text(row.name_as_written)).map((row, i) => event(i + 1, "medication", { name_as_written: text(row.name_as_written) })));
       return ok(d);
-    }],
-    ["POST", "/documents/{id}/reject", (r, p) => {
-      if (!authed(r)) return unauthenticated;
-      const d = findDoc(p.id);
-      if (!d) return notFound;
+    })],
+    ["POST", "/documents/{id}/reject", (r, p) => withDoc(r, p.id, WORK, "document.reject", (d) => {
       if (d.status !== "needs_review") return error(409, "not_allowed_state", "Only a document in review can be rejected.");
       d.status = "rejected";
       return ok(d);
-    }],
-    ["GET", "/patients/{id}/timeline", (r, p) => (doctorOf(r) ? consentFor(r, p.id, "timeline", "timeline.read") ?? ok(s.timeline)
-      : authed(r) ? ok(s.timeline) : unauthenticated)],
+    })],
+    // verifiers never read timelines (FRD section 2)
+    ["GET", "/patients/{id}/timeline", (r, p) =>
+      gate(r, p.id, { doctor: "timeline", care: "view_timeline" }, "timeline.read") ?? ok(s.records[p.id]?.timeline ?? [])],
     ["GET", "/vitals", (r) => (authed(r) ? ok(s.vitals) : unauthenticated)],
     ...(["/vitals", "/vitals/{id}/correct"] as const).map((path): [Method, string, Handler] => ["POST", path, (r, p) => {
       if (!authed(r)) return unauthenticated;

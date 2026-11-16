@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import { apiMode } from "../../api";
-import { MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE } from "../../api/mock";
+import { MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE, MOCK_VERIFIER_PHONE } from "../../api/mock";
 import type { PatientProfile, TokenPair } from "../../api/types";
 import { LanguageToggle, ThemeSelect } from "../../components/Controls";
 import { ErrorNote } from "../../components/ui";
@@ -12,11 +12,11 @@ import { useSession } from "../../session";
 
 type Step = "phone" | "code" | "profile";
 
-/** M1: phone OTP sign-in for the patient app or the doctor portal (`account: "staff"`). A new user's first verify answers 409
- * registration_required; the code is spent, so the profile is collected and a NEW code is sent with it (the backend's contract).
- * A new doctor gives only a name: registration starts unverified, and the BMDC credential is submitted after sign-in. */
-export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" }) {
-  const doctor = portal === "doctor";
+/** M1: phone OTP sign-in for the patient app, or for staff (`account: "staff"`): the doctor portal and the verifier/CHW app.
+ * A new user's first verify answers 409 registration_required; the code is spent, so the profile is collected and a NEW code is sent with it (the backend's contract).
+ * New staff give only a name: registration starts unverified (a doctor then submits the BMDC credential; an admin approves). */
+export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | "verifier" }) {
+  const staff = portal !== "patient";
   const { t, lang } = useI18n();
   const { api, deviceId, signIn } = useSession();
   const navigate = useNavigate();
@@ -56,10 +56,10 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" })
       try {
         const tokens = await api.request<TokenPair>("POST", "/auth/otp/verify", { body: {
           phone: toAsciiDigits(phone.trim()), code: toAsciiDigits(code.trim()), device_id: deviceId,
-          ...(doctor ? { account: "staff", ...(profile ? { staff: { role: "doctor", name: profile.name } } : {}) }
+          ...(staff ? { account: "staff", ...(profile ? { staff: { role: portal, name: profile.name } } : {}) }
             : { account: "patient", ...(profile ? { profile } : {}) }) } });
         signIn(tokens);
-        navigate(doctor ? "/doctor" : "/patient", { replace: true });
+        navigate(`/${portal}`, { replace: true });
       } catch (e) {
         if (e instanceof ApiError && e.code === "registration_required") {
           setCode("");
@@ -81,16 +81,16 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" })
   };
 
   return (
-    <div className="shell" data-portal={doctor ? "staff" : "patient"}>
+    <div className="shell" data-portal={staff ? "staff" : "patient"}>
       <header className="topbar">
-        <span className="brand"><HeartPulse size={22} aria-hidden="true" />{t("app.name")} <small>{t(doctor ? "portal.doctor" : "portal.patient")}</small></span>
+        <span className="brand"><HeartPulse size={22} aria-hidden="true" />{t("app.name")} <small>{t(`portal.${portal}`)}</small></span>
         <div className="controls"><LanguageToggle /><ThemeSelect /></div>
       </header>
       <main id="main" className="content" style={{ maxWidth: "32rem" }}>
         <h1>{t("login.title")}</h1>
         <p>{t("login.intro")}</p>
         {apiMode === "mock" && <p className="notice">{t("common.mockMode", { code: localDigits(MOCK_CODE, lang) })}<br />
-          <span lang="en" className="mono">{doctor ? MOCK_DOCTOR_PHONE : MOCK_PHONE}</span></p>}
+          <span lang="en" className="mono">{{ patient: MOCK_PHONE, doctor: MOCK_DOCTOR_PHONE, verifier: MOCK_VERIFIER_PHONE }[portal]}</span></p>}
         <ErrorNote error={error} />
 
         {step === "phone" && (
@@ -128,7 +128,7 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" })
               <label htmlFor="name">{t("login.name")}</label>
               <input id="name" autoComplete="name" required value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             </div>
-            {!doctor && <>
+            {!staff && <>
             <div className="field">
               <label htmlFor="dob">{t("login.dob")}</label>
               <input id="dob" type="date" autoComplete="bday" required value={draft.dob} onChange={(e) => setDraft({ ...draft, dob: e.target.value })} />
@@ -142,7 +142,7 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" })
               </select>
             </div>
             </>}
-            <button type="submit" className="btn-primary" disabled={busy || !draft.name.trim() || (!doctor && !draft.dob)}>{t("login.register")}</button>
+            <button type="submit" className="btn-primary" disabled={busy || !draft.name.trim() || (!staff && !draft.dob)}>{t("login.register")}</button>
           </form>
         )}
       </main>
