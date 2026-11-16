@@ -2213,3 +2213,39 @@ and the M1 consent test now expects the request notice before the grant). Local 
 known heartbeat timing flake, see B2), 19 skipped. Web: 177 passed (1 new: granted notices in Bangla and English with axe);
 type check clean; `BANGLA_COPY_REVIEW.md` regenerated (657 strings). Browser pane, M10 build, 375 px: the inbox with a
 caregiver-granted notice, Bangla and English, light and dark: no axe violation, no horizontal overflow.
+
+## B4a M3 check, confirm, reject and the M4 timeline (owner approval 2026-11-16)
+
+- **`PUT /documents/{id}/review { fields }`** stores the check as a new append-only version (`document_reviews`), sealed with
+  EXTRACTION_KEY like the extraction. Only the document type's approved fields (`extraction.SCHEMAS`); values are parsed
+  like extracted ones (dates to ISO, Bangla digits accepted); a wholly empty repeated row is dropped. 422 `unknown_field`,
+  `invalid_date`, `invalid_field`, `invalid_fields` (details.field names the path); 409 `not_allowed_state` outside review.
+- **`POST /documents/{id}/confirm`**, one transaction: the `document_verified` events (verifier, verification time, source
+  document), one `verifications` row (append-only, primary key = document, so a repeat can never write twice: 409), the
+  document `verified` (`verified_by`), audit `document.confirm` with counts only. 422 `review_required` without a saved
+  check; 422 `date_required` without the document's date (`prescription_date`, `report_date`, `discharge_date`; owner
+  decision: never a date invented from the upload). The raw OCR text is deleted by the existing retention trigger.
+- **Correction record:** `fields_total` and `fields_corrected` (the per-field correction rate, FRD M3) and the sealed
+  before/after of every corrected field, against the latest extraction.
+- **Event mapping** (`verification/review.py` `events_for`, REVIEWER-PENDING, owner-approved): prescription: one
+  `prescription` (prescriber, registration, facility, advice), one `medication` per row, `follow_up` on its date,
+  `allergy` from `allergy_text`; lab report: one `lab_result` per test row; discharge summary: one `visit` (admission,
+  discharge, facility), medications, follow-up and allergy as for a prescription; other: none. All as written, nothing
+  coded or merged; `diagnosis_text` and `printed_patient_name` never become events (D7 Q4).
+- **`POST /documents/{id}/reject`:** `rejected`, no event, audited. All three routes: the patient for their own document
+  (another patient 404, staff 403); the verifier arrives in B4b.
+- **`GET /patients/{id}/timeline?from&to&type`:** the patient; a doctor with a consent covering `timeline`; a caregiver with
+  `view_timeline`; never a verifier. `document_verified` and `patient_reported` events, superseded ones included, stable
+  order (date, recording time, id); `pending` never.
+- **Not yet:** search indexing (M5), reminder proposals (M8), the M6 check on a confirmed prescription, and merging
+  duplicates (FRD 4.4).
+- **Mismatch with the frontend, for the owner (no `web/` change made):** the web app has no text for the new codes
+  (`review_required`, `date_required`, `invalid_date`, `unknown_field`, `invalid_field`) and shows the generic error; the
+  mock never required a date.
+
+**Verification.** 12 new tests (`tests/test_api_b4a.py`, on a fresh database with the real schema): mapped events written
+once, sealed check and corrections, counts-only audit, refused fields, the date and saved-check requirements, reject, the
+mapping for each document type, patient-only checking, the timeline's filters and order, and its access (doctor without and
+with consent, verifier refused, each read audited). The guard `test_parsers.py::test_diagnosis_text_is_never_referenced…`
+caught a mention of the field in the new module's comments and an unused constant; both removed, the guard kept. Local
+PostgreSQL 16: 1495 passed, 0 failed, 19 skipped. Web: 177 passed (no web change). The schema applies over the B3 schema.
