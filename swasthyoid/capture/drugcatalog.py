@@ -178,8 +178,17 @@ def load_medicine_csv(path, *, source, version=None, max_bytes=MAX_FILE_BYTES):
         raise ValueError("max_bytes must be a positive integer")
     if path.stat().st_size > max_bytes:
         raise CatalogError("file_too_large")
-    raw = path.read_bytes()
-    if len(raw) > max_bytes:  # the file grew between the size check and the read
+    return load_medicine_bytes(path.read_bytes(), name=path.name, source=source, version=version, max_bytes=max_bytes)
+
+
+def load_medicine_bytes(raw, *, name, source, version=None, max_bytes=MAX_FILE_BYTES):
+    """The same load from bytes already in memory (B5: an admin's upload, validated and reported, never stored). `name`
+    is the file name, for the other-files check. Same refusals as load_medicine_csv."""
+    if Path(name).stem.casefold() in OTHER_FILES:
+        raise CatalogError("wrong_file")
+    if version is not None and not (isinstance(version, str) and version.strip()):
+        raise CatalogError("empty_version")
+    if len(raw) > max_bytes:  # also: the file grew between a size check and the read
         raise CatalogError("file_too_large")
     try:
         text = raw.decode("utf-8-sig")

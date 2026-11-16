@@ -255,8 +255,9 @@ function seedRules(iso: (offsetHours: number) => string): Rule[] {
     definition: { placeholder: "REVIEWER-PENDING", synthetic: true, ...extra },
     explanation: { en: `[REVIEWER-PENDING] Approved explanation for ${ruleId} goes here.`,
                    bn: `[রিভিউয়ার-অনুমোদন বাকি] ${ruleId}-এর অনুমোদিত ব্যাখ্যা এখানে বসবে।` },
-    created_by_name: "সিনথেটিক রিভিউয়ার", created_at: iso(-hoursAgo),
-    reviewed_by_name: status === "draft" ? null : "সিনথেটিক রিভিউয়ার (দ্বিতীয়)", reviewed_at: status === "draft" ? null : iso(-hoursAgo + 1),
+    // B5 four-eyes: the seeds are written by a second synthetic reviewer, so the signed-in reviewer may approve them
+    created_by_name: "সিনথেটিক রিভিউয়ার (দ্বিতীয়)", created_at: iso(-hoursAgo),
+    reviewed_by_name: status === "draft" ? null : "সিনথেটিক রিভিউয়ার", reviewed_at: status === "draft" ? null : iso(-hoursAgo + 1),
     reason: null });
   return [
     rule("SYNTH-DDI-0001", 1, "ddi", "major", "approved", 200, { drugs: ["SYNTH-DRUG-001", "SYNTH-DRUG-003"] }),
@@ -954,6 +955,12 @@ export function mockTransport(): Transport {
         || typeof b.explanation?.en !== "string" || !b.explanation.en.trim() || typeof b.explanation?.bn !== "string" || !b.explanation.bn.trim()) {
         return error(422, "invalid_rule", "Check the type, severity, definition and both explanations.");
       }
+      // B5, as the server (REVIEWER-PENDING vocabulary): a vital_threshold names what it applies to, with a unit that fits it
+      const units: Record<string, string[]> = { bp: ["mmHg"], glucose: ["mmol/L", "mg/dL"] };
+      const vt = def as { vital_type?: unknown; unit?: unknown };
+      if (b.rule_type === "vital_threshold" && !(units[String(vt.vital_type)] ?? []).includes(String(vt.unit))) {
+        return error(422, "invalid_vital_threshold", "A vital threshold needs vital_type bp or glucose and a matching unit.");
+      }
       const versions = b.rule_id ? s.rules.filter((x) => x.rule_id === b.rule_id) : [];
       if (b.rule_id && !versions.length) return error(404, "not_found", "No rule with this id.");
       if (versions.length && versions[0].rule_type !== b.rule_type) return error(422, "invalid_rule", "A new version keeps the rule's type.");
@@ -975,6 +982,8 @@ export function mockTransport(): Transport {
       if (rule.status !== "draft") return error(409, "not_draft", "Only a draft can be reviewed.");
       const reason = reasonOf(r);
       if (verb === "reject" && !reason) return error(422, "reason_required", "A rejection needs a reason.");
+      // B5 four-eyes, as the server: never approved by its author (the author may still withdraw it by rejecting)
+      if (verb === "approve" && rule.created_by_name === u.name) return error(409, "four_eyes", "Another reviewer must approve this draft.");
       if (verb === "approve") {
         s.rules.filter((x) => x.rule_id === rule.rule_id && x.status === "approved").forEach((x) => { x.status = "superseded"; });
       }
@@ -1088,9 +1097,14 @@ export function mockTransport(): Transport {
       if (!isUser(u)) return u;
       const file = r.body instanceof FormData ? r.body.get("file") : null;
       if (!(file instanceof File) || !/\.csv$/i.test(file.name) || !file.size) return error(422, "invalid_file", "Choose a non-empty CSV file.");
-      staffAudit(u, "catalog.import", file.name);
-      // the mock reads nothing from the file: no catalog data exists here (FRD question 1, licence undecided)
-      return ok({ id: `imp-${crypto.randomUUID().slice(0, 8)}`, status: "queued", file_name: file.name, size_bytes: file.size }, 202);
+      const source = String((r.body as FormData).get("source") ?? "").trim();
+      if (!source) return error(422, "source_required", "Say where the file came from and on what terms.");
+      staffAudit(u, "catalog.validate", file.name);
+      // B5, validate and report only. MOCK ONLY: the mock reads nothing from the file (no catalog data exists here, FRD
+      // question 1), so every count is 0 and the hash is a placeholder; the server runs the real loader.
+      return ok({ id: `imp-${crypto.randomUUID().slice(0, 8)}`, status: "validated", file_name: file.name, size_bytes: file.size,
+        sha256: "0".repeat(64), report: { rows: 0, matchable: 0, unmatchable: 0, duplicate_groups: 0, near_duplicate_groups: 0,
+          brands_with_several_generics: 0, products_with_several_manufacturers: 0 } }, 201);
     }],
     ["GET", "/audit", (r) => {
       const u = consoleUser(r, "admin");

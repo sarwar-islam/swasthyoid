@@ -473,13 +473,20 @@ export interface StaffCreateBody {
   phone: string;
 }
 
-/** POST /catalog/import (multipart: file): FRD route, response GAP. The drug catalog source and its licence are undecided
- * (FRD question 1): no catalog data ships with the UI or the mock. */
+/** POST /catalog/import (multipart: file, source). BUILT (B5; owner decision: validate and report only while FRD question 1,
+ * the licence, is open). The server reads the CSV in memory with the existing loader and keeps only its hash, size, these
+ * counts and the admin's `source` statement; no catalog data is stored and the worker's catalog is unchanged. 422
+ * `source_required`, `invalid_file`, or `invalid_catalog` (details.reason: a fixed word such as missing_column). */
 export interface CatalogImport {
   id: string;
-  status: "queued";
+  status: "validated";
   file_name: string;
   size_bytes: number;
+  sha256: string;
+  report: {
+    rows: number; matchable: number; unmatchable: number; duplicate_groups: number; near_duplicate_groups: number;
+    brands_with_several_generics: number; products_with_several_manufacturers: number;
+  };
 }
 
 /** GET /audit?action=&result=&role= : FRD route (admin), shape GAP. Metadata only: no name, phone, IP, device, free text or

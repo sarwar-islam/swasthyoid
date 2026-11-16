@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiRequest, Transport } from "../api/client";
+import { createClient, type ApiRequest, type Transport } from "../api/client";
 import { MOCK_ADMIN_PHONE, MOCK_CODE, MOCK_REVIEWER_PHONE, mockTransport } from "../api/mock";
 import { ADMIN_TOKEN, axeViolations, renderApp, REVIEWER_TOKEN } from "../test-utils";
 
@@ -75,7 +75,7 @@ describe("clinical reviewer", () => {
     expect(document.querySelectorAll(".reviewer-pending").length).toBe(1); // even the approved placeholder is marked
   });
 
-  it("drafts a rule from reviewer content only, then approves it", async () => {
+  it("drafts a rule from reviewer content only, and four-eyes refuses approving it; another's draft can be approved", async () => {
     asReviewer("/console/rules");
     await screen.findAllByText("SYNTH-DDI-0001");
     click("Draft a new rule");
@@ -89,13 +89,34 @@ describe("clinical reviewer", () => {
     type("Definition (JSON)", '{ "placeholder": "REVIEWER-PENDING" }');
     click("Save draft");
     expect(await screen.findByText("Draft saved. It won't run until it is approved.")).toBeTruthy();
-    const card = (await screen.findAllByText(/^RULE-/))[0].closest("li")!;
-    fireEvent.click(within(card).getByRole("button", { name: "Approve" }));
+    const own = (await screen.findAllByText(/^RULE-/))[0].closest("li")!;
+    fireEvent.click(within(own).getByRole("button", { name: "Approve" }));
     const dialog = screen.getByRole("alertdialog");
     expect(document.activeElement?.textContent).toBe("No, go back"); // focus starts on the safe choice
     fireEvent.click(within(dialog).getByRole("button", { name: "Approve" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("You can't approve a draft you wrote.");
+    // a draft written by the second synthetic reviewer is approved
+    const other = screen.getAllByText("SYNTH-DDI-0001").map((n) => n.closest("li")!).find((li) => within(li).queryByRole("button", { name: "Approve" }))!;
+    fireEvent.click(within(other).getByRole("button", { name: "Approve" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Approve" }));
     expect(await screen.findByText("Rule approved. The earlier approved version no longer runs.")).toBeTruthy();
-    expect(within((await screen.findAllByText(/^RULE-/))[0].closest("li")!).getByText("Approved")).toBeTruthy();
+  });
+
+  it("the four-eyes refusal is announced in Bangla and English and passes axe", async () => {
+    for (const [lang, approve, yes, text] of [["en", "Approve", "Approve", "You can't approve a draft you wrote."],
+                                              ["bn", "অনুমোদন দিন", "অনুমোদন দিন", "নিজের লেখা খসড়া নিজে অনুমোদন করা যায় না।"]] as const) {
+      const transport = mockTransport();
+      await createClient(transport, () => REVIEWER_TOKEN).request("POST", "/rules", { body: {
+        rule_type: "red_flag", severity: null, definition: { placeholder: "REVIEWER-PENDING" },
+        explanation: { en: "[REVIEWER-PENDING] text", bn: "[রিভিউয়ার-অনুমোদন বাকি] লেখা" } } });
+      const { container } = asReviewer("/console/rules", lang, transport);
+      const own = (await screen.findAllByText(/^RULE-/))[0].closest("li")!;
+      fireEvent.click(within(own).getByRole("button", { name: approve }));
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: yes }));
+      expect((await screen.findByRole("alert")).textContent).toContain(text);
+      expect(await axeViolations(container)).toEqual([]);
+      cleanup();
+    }
   });
 
   it("rejects a draft only with a reason", async () => {
@@ -143,14 +164,22 @@ describe("admin", () => {
     expect(await screen.findByText(/is suspended, and so are all their active consents/)).toBeTruthy();
   });
 
-  it("sends a CSV for catalog import under the licence warning, with no catalog data in the app", async () => {
+  it("validates a CSV under the licence warning: a source statement is required and only a report comes back", async () => {
     const { seen, transport } = spy();
-    asAdmin("/console/catalog", "en", transport);
+    const { container } = asAdmin("/console/catalog", "en", transport);
     expect(await screen.findByText(/source and licence aren't decided yet/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Send for import" }) as HTMLButtonElement).disabled).toBe(true);
+    const send = () => screen.getByRole("button", { name: "Send for import" }) as HTMLButtonElement;
+    expect(send().disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Catalog file (CSV)"), { target: { files: [new File(["generic\n"], "synthetic.csv", { type: "text/csv" })] } });
+    expect(send().disabled).toBe(true); // no source statement yet
+    type("Where the file came from, and on what terms", "SYNTH test file, no licence needed");
     click("Send for import");
-    expect(await screen.findByText(/Received synthetic\.csv .* it is queued\./)).toBeTruthy();
+    expect(await screen.findByText(/synthetic\.csv .* was validated\./)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Validation report" })).toBeTruthy();
+    expect(screen.getByText("Rows")).toBeTruthy();
+    expect(screen.getByText(/None of the file's data was kept/)).toBeTruthy();
+    expect((seen.find((r) => r.path === "/catalog/import")!.body as FormData).get("source")).toBe("SYNTH test file, no licence needed");
+    expect(await axeViolations(container)).toEqual([]);
     expect(seen.some((r) => r.method === "POST" && r.path === "/catalog/import")).toBe(true);
   });
 

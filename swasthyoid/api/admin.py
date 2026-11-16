@@ -1,4 +1,5 @@
-"""Admin routes for staff and credentials (B2; owner decisions 2026-11-16, DECISIONS.md "Backend sync plan B0-B8").
+"""Admin routes: staff and credentials (B2), the audit log and the drug catalog upload (B5); owner decisions 2026-11-16,
+DECISIONS.md "Backend sync plan B0-B8".
 
 Every route needs a verified admin (RBAC, with denials audited by deps). Free-text reasons are kept on the record they
 explain; the audit log says only "reason_given". Phones are shown by their last four digits only.
@@ -8,10 +9,13 @@ from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, Depends, Request, Response
+from fastapi.concurrency import run_in_threadpool
+
+from psycopg.types.json import Jsonb
 
 from swasthyoid import pii
 from swasthyoid.api.deps import Actor, ApiError, client_info, get_conn, idempotent, require
-from swasthyoid.capture import storage
+from swasthyoid.capture import drugcatalog, storage
 from swasthyoid.core import audit
 from swasthyoid.identity import accounts
 
@@ -55,7 +59,7 @@ async def reject_credential(credential_id: UUID, request: Request, conn=Depends(
             raise ApiError(404, "not_found", "No pending credential with this id.")
         return {"user_id": user_id, "status": "rejected"}
 
-    return idempotent(conn, request, a, f"reject:{credential_id}:{reason}", work)
+    return await run_in_threadpool(idempotent, conn, request, a, f"reject:{credential_id}:{reason}", work)
 
 
 _SIGNATURES = ((b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"), (b"%PDF-", "application/pdf"))
@@ -105,7 +109,7 @@ async def create_staff(request: Request, conn=Depends(get_conn), a: Actor = Depe
         except psycopg.errors.UniqueViolation:
             raise ApiError(409, "phone_exists", "This phone number already has a staff account.")
 
-    return idempotent(conn, request, a, f"staff:{role}:{name}:{pii.phone_hash(phone)}", work)
+    return await run_in_threadpool(idempotent, conn, request, a, f"staff:{role}:{name}:{pii.phone_hash(phone)}", work)
 
 
 @router.post("/admin/staff/{user_id}/approve")
@@ -131,7 +135,67 @@ async def suspend_user(user_id: UUID, request: Request, conn=Depends(get_conn), 
             raise ApiError(404, "not_found", "No active staff member with this id.")
         return {"user_id": user_id, "status": "suspended"}
 
-    return idempotent(conn, request, a, f"suspend:{user_id}:{reason}", work)
+    return await run_in_threadpool(idempotent, conn, request, a, f"suspend:{user_id}:{reason}", work)
+
+
+# ---- C2 audit log, read only (B5): the server verifies the whole chain on every read; entries are metadata only
+
+@router.get("/audit")
+def audit_log(request: Request, action: str | None = None, result: Literal["allow", "deny", "failed"] | None = None,
+              role: str | None = None, conn=Depends(get_conn), a: Actor = Depends(admin)):
+    page = audit.admin_page(conn, action=action or None, result=result, role=role or None)
+    audit.append(conn, action="audit.read", result="allow", actor_id=a.id, actor_role=a.role, device_id=a.device_id,
+                 **client_info(request))  # reading the log is itself logged
+    return page
+
+
+# ---- drug catalog upload (B5; owner decision: validate and report only while FRD question 1, the licence, is open)
+
+def _counts(report):
+    return {"rows": report.rows, "matchable": report.matchable, "unmatchable": len(report.unmatchable),
+            "duplicate_groups": len(report.duplicate_groups), "near_duplicate_groups": len(report.near_duplicate_groups),
+            "brands_with_several_generics": len(report.brands_with_several_generics),
+            "products_with_several_manufacturers": len(report.products_with_several_manufacturers)}
+
+
+@router.post("/catalog/import", status_code=201)
+async def catalog_import(request: Request, conn=Depends(get_conn), a: Actor = Depends(admin)):
+    """The admin's CSV is read in memory by the existing loader and dropped: no catalog data is stored anywhere. Only its
+    SHA-256, size, the loader's counts and the admin's own statement of where it came from are recorded. The extraction
+    worker still uses only DRUG_CATALOG_PATH."""
+    length = request.headers.get("content-length", "")
+    if not length.isdigit() or int(length) > drugcatalog.MAX_FILE_BYTES + 64 * 1024:
+        raise ApiError(413, "too_large", "The file is too large.")
+    try:
+        form = await request.form(max_files=1, max_fields=2)
+        upload, source = form.get("file"), str(form.get("source") or "").strip()
+        data = await upload.read(drugcatalog.MAX_FILE_BYTES + 1) if hasattr(upload, "read") else None
+    except Exception:
+        raise ApiError(422, "invalid_file", "Send one CSV file and the source statement as multipart form data.")
+    if not data or not str(upload.filename or "").lower().endswith(".csv"):
+        raise ApiError(422, "invalid_file", "Choose a non-empty CSV file.")
+    if not source:
+        raise ApiError(422, "source_required", "Say where the file came from and on what terms.")
+    name = str(upload.filename)
+
+    def work():
+        try:
+            loaded = drugcatalog.load_medicine_bytes(data, name=name, source=source)
+        except drugcatalog.CatalogError as e:
+            audit.append(conn, action="catalog.validate", result="deny", reason=e.args[0], actor_id=a.id, actor_role=a.role)
+            raise ApiError(422, "invalid_catalog", "The file cannot be used as a catalog.", reason=e.args[0])
+        counts = _counts(loaded.report)
+        with conn.transaction():
+            row_id = conn.execute(
+                "INSERT INTO catalog_imports (id, imported_by, file_name, size_bytes, sha256, source_statement, report) "
+                "VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s) RETURNING id",
+                [a.id, name, len(data), loaded.file_sha256, source, Jsonb(counts)]).fetchone()[0]
+            audit.append(conn, action="catalog.validate", result="allow", actor_id=a.id, actor_role=a.role,
+                         resource_type="catalog_import", resource_id=row_id)
+        return {"id": row_id, "status": "validated", "file_name": name, "size_bytes": len(data),
+                "sha256": loaded.file_sha256, "report": counts}
+
+    return await run_in_threadpool(work)
 
 
 async def _json(request):

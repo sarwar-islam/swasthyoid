@@ -186,12 +186,16 @@ export function StaffPage() {
   );
 }
 
-/** M6 drug catalog import: the upload trigger only. The catalog source and its licence are undecided (FRD question 1), so no
- * catalog data ships with the app and the prototype stores nothing it receives. */
+const REPORT_KEYS = ["rows", "matchable", "unmatchable", "duplicate_groups", "near_duplicate_groups",
+  "brands_with_several_generics", "products_with_several_manufacturers"] as const;
+
+/** M6 drug catalog upload, validate and report only (B5): the catalog source and its licence are undecided (FRD question 1),
+ * so the server reads the file, reports counts and keeps none of its data; the admin states where it came from. */
 export function CatalogPage() {
   const { t, lang } = useI18n();
   const { api } = useSession();
   const [file, setFile] = useState<File | null>(null);
+  const [source, setSource] = useState("");
   const [result, setResult] = useState<CatalogImport | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const act = useAction(() => undefined);
@@ -199,6 +203,7 @@ export function CatalogPage() {
     e.preventDefault();
     const form = new FormData();
     if (file) form.append("file", file, file.name);
+    form.append("source", source.trim());
     act.run(async () => {
       setResult(await api.request<CatalogImport>("POST", "/catalog/import", { body: form }));
       setFile(null);
@@ -216,13 +221,30 @@ export function CatalogPage() {
                  onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); }} />
           <span id="catalog-hint" className="hint">{t("catalog.hint")}</span>
         </div>
+        <div className="field">
+          <label htmlFor="catalog-source">{t("catalog.source")}</label>
+          <textarea id="catalog-source" rows={3} value={source} aria-describedby="catalog-source-hint"
+                    onChange={(e) => { setSource(e.target.value); setResult(null); }} />
+          <span id="catalog-source-hint" className="hint">{t("catalog.sourceHint")}</span>
+        </div>
         <ErrorNote error={act.error} />
-        <button type="submit" className="btn-primary" disabled={act.busy || !file}><Upload size={18} aria-hidden="true" />{t("catalog.send")}</button>
+        <button type="submit" className="btn-primary" disabled={act.busy || !file || !source.trim()}>
+          <Upload size={18} aria-hidden="true" />{t("catalog.send")}
+        </button>
       </form>
       {result && (
-        <p className="ok-note section" role="status">
-          {t("catalog.queued", { file: result.file_name, size: formatNumber(Math.ceil(result.size_bytes / 1024), lang) })}
-        </p>
+        <section className="card section" aria-labelledby="catalog-report">
+          <h2 id="catalog-report">{t("catalog.reportTitle")}</h2>
+          <p className="ok-note" role="status">
+            {t("catalog.validated", { file: result.file_name, size: formatNumber(Math.ceil(result.size_bytes / 1024), lang) })}
+          </p>
+          <dl className="metrics">
+            {REPORT_KEYS.map((k) => (
+              <div key={k}><dt>{t(`catalog.r.${k}` as Key)}</dt><dd>{formatNumber(result.report[k], lang)}</dd></div>
+            ))}
+          </dl>
+          <p className="muted">{t("catalog.notStored")}</p>
+        </section>
       )}
     </>
   );

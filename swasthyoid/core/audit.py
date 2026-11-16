@@ -1,8 +1,11 @@
 """C2 — audit: hash chain and the append-only PostgreSQL store (FRD section 4.2)."""
 import hashlib
 import json
+import re
 from datetime import timezone
 from uuid import UUID, uuid4
+
+from swasthyoid import pii
 
 GENESIS = "0" * 64
 
@@ -84,6 +87,37 @@ def verify_stored(conn, head=GENESIS):
     entries = [{**_hashable(r), "prev_hash": r["prev_hash"], "entry_hash": r["entry_hash"]} for r in rows]
     bad = verify_chain(entries, head)
     return None if bad is None else rows[bad]["seq"]
+
+
+# ---- The admin's view of the log (B5; owner decisions 2026-11-16): metadata only. No name, phone, IP, device, user agent or
+# full id leaves through it; people and records are keyed references that cannot be joined back without HMAC_KEY.
+
+REASON_CODE = re.compile(r"^[a-z_]+$")  # anything else may be free text (a break-glass reason can hold clinical detail)
+PAGE_SIZE = 100
+
+
+def reference(value):
+    """A short, stable, keyed reference for an id (decision 5: HMAC with the prefix `auditref:`, 10 hex characters)."""
+    return None if value is None else pii.secret_hash(f"auditref:{value}")[:10]
+
+
+def admin_page(conn, *, action=None, result=None, role=None, limit=PAGE_SIZE):
+    """The whole chain's verification and the newest `limit` entries matching the filters (action is a prefix).
+    shortcut: the chain is verified in full on every call; cache the verified head when the log grows large."""
+    broken_seq = verify_stored(conn)
+    broken_id = broken_seq and conn.execute("SELECT id FROM audit_logs WHERE seq = %s", [broken_seq]).fetchone()[0]
+    checked, checked_at = conn.execute("SELECT count(*), clock_timestamp() FROM audit_logs").fetchone()
+    rows = conn.execute(
+        "SELECT id, at, actor_id, actor_role, action, purpose, result, reason, patient_id, consent_id, prev_hash, entry_hash "
+        "FROM audit_logs WHERE (%s::text IS NULL OR starts_with(action, %s)) AND (%s::text IS NULL OR result = %s) "
+        "AND (%s::text IS NULL OR actor_role = %s) ORDER BY seq DESC LIMIT %s",
+        [action, action, result, result, role, role, limit]).fetchall()
+    entries = [{"id": r[0], "at": r[1], "actor_role": r[3], "actor_ref": reference(r[2]), "action": r[4], "purpose": r[5],
+                "result": r[6], "reason": r[7] if r[7] is None or REASON_CODE.fullmatch(r[7]) else "free_text_hidden",
+                "patient_ref": reference(r[8]), "consent_ref": reference(r[9]), "prev_hash": r[10], "entry_hash": r[11]}
+               for r in rows]
+    return {"chain": {"status": "broken" if broken_seq else "intact", "checked_at": checked_at, "entries_checked": checked,
+                      "first_broken_id": broken_id}, "entries": entries}
 
 
 def history_for_patient(conn, patient_id):

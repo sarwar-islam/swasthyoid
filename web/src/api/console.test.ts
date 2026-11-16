@@ -47,16 +47,27 @@ describe("clinical reviewer: the rule registry", () => {
     expect((await reviewer().request<Rule[]>("GET", "/rules")).length).toBe(6);
   });
 
-  it("drafts a rule, approves it, and a new version supersedes the approved one", async () => {
+  it("drafts a rule but never approves its own (four-eyes); the author may withdraw it", async () => {
     const created = await reviewer().request<Rule>("POST", "/rules", { body: draft() });
     expect(created).toMatchObject({ status: "draft", version: 1, rule_type: "allergy" });
     expect(await failure(reviewer().request("POST", "/rules", { body: draft({ rule_id: created.rule_id }) }))).toEqual([409, "draft_exists"]);
-    await reviewer().request("POST", `/rules/${created.id}/approve`);
-    const v2 = await reviewer().request<Rule>("POST", "/rules", { body: draft({ rule_id: created.rule_id, severity: "minor" }) });
-    expect(v2.version).toBe(2);
-    await reviewer().request("POST", `/rules/${v2.id}/approve`);
-    const versions = (await reviewer().request<Rule[]>("GET", "/rules")).filter((r) => r.rule_id === created.rule_id);
+    expect(await failure(reviewer().request("POST", `/rules/${created.id}/approve`))).toEqual([409, "four_eyes"]);
+    const withdrawn = await reviewer().request<Rule>("POST", `/rules/${created.id}/reject`, { body: { reason: "Withdrawn by author" } });
+    expect(withdrawn.status).toBe("rejected");
+  });
+
+  it("approving another reviewer's new version supersedes the approved one", async () => {
+    // SYNTH-DDI-0001: v1 approved, v2 a draft written by the second synthetic reviewer
+    await reviewer().request("POST", "/rules/SYNTH-DDI-0001-v2/approve");
+    const versions = (await reviewer().request<Rule[]>("GET", "/rules")).filter((r) => r.rule_id === "SYNTH-DDI-0001");
     expect(versions.map((r) => r.status)).toEqual(["superseded", "approved"]); // only one approved version runs
+  });
+
+  it("a vital threshold needs a known vital_type and a unit that fits it (REVIEWER-PENDING vocabulary)", async () => {
+    const vt = (definition: Record<string, unknown>) => draft({ rule_type: "vital_threshold", severity: null, definition });
+    expect(await failure(reviewer().request("POST", "/rules", { body: vt({ vital_type: "bp", unit: "mg/dL" }) })))
+      .toEqual([422, "invalid_vital_threshold"]);
+    expect((await reviewer().request<Rule>("POST", "/rules", { body: vt({ vital_type: "glucose", unit: "mmol/L" }) })).status).toBe("draft");
   });
 
   it("rejects only with a reason, and a reviewed version cannot be reviewed again", async () => {
@@ -142,11 +153,15 @@ describe("admin: credentials, catalog, audit, metrics", () => {
     expect((await as(DOCTOR_TOKEN).request<StaffMe>("GET", "/me")).status).toBe("suspended");
   });
 
-  it("queues a CSV catalog import and refuses anything else", async () => {
+  it("validates a CSV catalog with a source statement and refuses anything else (B5: report only)", async () => {
+    const withSource = (form: FormData, source = "SYNTH test file") => { form.append("source", source); return form; };
     expect(await failure(admin().request("POST", "/catalog/import", { body: new FormData() }))).toEqual([422, "invalid_file"]);
-    expect(await failure(admin().request("POST", "/catalog/import", { body: csv("catalog.xlsx") }))).toEqual([422, "invalid_file"]);
-    expect(await failure(admin().request("POST", "/catalog/import", { body: csv("empty.csv", "") }))).toEqual([422, "invalid_file"]);
-    expect(await admin().request<CatalogImport>("POST", "/catalog/import", { body: csv() })).toMatchObject({ status: "queued", file_name: "synthetic.csv" });
+    expect(await failure(admin().request("POST", "/catalog/import", { body: withSource(csv("catalog.xlsx")) }))).toEqual([422, "invalid_file"]);
+    expect(await failure(admin().request("POST", "/catalog/import", { body: withSource(csv("empty.csv", "")) }))).toEqual([422, "invalid_file"]);
+    expect(await failure(admin().request("POST", "/catalog/import", { body: csv() }))).toEqual([422, "source_required"]);
+    expect(await failure(admin().request("POST", "/catalog/import", { body: withSource(csv(), "  ") }))).toEqual([422, "source_required"]);
+    expect(await admin().request<CatalogImport>("POST", "/catalog/import", { body: withSource(csv()) }))
+      .toMatchObject({ status: "validated", file_name: "synthetic.csv", report: { rows: 0 } });
   });
 
   it("shows an intact, linked hash chain with metadata only: no names, IP, device, ids or free text", async () => {
