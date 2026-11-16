@@ -2037,3 +2037,55 @@ An audit after F5 found seven gaps; all are closed here.
 **Verification.** 165 web tests (6 new: staff provisioning at the API layer and on screen, axe on the new page in Bangla and
 English), no network; type check clean. Browser pane at 375 px (Bangla and English) and 1280 px: the Staff accounts page, approve,
 create with a phone typed in Bangla digits; no horizontal scroll.
+
+## F6 consent by QR, patient inbox, vital thresholds, hardening (owner decisions 2026-11-16)
+
+**Scope (owner).** Consent by QR (M1), the patient's C3 inbox (with M10 break-glass notices), the treating doctor's per-patient
+vital thresholds (M13), and hardening. Backend wiring of the BUILT routes is deferred until F6 is committed. New dependency
+(owner-approved): `qrcode` (MIT) with `@types/qrcode`, to draw the QR in the browser; no scanner library.
+
+**Consent by QR (owner decision: the doctor shows the QR, the patient approves in their own signed-in app).** The FRD M1 diagram
+had the patient show a QR to the doctor; the owner chose the reverse, so the patient sees exactly who asks and for what on their
+own device. The doctor still enters the Health ID first, so only that patient can answer. The QR is a link to
+`/patient/consent/qr/{token}`, which the phone's own camera opens (no in-app scanner); an 8-character short code beside it
+(no 0/O/1/I/L) is typed on the patient's Consent page by a phone that cannot scan. Token and code expire with the backend's OTP
+lifetime (5 minutes) and work once. A QR request sends no SMS code, and the code route cannot confirm it. A link opened before
+signing in returns to the request after sign-in (only within the same portal).
+
+**Patient inbox.** Notices only: it never grants anything (a doctor's consent still needs the code read out or the QR; caregiver
+requests are answered on the Consent page). Consent and emergency-access notices are security notices that cannot be switched off
+(FRD C3), only marked read. A break-glass notice names the doctor, the facility and the time, never the reason or the card's values;
+the server writes one for every session (FRD M10), so it exists only where M10 is enabled. Home shows the unread count.
+
+**Vital thresholds.** A Workspace tab shown only when the consent covers `safety` (owner-confirmed: thresholds are safety rules).
+The server lists the fields a doctor may set, each with a reviewed label, unit, default (null = REVIEWER-PENDING, as all are in the
+mock) and this patient's override. The UI holds no number and checks only that a value is a positive number; the allowed range is
+the approved rule's, checked by the server. Empty means "use the default". Every save is a new, audited version; a stale version is
+409.
+
+**GAP contracts (mocked in `web/src/api/mock.ts`, typed in `web/src/api/types.ts`):**
+- `POST /consents/requests { health_id, categories, method: "qr" }` -> the consent plus `qr { token, short_code, expires_at }`
+  (`method` absent or `"otp"` is the BUILT flow); `GET /consents/requests/{id}` (the doctor's screen checks it every 3 seconds).
+- `GET /consents/qr/{ref}`, `POST /consents/qr/{ref}/approve`, `/decline` (ref: token or short code; patient only; anyone else, an
+  unknown, used or expired ref: the same 404 `not_found`). The token is to be signed by the server; the mock's is random.
+- `method: "otp" | "qr"` on a doctor's request in `GET /consents` (a field added to the BUILT route), so the patient's Consent page
+  says how to answer: the code from the SMS, or the doctor's QR or short code.
+- `GET /notifications`, `POST /notifications/{id}/read` (`kind`: `consent_request`, `caregiver_request`, `emergency_access`).
+- `GET /patients/{id}/vital-thresholds` (the FRD lists only the PUT) and the shapes of `PUT /patients/{id}/vital-thresholds
+  { version, overrides }` (422 `invalid_threshold`, 409 `version_conflict`).
+
+**Open:** the clinical reviewer's threshold fields and ranges (REVIEWER-PENDING); in the mock, a doctor's override does not change
+how readings are evaluated. The copy generator script stays outside the repo and the bundle size is accepted (owner, 2026-11-16).
+
+**Hardening.** `docs/BANGLA_COPY_REVIEW.md`: all 655 UI strings, Bangla beside English, grouped, with a Review column; the clinical
+groups are named for the clinical reviewer. Generated from `strings.ts` by a script (not in the repo). Fixed: the patient app's
+999 bar was outside any landmark (axe `region`); it now sits in a labelled region.
+
+**Verification.** 176 web tests (11 new: QR, inbox and threshold rules at the API layer; the doctor's QR screen through to the
+record; the patient's QR page, short code and sign-in return; inbox; thresholds; axe in Bangla and English), no network; type check
+and build clean (the bundle now passes Vite's 500 kB warning). Browser pane, M10 build, axe-core 4.14 served from the dev server
+with colour contrast on: 35 signed-in routes of the four portals in Bangla and English, light and dark, at 375, 768 and 1280 px,
+plus the chooser and four sign-in pages at 768 px: 440 checks, no violation, no horizontal overflow. The hidden pane stalls CSS transitions, so animations were
+finished before each check. Click-through: QR request, the link opened signed out, sign-in, approve; inbox; thresholds saved as
+version 2. Every request went to localhost. Not covered in the browser: the doctor's screen moving on after the patient approves
+(one tab holds one session; covered by a test), scanning the QR with a real phone, and the M10-off build (covered by a test).
