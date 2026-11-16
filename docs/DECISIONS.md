@@ -2022,8 +2022,8 @@ An audit after F5 found seven gaps; all are closed here.
    accepts `clinical_reviewer` in the self-registration body (`api/m1.py`, `role: Literal[...]`): it is to be removed in the
    separate backend change (with the removed `pharmacist`). **No staff role may stay pending with nobody able to approve it:** doctors
    are approved through their BMDC credential, verifiers who registered themselves are approved by an admin, and clinical reviewers
-   are created by an admin already verified. The admin console has a Staff accounts page for this (frontend change, not committed
-   yet). **GAP routes** (mocked, typed in `types.ts` `StaffAccount`, `StaffCreateBody`):
+   are created by an admin already verified. The admin console has a Staff accounts page for this (frontend commit `22374ba`; docs
+   commit `589e7c7`). **GAP routes** (mocked, typed in `types.ts` `StaffAccount`, `StaffCreateBody`):
    - `GET /admin/staff?status=`: verifiers and clinical reviewers, with the phone's last four digits only.
    - `POST /admin/staff { role: verifier | clinical_reviewer, name, phone }`: creates the account, verified; `409 phone_exists`.
    - `POST /admin/staff/{id}/approve`: a pending verifier registration.
