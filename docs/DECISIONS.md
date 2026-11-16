@@ -2131,3 +2131,27 @@ types and provenance values, empty packages), and `clinical_reviewer` can still 
 8. `vital_threshold` rule definitions carry `vital_type` and `unit`, from which the editable fields come; that vocabulary is
    REVIEWER-PENDING.
 9. M10 server flag off by default; the emergency purpose and emergency access are refused unless it is on.
+
+## B0 local PostgreSQL and B1 v4 backend cleanup (2026-11-16)
+
+**B0.** PostgreSQL 16.16 installed on the development machine with winget (EDB build, unattended, no StackBuilder or
+pgAdmin), service `postgresql-x64-16`. The installer set `listen_addresses = '*'`; it is now `localhost` only. A database
+`swasthyoid` is used by the test fixtures (each test gets its own throwaway schema). `DATABASE_URL` and the generated superuser
+password are user-level environment variables on that machine, outside the repository. Synthetic data only. Baseline before B1:
+1459 passed, 19 skipped in 15 min 40 s. The suite is slow on Windows (subprocess and process-tree tests), not hung.
+
+**B1 (FRD v4 alignment; DECISIONS "Scope reduction: M9, M11 and M12 removed").**
+- C1 purposes are `TIMELINE`, `EMERGENCY`, `CLOUD_AI`, `CAREGIVER`; `APPOINTMENT`, `REFERRAL` and `DISPENSING` are unknown and
+  refused. The resource binding and the appointment window (`resource_type`, `resource_id`, `max_window_ends_at`, the
+  `binding_invalid` reason) are removed from `core/consent_authz.py` and the consents table.
+- Event types without `dispense`, `referral`, `referral_feedback`; provenance only `document_verified`, `patient_reported`,
+  `pending`. The `pharmacist` role is removed from `users` and from `POST /credentials`.
+- Only `doctor` and `verifier` self-register (`api/m1.py` and, as a second check, `identity/accounts.py`); `clinical_reviewer`
+  and `admin` are refused with 422 over HTTP. The empty `appointments/`, `referral/` and `prescribing/` packages are deleted.
+- The schema files upgrade a database built before v4 in place (CHECKs re-created, columns dropped), still idempotent; checked
+  by applying the old schema, adding a row, then the new schema twice.
+- Tests: the authorization matrix runs over the v4 purposes, with a test that the removed purposes are refused; the role matrix
+  creates its clinical reviewer directly (admin provisioning arrives in B2); new tests for refused self-registration and the
+  pharmacist CHECK.
+
+**Verification.** Local PostgreSQL 16: 1460 passed, 19 skipped, 0 failed in 17 min 54 s; web: 176 passed (no web change).
