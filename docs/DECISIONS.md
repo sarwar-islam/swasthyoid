@@ -1921,3 +1921,43 @@ The F3 doctor portal (web/) needed three endpoints the backend and the FRD did n
 Also F3, recorded for the next phases: consent by QR is not built (no QR flow is designed); doctor consents are held in memory
 only, like the token. Verification: 89 web tests (axe in Bangla and English, no network); browser pane at 375 px and desktop, no
 horizontal scroll, no external request.
+
+## F4 verifier/CHW app and caregiver mode (owner decisions 2026-11-16; frontend commit `c938d99`)
+
+**Verifier presence and consent: the patient's code, read out (owner decision 2026-11-16).** No tick-box stands in for it. The
+verifier enters the patient's Health ID; a one-time code goes to the patient's own phone; the present patient reads it out; the
+verifier enters it; only then does a short session open, bound to this verifier and this patient. The code is single use, expires
+with the backend's OTP lifetime (5 minutes) and dies after 5 wrong tries; no response, screen (outside the mock-mode notice) or audit
+entry carries it. In the session the verifier may capture for the patient, list the documents not yet verified, and check one beside
+its image (review, confirm, reject, manual entry, retry). Never the timeline, verified documents' content, consent or access history.
+Every request, allowed or denied, is audited to the patient's access history.
+
+**GAP, for the owner (FRD open question 3; mocked in `web/src/api/mock.ts`, typed in `web/src/api/types.ts` `AssistSession`):**
+- Routes: `POST /verifier/sessions { health_id }` (pending; the code is sent, never returned), `POST /verifier/sessions/{id}/confirm
+  { code }` (active; any failure is `403 invalid_code`), `POST /verifier/sessions/{id}/end`. Verifier access to
+  `POST /patients/{id}/documents`, `GET /patients/{id}/documents` (unverified only), `GET /documents/{id}`, `/images/{n}`,
+  `/extraction`, `PUT /documents/{id}/review`, `POST /documents/{id}/confirm`, `/reject`, `/manual-entry`, `/retry-extraction`
+  while the session is active.
+- **The C1 purpose name:** the mock uses `ASSISTED_CAPTURE`. Proposed only; the backend purpose and its `core/consent_authz.py`
+  mapping are to be decided and recorded here. The patient's Consent Center does not list these sessions yet (only the access
+  history shows them).
+- An unknown Health ID answers `404 patient_not_found` to a verifier, as it does to a doctor (staff are vetted); caregivers get the
+  same answer either way.
+- **REVIEWER-PENDING:** the session length. The mock uses 30 minutes (`MOCK_ASSIST_MINUTES`) as a placeholder and the screen says it
+  is not final.
+
+**Caregiver mode (owner decision 2026-11-16: include the request flow).** Uses the BUILT routes: `GET /caregiver-authorizations`
+(active only; pending never listed), `POST /caregiver-authorizations` (always `202 { status: "pending" }`), `POST
+/caregiver-authorizations/confirm` (the patient's code read out). Pages exist only for the granted scopes: `view_timeline`,
+`view_documents` (photos only, never the unverified extraction) and `upload_documents`. No verification, consent, access history or
+verifier screen for another patient. The UI hides what a scope does not grant, and the server (here the mock, in the backend
+`deps.py` `patient_read`) refuses it anyway. Not built in the backend yet: `GET /patients/{id}/timeline` (FRD, for any role).
+
+**Mock store.** Four fictional patients beside the mock patient, one per authorization state (active with all scopes, active with
+`view_timeline` only, revoked, pending). Every patient-data route goes through one gate: the patient themself, else a doctor's
+consent, a verifier's session or a caregiver's scope, each audited. Own-data routes now refuse any other account.
+
+**Verification.** 119 web tests (30 new: API-level access rules called around the UI, and the F4 screens with axe in Bangla and
+English), no network; type check and build clean. Browser pane at 375 px and 1280 px: verifier sign-in, the code step, the queue,
+the check; caregiver list, frame, upload and request; no horizontal scroll, visible keyboard focus, only localhost requests. Found
+and fixed there: the narrow staff layout grew to 419 px at 375 px because of the file input (the grid column now shrinks).
