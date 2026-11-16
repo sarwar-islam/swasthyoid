@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (657 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (664 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (657 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (44) · [`login`](#login) (17) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (32) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (13) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (39) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (5) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (11) · [`th`](#th) (12)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (51) · [`login`](#login) (17) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (32) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (13) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (39) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (5) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (11) · [`th`](#th) (12)
 
 ## app
 
@@ -143,6 +143,13 @@ Generated from `web/src/i18n/strings.ts` (657 strings). Do not edit the strings 
 | `err.invalid_categories` | অন্তত একটি অংশ বেছে নিন। | Choose at least one section. |  |
 | `err.not_found` | খুঁজে পাওয়া যায়নি, অথবা দেখার অনুমতি নেই। | Not found, or you're not allowed to see it. |  |
 | `err.unauthenticated` | আবার লগইন করুন। | Sign in again. |  |
+| `err.review_required` | নিশ্চিত করার আগে ঘরগুলো দেখে সংরক্ষণ করুন। | Check the fields and save them before you confirm. |  |
+| `err.date_required` | নথির তারিখ লিখুন। তারিখ ছাড়া নিশ্চিত করা যাবে না। | Enter the document's date. It can't be confirmed without one. |  |
+| `err.invalid_date` | তারিখটি ঠিক নেই। দিন/মাস/বছর আকারে লিখুন। | That date isn't valid. Write it as day/month/year. |  |
+| `err.unknown_field` | এই নথিতে এমন কোনো ঘর নেই। | This document has no such field. |  |
+| `err.invalid_field` | একটি ঘরের লেখা ঠিক নেই। আবার দেখুন। | One field isn't valid. Check it again. |  |
+| `err.invalid_fields` | তথ্যগুলো পড়া যায়নি। আবার চেষ্টা করুন। | The fields couldn't be read. Try again. |  |
+| `err.not_configured` | এই সুবিধা এখনো চালু করা হয়নি। পরে আবার চেষ্টা করুন। | This isn't switched on yet. Try again later. |  |
 | `err.invalid_request` | তথ্যগুলো আবার দেখুন। | Check the details and try again. |  |
 | `err.console_no_signup` | এই নম্বরে কোনো কনসোল অ্যাকাউন্ট নেই। কনসোল অ্যাকাউন্ট শুধু অ্যাডমিন খুলতে পারেন। | There's no console account for this number. Only an admin can create console accounts. |  |
 | `err.invalid_rule` | ধরন, তীব্রতা, সংজ্ঞা আর দুই ভাষার ব্যাখ্যা আবার দেখুন। | Check the type, severity, definition and both explanations. |  |
