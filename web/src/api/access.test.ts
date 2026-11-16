@@ -126,7 +126,7 @@ describe("verifier: the patient's code read out, then a short session", () => {
     await openSession();
     const created = await verifier().request<DocumentView>("POST", `/patients/${MOCK_PATIENT_ID}/documents`, { body: upload() });
     expect(created).toMatchObject({ patient_id: MOCK_PATIENT_ID, status: "uploaded" });
-    await verifier().request("PUT", "/documents/d-review/review", { body: { fields: { prescriber_name: "Dr. Synthetic Prescriber", medications: [] } } });
+    await verifier().request("PUT", "/documents/d-review/review", { body: { fields: { prescription_date: "12/11/2026", prescriber_name: "Dr. Synthetic Prescriber", medications: [] } } });
     await verifier().request("POST", "/documents/d-review/confirm");
     const events = await patient().request<TimelineEvent[]>("GET", `/patients/${MOCK_PATIENT_ID}/timeline`);
     expect(events.some((e) => e.source_document_id === "d-review")).toBe(true);

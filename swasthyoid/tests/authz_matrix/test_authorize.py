@@ -40,8 +40,8 @@ def make(purpose, status="active"):
 
 
 def test_v4_purposes_only():
-    # M9, M11 and M12 are removed (FRD v4): their purposes are unknown and refused
-    assert PURPOSES == {"TIMELINE", "EMERGENCY", "CLOUD_AI", "CAREGIVER"}
+    # M9, M11 and M12 are removed (FRD v4): their purposes are unknown and refused; ASSISTED_CAPTURE is B4b's verifier session
+    assert PURPOSES == {"TIMELINE", "EMERGENCY", "CLOUD_AI", "CAREGIVER", "ASSISTED_CAPTURE"}
     for gone in ("APPOINTMENT", "REFERRAL", "DISPENSING"):
         req, consent = make("TIMELINE")
         assert decide(req=replace(req, purpose=gone), consent=replace(consent, purpose=gone)).reason == "unknown_purpose"

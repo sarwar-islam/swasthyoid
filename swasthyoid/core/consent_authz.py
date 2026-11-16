@@ -17,7 +17,9 @@ from swasthyoid import pii
 from swasthyoid.core import audit
 
 # FRD v4: APPOINTMENT, REFERRAL and DISPENSING went with M12, M9 and M11 (DECISIONS.md, "Scope reduction").
-PURPOSES = {"TIMELINE", "EMERGENCY", "CLOUD_AI", "CAREGIVER"}
+# ASSISTED_CAPTURE (B4b, owner approval 2026-11-16): a verifier's short session for a present patient, opened by the code
+# the patient reads out (FRD M3).
+PURPOSES = {"TIMELINE", "EMERGENCY", "CLOUD_AI", "CAREGIVER", "ASSISTED_CAPTURE"}
 
 # Consent state machine, FRD section 4.1, plus pending -> declined (the patient says no;
 # FRD change recorded in docs/DECISIONS.md). expired, revoked and declined are terminal.
@@ -239,6 +241,36 @@ def check_access(conn, *, user, patient_id, purpose, categories, action, **clien
         purpose=purpose, **client,
     )
     return decision
+
+
+# ---- Verifier assisted sessions (purpose ASSISTED_CAPTURE; B4b, owner decisions 2026-11-16). A consent row: pending until
+# the verifier enters the code the present patient read out, then active for ASSIST_SESSION_MINUTES (set by the caller).
+
+ASSIST_CATEGORIES = frozenset({"documents"})  # upload, list unverified documents, check them; never the timeline
+
+
+def expire_pending_sessions(conn, *, grantee_id, patient_id):
+    """A new request replaces this verifier's waiting ones for the same patient."""
+    return _change_all(conn, "purpose = 'ASSISTED_CAPTURE' AND status = 'pending' AND grantee_id = %s AND patient_id = %s",
+                       [grantee_id, patient_id], "expired", "expire", grantee_id)
+
+
+def end_session(conn, consent_id, *, grantee_id):
+    """The verifier ends their own active session (active -> revoked). Raises LookupError for anyone else's."""
+    with conn.transaction():
+        row = get(conn, consent_id)
+        if row is None or row["purpose"] != "ASSISTED_CAPTURE" or row["grantee_id"] != UUID(str(grantee_id)):
+            raise LookupError("session not found")
+        if row["status"] != "active":
+            return row
+        return _change(conn, consent_id, "revoked", "end", grantee_id, revoked_at=_now(conn), revoked_by=grantee_id)
+
+
+def end_sessions_of(conn, grantee_id, *, actor_id):
+    """Every active session of a verifier ends (suspension): revoked, so a later restore never brings one back."""
+    with conn.transaction():
+        return _change_all(conn, "purpose = 'ASSISTED_CAPTURE' AND status = 'active' AND grantee_id = %s", [grantee_id],
+                           "revoked", "end", actor_id)
 
 
 # ---- Consent by QR (owner decisions 2026-11-16): the doctor shows a QR (a link holding a random token) and an 8-character

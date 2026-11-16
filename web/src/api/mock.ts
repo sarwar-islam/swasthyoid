@@ -858,6 +858,11 @@ export function mockTransport(): Transport {
     })],
     ["POST", "/documents/{id}/confirm", (r, p) => withDoc(r, p.id, WORK, "document.confirm", (d) => {
       if (d.status !== "needs_review") return error(409, "not_allowed_state", "Only a document in review can be confirmed.");
+      // as the backend (B4a): a saved check is needed, and the document's own date (never one invented from the upload)
+      if (!s.reviews[d.id]) return error(422, "review_required", "Save the check first.", { field: null });
+      const dateField = ({ prescription: "prescription_date", lab_report: "report_date", discharge_summary: "discharge_date" } as Record<string, string>)[d.doc_type];
+      const dateValue = dateField ? s.reviews[d.id][dateField] : "set";
+      if (typeof dateValue !== "string" || !dateValue.trim()) return error(422, "date_required", "The document's date is needed.", { field: dateField });
       d.status = "verified";
       // what the patient checked becomes document_verified events (a sketch of M3 -> C4; the real mapping is the backend's)
       const reviewed = s.reviews[d.id] ?? {};

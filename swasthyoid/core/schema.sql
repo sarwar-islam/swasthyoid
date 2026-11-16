@@ -183,7 +183,7 @@ ALTER TABLE consents ADD COLUMN IF NOT EXISTS requested_ttl interval;  -- durati
 
 ALTER TABLE consents DROP CONSTRAINT IF EXISTS consents_purpose_check;
 ALTER TABLE consents ADD CONSTRAINT consents_purpose_check CHECK (purpose IN (
-    'TIMELINE', 'EMERGENCY', 'CLOUD_AI', 'CAREGIVER'));
+    'TIMELINE', 'EMERGENCY', 'CLOUD_AI', 'CAREGIVER', 'ASSISTED_CAPTURE'));  -- ASSISTED_CAPTURE: B4b verifier sessions
 
 ALTER TABLE consents DROP CONSTRAINT IF EXISTS consents_status_check;
 ALTER TABLE consents ADD CONSTRAINT consents_status_check CHECK (status IN (

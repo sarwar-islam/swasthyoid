@@ -214,6 +214,23 @@ describe("F6 screens", () => {
     }
   });
 
+  it("patient: confirming without the document's date says so in both languages (B4a contract)", async () => {
+    for (const [lang, text] of [["en", "Enter the document's date. It can't be confirmed without one."],
+                                ["bn", "নথির তারিখ লিখুন। তারিখ ছাড়া নিশ্চিত করা যাবে না।"]] as const) {
+      const { container } = renderApp("/patient/documents/d-review", { lang, signedIn: true });
+      const date = await waitFor(() => {
+        const el = container.querySelector<HTMLInputElement>("#f-prescription_date");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      fireEvent.change(date, { target: { value: "" } });
+      fireEvent.click(screen.getByRole("button", { name: lang === "en" ? "All correct, confirm" : "সব ঠিক আছে, নিশ্চিত করুন" }));
+      expect((await screen.findByRole("alert")).textContent).toContain(text);
+      expect(await axeViolations(container)).toEqual([]);
+      cleanup();
+    }
+  });
+
   it("patient without M10: no break-glass notice", async () => {
     renderApp("/patient/inbox", { lang: "en", signedIn: true });
     await screen.findAllByRole("button", { name: "Mark as read" });

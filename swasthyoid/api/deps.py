@@ -163,6 +163,9 @@ def authorize_patient_access(request, conn, a, patient_id, purpose, categories, 
         return a
     if a.role == "patient" and caregiver:
         user, want, scopes = replace(a, role="caregiver"), "CAREGIVER", (caregiver,)
+    elif a.role == "verifier":  # B4b: only through an active assisted session, never another purpose
+        _rbac(request, conn, a, roles, patient_id=patient_id)
+        user, want, scopes = a, "ASSISTED_CAPTURE", tuple(consent_authz.ASSIST_CATEGORIES)
     else:
         _rbac(request, conn, a, roles, patient_id=patient_id)
         user, want, scopes = a, purpose, categories

@@ -27,11 +27,13 @@ from swasthyoid.verification import review
 
 router = APIRouter()
 
-# Uploads: the patient, or a caregiver holding upload_documents. No staff role.
-# PENDING (FRD question 3): the FRD also lets a verifier upload for a present patient.
-may_upload = patient_read("TIMELINE", "documents", roles=(), caregiver="upload_documents")
-# Views: the patient, a caregiver holding view_documents, or a doctor whose consent covers documents.
+# Uploads: the patient, a caregiver holding upload_documents, or a verifier in an active assisted session (B4b).
+may_upload = patient_read("TIMELINE", "documents", roles=("verifier",), caregiver="upload_documents")
+# Views: the patient, a caregiver holding view_documents, a doctor whose consent covers documents, or a verifier in session
+# (documents not yet verified or rejected only).
 may_view = dict(purpose="TIMELINE", categories=("documents",), caregiver="view_documents")
+STAFF_VIEW = ("doctor", "verifier")
+CLOSED = ("verified", "rejected")  # never shown to a verifier: that is the record, not work to check
 MAX_REQUEST_BYTES = documents.MAX_IMAGES * documents.MAX_IMAGE_BYTES + 1024 * 1024
 _HARD_MESSAGES = {
     "image_file_too_large": "This image file is too large.",
@@ -70,7 +72,7 @@ async def _upload(request, conn, a, patient_id):
             return _view(documents.create(conn, patient_id=patient_id, doc_type=doc_type, uploaded_by=a.id,
                                           images=images, upload_anyway=upload_anyway,
                                           # a caregiver's account role is "patient"; the chain audits them as "caregiver" (deps.py)
-                                          actor=a if a.id == patient_id else replace(a, role="caregiver"),
+                                          actor=replace(a, role="caregiver") if a.role == "patient" and a.id != patient_id else a,
                                           context=client_info(request)))
         except documents.UploadRejected as e:  # never bypassed by upload_anyway
             raise ApiError(422, e.code, _HARD_MESSAGES[e.code], page=e.page)
@@ -99,39 +101,49 @@ async def upload_own(request: Request, conn=Depends(get_conn), a: Actor = Depend
 
 @router.get("/patients/{patient_id}/documents")
 def list_documents(patient_id: UUID, conn=Depends(get_conn),
-                   a: Actor = Depends(patient_read("TIMELINE", "documents", caregiver="view_documents"))):
-    return [_view(d) for d in documents.list_for_patient(conn, patient_id)]
+                   a: Actor = Depends(patient_read("TIMELINE", "documents", roles=STAFF_VIEW, caregiver="view_documents"))):
+    docs = documents.list_for_patient(conn, patient_id)
+    return [_view(d) for d in docs if a.role != "verifier" or d["status"] not in CLOSED]
 
 
-def _document(request, conn, a, document_id):
+def _document(request, conn, a, document_id, closed_ok=False):
     """The document, if the caller may view it. Unknown and not-allowed look the same (404);
-    a refusal is still audited by the chain, against the real patient."""
+    a refusal is still audited by the chain, against the real patient. A verifier never reaches a closed document's
+    content; `closed_ok` lets them read its status line right after they closed it."""
     missing = ApiError(404, "not_found", "No document with this id.")
     doc = documents.get(conn, document_id)
     if doc is None:
         raise missing
     try:
         authorize_patient_access(request, conn, a, doc["patient_id"], may_view["purpose"], may_view["categories"],
-                                 caregiver=may_view["caregiver"])
+                                 roles=STAFF_VIEW, caregiver=may_view["caregiver"])
     except ApiError as e:
         if e.status == 403:
             raise missing
         raise
+    if a.role == "verifier" and doc["status"] in CLOSED and not closed_ok:
+        raise missing
     return doc
+
+
+def _workable(request, conn, a, document_id):
+    """A document the caller may check (M3, manual entry, retry, extraction): the patient's own, or, for a verifier, one
+    their active assisted session covers that is not closed. Never a caregiver or a doctor."""
+    if a.role == "patient":
+        return _own_document(conn, a, document_id)
+    return _document(request, conn, a, document_id)
 
 
 @router.get("/documents/{document_id}")
 def get_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(actor)):
-    return _view(_document(request, conn, a, document_id))
+    return _view(_document(request, conn, a, document_id, closed_ok=True))
 
 
 @router.get("/documents/{document_id}/extraction")
-def get_extraction(document_id: UUID, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
-    """Unverified extracted fields, for review. The patient only: caregivers do not verify, and
-    nobody else may see data that has not been verified. PENDING (FRD question 3): verifiers."""
-    doc = documents.get(conn, document_id)
-    if doc is None or doc["patient_id"] != a.id:
-        raise ApiError(404, "not_found", "No document with this id.")
+def get_extraction(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient", "verifier"))):
+    """Unverified extracted fields, for review: the patient, or a verifier in an active assisted session (B4b). Caregivers
+    do not verify, and nobody else may see data that has not been verified."""
+    doc = _workable(request, conn, a, document_id)
     return {"document_id": doc["id"], "status": doc["status"], "threshold": extraction.CONFIDENCE_THRESHOLD,
             "extraction": _latest(conn, document_id)}
 
@@ -154,7 +166,8 @@ def get_image(document_id: UUID, n: int, request: Request, conn=Depends(get_conn
     return Response(data, media_type=content_type, headers={"Cache-Control": "no-store"})
 
 
-# ---- manual entry and retry: the patient only (D10), always allowed for manual entry (D12), conflicts not audited (D14)
+# ---- manual entry and retry: the patient (D10) or a verifier in an active assisted session (B4b, FRD M3 / Q3), always
+# allowed for manual entry (D12), conflicts not audited (D14)
 
 _CONFLICTS = {
     "not_allowed_state": "The document is not in a state that allows this.",
@@ -183,10 +196,10 @@ def _own_document(conn, a, document_id):
 
 @router.post("/documents/{document_id}/manual-entry")
 def start_manual_entry(document_id: UUID, request: Request, conn=Depends(get_conn),
-                       a: Actor = Depends(require("patient"))):
+                       a: Actor = Depends(require("patient", "verifier"))):
     """Move a document to review with every field empty, to be typed in by hand. 409
     extraction_in_progress while a worker holds it; 409 not_allowed_state once it is in review or closed."""
-    _own_document(conn, a, document_id)
+    _workable(request, conn, a, document_id)
 
     def work():
         try:
@@ -198,7 +211,8 @@ def start_manual_entry(document_id: UUID, request: Request, conn=Depends(get_con
     return idempotent(conn, request, a, f"manual-entry:{document_id}", work)
 
 
-# ---- M3 check, confirm, reject (B4a): the patient for their own documents; a verifier in an assisted session arrives in B4b
+# ---- M3 check, confirm, reject (B4a): the patient for their own documents, or a verifier in an active assisted session (B4b)
+VERIFIERS = require("patient", "verifier")
 
 def _m3(work_fn, conn, document_id):
     try:
@@ -214,7 +228,7 @@ def _m3(work_fn, conn, document_id):
 
 
 @router.put("/documents/{document_id}/review")
-async def save_review(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+async def save_review(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(VERIFIERS)):
     try:
         body = await request.json()
     except ValueError:
@@ -222,7 +236,7 @@ async def save_review(document_id: UUID, request: Request, conn=Depends(get_conn
     fields = body.get("fields") if isinstance(body, dict) else None
 
     def work():  # database calls off the event loop, as for uploads
-        _own_document(conn, a, document_id)
+        _workable(request, conn, a, document_id)
         saved = _m3(lambda: review.save(conn, document_id, fields, actor=a), conn, document_id)
         return {"document_id": document_id, "status": "needs_review", "fields": saved}
 
@@ -230,9 +244,9 @@ async def save_review(document_id: UUID, request: Request, conn=Depends(get_conn
 
 
 @router.post("/documents/{document_id}/confirm")
-def confirm_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+def confirm_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(VERIFIERS)):
     """One transaction: the document_verified events, the correction record, status verified. A repeat is 409."""
-    _own_document(conn, a, document_id)
+    _workable(request, conn, a, document_id)
 
     def work():
         _m3(lambda: review.confirm(conn, document_id, actor=a, context=client_info(request)), conn, document_id)
@@ -242,8 +256,8 @@ def confirm_document(document_id: UUID, request: Request, conn=Depends(get_conn)
 
 
 @router.post("/documents/{document_id}/reject")
-def reject_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
-    _own_document(conn, a, document_id)
+def reject_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(VERIFIERS)):
+    _workable(request, conn, a, document_id)
 
     def work():
         _m3(lambda: review.reject(conn, document_id, actor=a, context=client_info(request)), conn, document_id)
@@ -254,11 +268,11 @@ def reject_document(document_id: UUID, request: Request, conn=Depends(get_conn),
 
 @router.post("/documents/{document_id}/retry-extraction")
 def retry_extraction(document_id: UUID, request: Request, conn=Depends(get_conn),
-                     a: Actor = Depends(require("patient"))):
+                     a: Actor = Depends(require("patient", "verifier"))):
     """Try a failed extraction again while the document's lifetime budget of MAX_LIFETIME_ATTEMPTS OCR executions
     has attempts left. 409 not_allowed_state unless the extraction failed; 409 retry_limit_reached when the budget
     is used up; 409 not_retryable after a permanent failure."""
-    _own_document(conn, a, document_id)
+    _workable(request, conn, a, document_id)
 
     def work():
         try:

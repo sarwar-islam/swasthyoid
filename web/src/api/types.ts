@@ -144,7 +144,8 @@ export interface ExtractionResponse {
   };
 }
 
-/** PUT /documents/{id}/review then POST /documents/{id}/confirm or /reject. FRD (M3), not built. */
+/** PUT /documents/{id}/review then POST /documents/{id}/confirm or /reject. BUILT (B4a): confirm needs a saved check and the
+ * document's date (422 review_required, date_required); a field that does not parse is 422 invalid_date or invalid_field. */
 export interface ReviewBody {
   fields: Record<string, string | null | Array<Record<string, string | null>>>;
 }
@@ -154,7 +155,7 @@ export interface ReviewBody {
 export type Provenance = "document_verified" | "patient_reported";
 export type EventType = "visit" | "diagnosis" | "medication" | "lab_result" | "allergy" | "follow_up" | "prescription" | "vital_reading";
 
-/** An item of GET /patients/{id}/timeline. FRD (C4 mandatory fields, trimmed to what the UI shows), not built. */
+/** An item of GET /patients/{id}/timeline?from&to&type. BUILT (B4a; C4 mandatory fields, trimmed to what the UI shows). */
 export interface TimelineEvent {
   event_id: string;
   event_type: EventType;
@@ -375,11 +376,11 @@ export interface CaregiverAuthorization {
 
 /** POST /verifier/sessions { health_id } -> 201 (pending; the code is sent to the patient's phone, never returned);
  * POST /verifier/sessions/{id}/confirm { code } -> active (403 invalid_code for a wrong, expired, used or dead code);
- * POST /verifier/sessions/{id}/end. GAP: the routes, and the C1 purpose name `ASSISTED_CAPTURE`, are proposals for the owner. The
+ * POST /verifier/sessions/{id}/end. BUILT (B4b, owner approval 2026-11-16), C1 purpose `ASSISTED_CAPTURE`. The
  * session length is REVIEWER-PENDING (the server sets `expires_at`). */
 export interface AssistSession {
   id: string;
-  purpose: "ASSISTED_CAPTURE"; // GAP: C1 purpose mapping to decide
+  purpose: "ASSISTED_CAPTURE"; // C1 purpose (B4b)
   status: "pending" | "active" | "expired" | "revoked";
   health_id: string;
   patient_id: string | null; // only once active

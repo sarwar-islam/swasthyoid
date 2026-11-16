@@ -180,6 +180,7 @@ def suspend_user(conn, user_id, *, admin_id, reason=None):
     The reason is kept on the account; the audit entry says only that one was given."""
     with conn.transaction():
         _set_status(conn, user_id, admin_id, "verified", "suspended", "credential.suspend", reason)
+        consent_authz.end_sessions_of(conn, user_id, actor_id=admin_id)  # a verifier's assisted sessions end for good
         consent_authz.suspend_grantee(conn, user_id, actor_id=admin_id)
         sessions.revoke_all(conn, user_id)
 
