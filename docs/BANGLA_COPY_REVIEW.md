@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (664 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (679 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (664 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (51) · [`login`](#login) (17) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (32) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (13) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (39) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (5) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (11) · [`th`](#th) (12)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (55) · [`login`](#login) (17) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (32) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (13) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (39) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (11) · [`th`](#th) (12)
 
 ## app
 
@@ -157,6 +157,10 @@ Generated from `web/src/i18n/strings.ts` (664 strings). Do not edit the strings 
 | `err.not_draft` | শুধু খসড়ার পর্যালোচনা করা যায়। | Only a draft can be reviewed. |  |
 | `err.invalid_decision` | ন্যায্য বা অন্যায্য বেছে নিন। | Choose justified or unjustified. |  |
 | `err.invalid_file` | খালি নয় এমন একটি CSV ফাইল বেছে নিন। | Choose a CSV file that isn't empty. |  |
+| `err.source_required` | ফাইলটি কোথা থেকে এবং কোন শর্তে পাওয়া, তা লিখুন। | Say where the file came from and on what terms. |  |
+| `err.invalid_catalog` | এই ফাইলটি তালিকা হিসেবে ব্যবহার করা যাচ্ছে না। কলাম ও ফাইলের ধরন দেখুন। | This file can't be used as a catalog. Check its columns and format. |  |
+| `err.four_eyes` | নিজের লেখা খসড়া নিজে অনুমোদন করা যায় না। অন্য একজন রিভিউয়ারকে অনুমোদন করতে হবে। | You can't approve a draft you wrote. Another reviewer must approve it. |  |
+| `err.invalid_vital_threshold` | ভাইটাল সীমার নিয়মে vital_type (bp বা glucose) ও তার সঙ্গে মেলে এমন unit দিন। | A vital threshold rule needs vital_type (bp or glucose) and a unit that fits it. |  |
 | `err.invalid_role` | যাচাইকারী বা ক্লিনিক্যাল রিভিউয়ার বেছে নিন। | Choose verifier or clinical reviewer. |  |
 | `err.invalid_name` | নাম লিখুন। | Enter the name. |  |
 | `err.phone_exists` | এই নম্বরে আগে থেকেই একটি অ্যাকাউন্ট আছে। | This number already has an account. |  |
@@ -815,7 +819,18 @@ Generated from `web/src/i18n/strings.ts` (664 strings). Do not edit the strings 
 | `catalog.file` | তালিকার ফাইল (CSV) | Catalog file (CSV) |  |
 | `catalog.hint` | শুধু সিনথেটিক পরীক্ষার ফাইল। | Synthetic test files only. |  |
 | `catalog.send` | আমদানির জন্য পাঠান | Send for import |  |
-| `catalog.queued` | {file} ({size} কিলোবাইট) পাওয়া গেছে, সারিতে আছে। | Received {file} ({size} KB); it is queued. |  |
+| `catalog.source` | ফাইলটি কোথা থেকে এবং কোন শর্তে পাওয়া | Where the file came from, and on what terms |  |
+| `catalog.sourceHint` | যেমন: উৎস, লাইসেন্স বা অনুমতি, কবে নেওয়া। এটি ফাইলের পরিচয়ের সঙ্গে সংরক্ষিত থাকবে। | For example: the source, the licence or permission, when it was obtained. It is kept with the file's fingerprint. |  |
+| `catalog.reportTitle` | যাচাইয়ের ফলাফল | Validation report |  |
+| `catalog.validated` | {file} ({size} কিলোবাইট) যাচাই করা হয়েছে। | {file} ({size} KB) was validated. |  |
+| `catalog.notStored` | ফাইলের কোনো তথ্য রাখা হয়নি; শুধু হ্যাশ, আকার, এই সংখ্যাগুলো আর উৎসের বিবরণ রাখা হয়েছে। কাজের তালিকা বদলায়নি। | None of the file's data was kept: only its hash, size, these counts and the source statement. The working catalog is unchanged. |  |
+| `catalog.r.rows` | মোট সারি | Rows |  |
+| `catalog.r.matchable` | মেলানো যায় এমন সারি | Rows that can be matched |  |
+| `catalog.r.unmatchable` | ব্র্যান্ড বা জেনেরিক নাম নেই এমন সারি | Rows with no brand or generic name |  |
+| `catalog.r.duplicate_groups` | হুবহু একই সারির দল | Groups of identical rows |  |
+| `catalog.r.near_duplicate_groups` | প্রায় একই সারির দল | Groups of near-identical rows |  |
+| `catalog.r.brands_with_several_generics` | একাধিক জেনেরিক নামের ব্র্যান্ড | Brands with several generic names |  |
+| `catalog.r.products_with_several_manufacturers` | একাধিক প্রস্তুতকারকের পণ্য | Products with several manufacturers |  |
 
 ## audit
 

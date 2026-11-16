@@ -2282,3 +2282,45 @@ the timeline refused, access history, one patient per session, end, expiry, susp
 session's own verifier. `test_authorize.py::test_v4_purposes_only` updated for the new purpose. Local PostgreSQL 16: 1509
 passed, 0 failed, 19 skipped (a first full run failed only that test before its update). Web: 178 passed (1 new: the date
 error in Bangla and English with axe; the existing verifier API test now sends the date); type check clean.
+
+## B5 rule registry, audit view and catalog validation (owner approval 2026-11-17)
+
+- **Rule registry (FRD M6; `safety/schema.sql`, `safety/registry.py`, `api/rules.py`)**, verified clinical reviewers only:
+  `GET /rules?type=`, `POST /rules` (a new rule `RULE-XXXXXXXX`, or a new version of `rule_id`), `POST /rules/{id}/approve`,
+  `POST /rules/{id}/reject { reason }`. One row per version. A database guard keeps every version's type, severity,
+  definition and explanations unchanged, allows only draft -> approved | rejected and approved -> superseded, and refuses
+  delete and truncate. At most one open draft (409 `draft_exists`) and one approved version per rule; approving supersedes
+  the approved one. **Four-eyes** (decision 7): 409 `four_eyes` when the author approves, also a database CHECK; the author
+  may withdraw (reject) their own draft. Shape checks only (422 `invalid_rule`); **`vital_threshold`** (decision 8,
+  REVIEWER-PENDING) needs `vital_type` `bp` with `mmHg`, or `glucose` with `mmol/L` or `mg/dL` (422
+  `invalid_vital_threshold`). A rejection keeps its reason on the version; the audit says `reason_given`. **No rule is
+  seeded**; no engine runs. Version history is the version rows themselves plus the audit entries (`rule.draft`,
+  `rule.approve`, `rule.reject`); no separate history table was added.
+- **`GET /audit` (admin; `core/audit.py` `admin_page`, `reference`):** the whole chain verified on every read (chain status
+  `intact`, or `broken` with the first broken entry's id); the newest 100 entries filtered on the server (action prefix,
+  result, role); metadata only, people and records as `auditref:` HMAC references of 10 hex characters (decision 5);
+  any reason that is not a plain code (`^[a-z_]+$`) shows as `free_text_hidden`. Every read writes `audit.read`.
+  shortcut: full verification per read; cache the verified head when the log grows.
+- **`POST /catalog/import` (admin; validate and report only, FRD Q1 open):** multipart `file` (CSV) and `source` (the
+  admin's statement of where it came from and on what terms; 422 `source_required`). Read in memory by the existing loader
+  (`drugcatalog.load_medicine_bytes`, shared with `load_medicine_csv`); refusals are 422 `invalid_file` or
+  `invalid_catalog` with the loader's reason word. Only the hash, size, file name, counts and source statement are kept
+  (`catalog_imports`, append-only); no catalog data is stored and the worker still uses only `DRUG_CATALOG_PATH`.
+  Response `status: "validated"` with a `report` of counts.
+- **Frontend:** the catalog page asks for the source statement and shows the report (counts, "nothing kept") instead of
+  "queued"; Bangla and English text for `four_eyes`, `invalid_vital_threshold`, `source_required`, `invalid_catalog` and the
+  report; the mock enforces four-eyes (its seeded rules are now written by a second synthetic reviewer), the vital-threshold
+  shape and the source statement, and returns zero counts (it never reads the file). `BANGLA_COPY_REVIEW.md` regenerated
+  (679 strings).
+- **Fixed on the way:** B2's async admin handlers (credential reject, staff create, suspend) ran database calls on the event
+  loop; they now run in the threadpool, like uploads.
+- **Process note:** the owner asked for the Edit tool for every file change in B5; one change (the three threadpool lines in
+  `api/admin.py`) was made with `sed`. Line endings were kept (LF); every other change used the editor.
+
+**Verification.** 28 new backend tests (`tests/test_api_b5.py`): roles for every route, shape checks and the vital-threshold
+vocabulary, versions, `draft_exists`, four-eyes over HTTP and in the database, withdrawal by the author, immutability
+(update, delete, truncate, illegal transition), the audit view's keyed references and hidden free text, `audit.read`,
+server-side filters, a tampered entry reported as the first broken one, and the catalog upload (report, nothing stored,
+seven refusals, admin only). Local PostgreSQL 16: 1537 passed, 0 failed, 19 skipped. Web: 181 passed (four-eyes refusal in
+Bangla and English with axe; the catalog screen's source field and report with axe; updated mock API tests); type check
+clean. The schema, with the new `safety/schema.sql`, applies over the B4b schema.
