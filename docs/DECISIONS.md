@@ -2155,3 +2155,39 @@ password are user-level environment variables on that machine, outside the repos
   pharmacist CHECK.
 
 **Verification.** Local PostgreSQL 16: 1460 passed, 19 skipped, 0 failed in 17 min 54 s; web: 176 passed (no web change).
+
+## B2 identity, consent and admin routes (owner approval 2026-11-16)
+
+Built in the backend (the frontend already used these shapes; no `web/` change):
+- **`GET /me`** for the patient (`id, health_id, name, language, cloud_ai_opt_in`) and every staff role, pending included
+  (`id, role, name, status, emergency_enabled, credential`); `credential` is the newest one not rejected, or null.
+- **Consent responses:** the doctor's views (request, confirm, new `GET /consents/requests/{id}`) carry `patient_id` and
+  `health_id`; `GET /consents` carries `method` (`otp` or `qr`) on doctor requests. The intended method is stored when the
+  request is created; activation stores the one used.
+- **Consent by QR** (decision 3 of the plan): `POST /consents/requests { …, method: "qr" }` sends no SMS and returns
+  `qr { token, short_code, expires_at }` once. Token: 32 random bytes; short code: 8 characters from a 31-character alphabet,
+  unique among open QR requests, any case. Both are stored only as keyed hashes (`consent_qr` table, core schema), last
+  `otp.CODE_TTL` (5 minutes) and work once. A QR request is never written to the Idempotency-Key store (its response holds the
+  token). The code route refuses a QR request (`403 invalid_code`, audited `qr_request`). `GET /consents/qr/{ref}`,
+  `POST …/approve`, `…/decline`: the named patient only; anyone else, an unknown, used or expired ref get the same 404.
+  Every lookup is audited (`consent.qr.read`), a refused answer too (`consent.qr.approve|decline`, `not_open`), and a
+  successful one by C1 (`consent.activate`, method `QR`, or `consent.decline`). The QR logic lives in `core/consent_authz.py`.
+- **Credentials (admin):** `GET /credentials?status=`; `POST /credentials/{id}/reject { reason }` keeps the row as `rejected`
+  with `review_reason`; the number may be submitted again (unique only among credentials not rejected); the audit says
+  `reason_given`. `GET /credentials/{id}/document`: admin only, audited, typed from its first bytes (PNG, JPEG, PDF, else
+  `application/octet-stream`), 404 when nothing is stored; uploading the document stays unbuilt.
+- **Staff (admin):** `GET /admin/staff?status=` (verifiers and clinical reviewers, phone's last four digits);
+  `POST /admin/staff { role: verifier | clinical_reviewer, name, phone }` creates a verified account (422 `invalid_role`,
+  `invalid_name`, `invalid_phone`; 409 `phone_exists`); `POST /admin/staff/{id}/approve` (a pending verifier);
+  `POST /admin/users/{id}/suspend { reason }` for doctors, verifiers and clinical reviewers, never an admin (404). Suspension
+  keeps the reason on the account (`users.status_reason`), suspends the person's consents and ends their sessions; ending a
+  verifier's assisted sessions arrives with B4. Admins are still created only by `seed_admin`.
+- **Differences from the mock, for B8:** the server accepts only Bangladesh mobile numbers for staff (the mock accepted any
+  6 to 15 digits); a rejected credential stays in the list as `rejected` (the mock deleted it).
+
+**Verification.** 17 new tests (`tests/test_api_b2.py`: `/me` for five roles, consent fields, QR rules, credential reject and
+resubmit, the document route, staff creation and approval, suspension, every admin route refusing every other role with the
+refusal audited); the role matrix now creates its clinical reviewer through `POST /admin/staff`. Local PostgreSQL 16: 1476
+passed, 1 failed, 19 skipped. The failure, `test_extraction_recovery.py::test_heartbeat_keeps_a_long_job_and_nobody_else_can_take_it`,
+is a timing test (a 1.5 s lease renewed every 0.3 s) that also fails 2 of 3 runs on the B1 commit without B2 on this machine;
+B2 changes no extraction code. It passed in the B0 and B1 full runs. Web: 176 passed (no web change).
