@@ -166,3 +166,82 @@ export interface TimelineEvent {
   supersedes: string | null; // the event this one corrects
   payload: Record<string, string>;
 }
+
+// ---- M13 home vitals (FRD section 7: POST /vitals, GET /vitals, POST /vitals/{id}/correct; response shapes PROPOSED here)
+
+export type VitalType = "bp" | "glucose";
+export type VitalUnit = "mmHg" | "mmol/L" | "mg/dL";
+export type VitalContext = "home" | "resting" | "fasting" | "post_meal" | "random";
+
+export interface VitalEntry {
+  vital_type: VitalType;
+  value: string; // "120/80" for BP, "6.2" for glucose; ASCII digits
+  unit: VitalUnit;
+  context: VitalContext;
+  measured_at: string; // ISO
+  confirmed?: boolean; // true after the patient confirmed a value the server called implausible (422 confirmation_required)
+}
+
+/** A `vital_reading` event: always patient_reported, never device-verified. A correction is a new reading that supersedes. */
+export interface VitalReading extends Omit<VitalEntry, "confirmed"> {
+  event_id: string;
+  verification_status: "patient_reported";
+  version: number;
+  supersedes: string | null;
+  recorded_at: string;
+}
+
+/** Text a clinical reviewer approved, in both languages, or a REVIEWER-PENDING placeholder until one exists. */
+export interface ReviewedText {
+  bn: string;
+  en: string;
+  status: "approved" | "REVIEWER-PENDING";
+}
+
+/** The server's evaluation against the reviewer-approved threshold rules (M6 registry). The client never decides this. */
+export interface VitalEvaluation {
+  level: "within_range" | "flagged" | "critical" | "not_evaluated";
+  rule_id: string | null;
+  message: ReviewedText | null; // the escalation or alert text; critical always carries one
+}
+
+export interface VitalSaved {
+  reading: VitalReading;
+  evaluation: VitalEvaluation;
+}
+
+// ---- M7 triage (FRD section 7: POST /triage/sessions, POST /triage/sessions/{id}/answer; shapes PROPOSED)
+
+export interface TriageState {
+  session_id: string;
+  state: "question" | "emergency" | "suggestion";
+  question: { id: string; text: ReviewedText; options: Array<{ id: string; text: ReviewedText }> } | null;
+  suggestion: { department: ReviewedText; reason: ReviewedText } | null;
+}
+
+// ---- M8 reminders (FRD section 7: GET /reminders, PATCH /reminders/{id}, POST /reminders/{id}/log; shapes PROPOSED)
+
+export type ReminderStatus = "proposed" | "active" | "paused" | "ended";
+export type ReminderLogAction = "taken" | "skipped" | "snoozed";
+
+export interface Reminder {
+  id: string;
+  kind: "medicine" | "follow_up" | "test";
+  status: ReminderStatus;
+  as_written: string; // repeats the verified prescription; never a suggested dose
+  times: string[]; // "08:00", from the written frequency
+  source_event_id: string; // a document_verified event
+  log: Array<{ action: ReminderLogAction; at: string }>;
+}
+
+// ---- M10 emergency profile (FRD: PUT /me/emergency-profile. GAP: GET /me/emergency-profile, needed to show the current profile)
+
+export type EmergencyField = "blood_group" | "allergies" | "active_medications" | "conditions" | "emergency_contacts";
+
+export interface EmergencyProfile {
+  enabled: boolean;
+  fields: EmergencyField[];
+  contacts: Array<{ name: string; phone: string }>;
+  /** What the card could show, built from verified events only (null: nothing verified for it yet). */
+  available: { blood_group: string | null; allergies: string[]; active_medications: string[]; conditions: string[] };
+}

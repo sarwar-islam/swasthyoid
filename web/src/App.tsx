@@ -1,17 +1,23 @@
 import { HeartPulse } from "lucide-react";
 import type React from "react";
-import { Link, Route, Routes } from "react-router";
+import { Link, Navigate, Route, Routes } from "react-router";
 import { LanguageToggle, ThemeSelect } from "./components/Controls";
+import { flags } from "./flags";
 import { localDigits, useI18n } from "./i18n/i18n";
 import type { Key } from "./i18n/strings";
 import { ConsentCenter } from "./pages/patient/Consent";
 import { Capture } from "./pages/patient/Capture";
 import { DocumentPage } from "./pages/patient/Document";
 import { Home } from "./pages/patient/Home";
+import { EmergencyProfile } from "./pages/patient/EmergencyProfile";
 import { Login } from "./pages/patient/Login";
+import { More } from "./pages/patient/More";
+import { Reminders } from "./pages/patient/Reminders";
 import { Timeline } from "./pages/patient/Timeline";
+import { EmergencyPage, FirstAid, Triage } from "./pages/patient/Triage";
+import { Vitals } from "./pages/patient/Vitals";
 import { RequireRole } from "./session";
-import { PATIENT_NAV, PatientShell, STAFF_NAV, StaffShell, type NavItem } from "./shells/Shells";
+import { PATIENT_NAV, PatientShell, STAFF_NAV, StaffShell, visible, type NavItem } from "./shells/Shells";
 
 function Placeholder({ item }: { item: NavItem }) {
   const { t, lang } = useI18n();
@@ -55,6 +61,7 @@ function PortalChooser() {
 // built pages by route; any other menu item shows which phase builds it
 const BUILT: Record<string, React.ReactNode> = {
   "/patient": <Home />, "/patient/timeline": <Timeline />, "/patient/capture": <Capture />, "/patient/consent": <ConsentCenter />,
+  "/patient/more": <More />,
 };
 
 const pages = (items: NavItem[], base: string) =>
@@ -71,11 +78,18 @@ export function AppRoutes() {
         <Route path="/patient" element={<PatientShell />}>
           {pages(PATIENT_NAV, "/patient")}
           <Route path="documents/:id" element={<DocumentPage />} />
+          <Route path="vitals" element={<Vitals />} />
+          <Route path="reminders" element={<Reminders />} />
+          <Route path="help" element={<Triage />} />
+          <Route path="first-aid" element={<FirstAid />} />
+          <Route path="emergency" element={<EmergencyPage />} />
+          {flags.emergencyAccess && <Route path="emergency-profile" element={<EmergencyProfile />} />}
+          <Route path="*" element={<Navigate to="/patient" replace />} />
         </Route>
       </Route>
       {(["doctor", "verifier", "console"] as const).map((portal) => (
         <Route key={portal} path={`/${portal}`} element={<StaffShell portal={portal} />}>
-          {pages(STAFF_NAV[portal].items, `/${portal}`)}
+          {pages(visible(STAFF_NAV[portal].items), `/${portal}`)}
         </Route>
       ))}
     </Routes>

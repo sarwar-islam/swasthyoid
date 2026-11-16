@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse, Method, Transport } from "./client";
 import type {
-  AccessEntry, Consent, DocType, DocumentView, ExtractedField, ExtractionResponse, FieldRow, Me, OtpVerifyBody, ReviewBody,
-  TimelineEvent,
+  AccessEntry, Consent, DocType, DocumentView, EmergencyProfile, ExtractedField, ExtractionResponse, FieldRow, Me, OtpVerifyBody,
+  Reminder, ReminderLogAction, ReviewBody, ReviewedText, TimelineEvent, TriageState, VitalEntry, VitalEvaluation, VitalReading,
 } from "./types";
 
 // In-memory stand-in for /api/v1 with SYNTHETIC data only (invariant 9): no real person, drug or clinic. It answers with the
@@ -99,7 +99,60 @@ function createState() {
     ev("e-bp-1", "vital_reading", "2026-11-10", "patient_reported", { reading: "150/95 mmHg" }),
     ev("e-bp-2", "vital_reading", "2026-11-10", "patient_reported", { reading: "130/85 mmHg" }, { version: 2, supersedes: "e-bp-1" }),
   ];
-  return { me, consents, history, documents, extractions, timeline, phones: new Set([MOCK_PHONE]), reviews: {} as Record<string, ReviewBody["fields"]> };
+  const vitals: VitalReading[] = [
+    { event_id: "v-1", vital_type: "bp", value: "150/95", unit: "mmHg", context: "home", measured_at: iso(-120), verification_status: "patient_reported",
+      version: 1, supersedes: null, recorded_at: iso(-120) },
+    { event_id: "v-2", vital_type: "bp", value: "130/85", unit: "mmHg", context: "home", measured_at: iso(-120), verification_status: "patient_reported",
+      version: 2, supersedes: "v-1", recorded_at: iso(-119) },
+    { event_id: "v-3", vital_type: "glucose", value: "6.1", unit: "mmol/L", context: "fasting", measured_at: iso(-30), verification_status: "patient_reported",
+      version: 1, supersedes: null, recorded_at: iso(-30) },
+  ];
+  const reminders: Reminder[] = [
+    { id: "r-proposed", kind: "medicine", status: "proposed", as_written: "SYNTH-DRUG-003 · 1+0+1 (as written)", times: ["08:00", "20:00"],
+      source_event_id: "e-med", log: [] },
+    { id: "r-active", kind: "medicine", status: "active", as_written: "SYNTH-DRUG-001 · 0+0+1 (as written)", times: ["21:00"],
+      source_event_id: "e-med", log: [{ action: "taken", at: iso(-20) }] },
+    { id: "r-follow", kind: "follow_up", status: "paused", as_written: "Follow-up visit (as written)", times: ["10:00"],
+      source_event_id: "e-rx", log: [] },
+  ];
+  const emergency: EmergencyProfile = { enabled: false, fields: [], contacts: [],
+    available: { blood_group: null, allergies: [], active_medications: ["SYNTH-DRUG-003"], conditions: [] } };
+  return { me, consents, history, documents, extractions, timeline, phones: new Set([MOCK_PHONE]), reviews: {} as Record<string, ReviewBody["fields"]>,
+           vitals, reminders, emergency, triage: {} as Record<string, number> };
+}
+
+// ---- F2 mock rules. SYNTHETIC and MOCK-ONLY: they exist so every screen state can be tried. They are NOT clinical rules and the
+// UI never contains them; the real ones come from the reviewer-approved M6 registry (FRD M13, M7). All wording is a placeholder.
+const pending = (en: string, bn: string): ReviewedText =>
+  ({ status: "REVIEWER-PENDING", en: `[REVIEWER-PENDING] ${en}`, bn: `[রিভিউয়ার-অনুমোদন বাকি] ${bn}` });
+export const MOCK_RED_FLAG = "SYNTH-RED-FLAG"; // the mock routes a message containing this to the emergency card
+
+function mockEvaluate(entry: VitalEntry): { confirm: boolean; evaluation: VitalEvaluation } {
+  if (entry.vital_type === "bp") {
+    const [sys, dia] = entry.value.split("/").map(Number);
+    const confirm = sys > 300 || dia > 200 || sys <= dia; // mock-only plausibility check
+    // 180/120 is the FRD's own example of a critical reading (M13); every other reading has no approved rule yet
+    const critical = sys >= 180 || dia >= 120;
+    return { confirm, evaluation: critical
+      ? { level: "critical", rule_id: "SYNTH-RULE-BP-CRITICAL", message: pending("Approved escalation message goes here.", "অনুমোদিত জরুরি বার্তা এখানে বসবে।") }
+      : { level: "not_evaluated", rule_id: null, message: null } };
+  }
+  const value = Number(entry.value);
+  const confirm = entry.unit === "mmol/L" ? value > 40 : value > 700; // mock-only: a value that looks like the wrong unit
+  return { confirm, evaluation: { level: "not_evaluated", rule_id: null, message: null } };
+}
+
+/** One step of the mock triage: the red-flag check runs on the first message and on every answer, before anything else. */
+function triageStep(id: string, text: string, answered: number): TriageState {
+  if (text.toUpperCase().includes(MOCK_RED_FLAG)) return { session_id: id, state: "emergency", question: null, suggestion: null };
+  if (answered >= 2) {
+    return { session_id: id, state: "suggestion", question: null, suggestion: {
+      department: pending("Department from the approved guide table", "অনুমোদিত নির্দেশিকা থেকে বিভাগ"),
+      reason: pending("Short reason from the approved guide table", "অনুমোদিত নির্দেশিকা থেকে সংক্ষিপ্ত কারণ") } };
+  }
+  return { session_id: id, state: "question", suggestion: null, question: { id: `q${answered + 1}`,
+    text: pending(`Follow-up question ${answered + 1} from the approved guide table`, `অনুমোদিত নির্দেশিকা থেকে প্রশ্ন ${answered + 1}`),
+    options: [{ id: "yes", text: { status: "approved", en: "Yes", bn: "হ্যাঁ" } }, { id: "no", text: { status: "approved", en: "No", bn: "না" } }] } };
 }
 
 function syntheticPage(): Blob {
@@ -244,6 +297,66 @@ export function mockTransport(): Transport {
       return ok(d);
     }],
     ["GET", "/patients/{id}/timeline", (r) => (authed(r) ? ok(s.timeline) : unauthenticated)],
+    ["GET", "/vitals", (r) => (authed(r) ? ok(s.vitals) : unauthenticated)],
+    ...(["/vitals", "/vitals/{id}/correct"] as const).map((path): [Method, string, Handler] => ["POST", path, (r, p) => {
+      if (!authed(r)) return unauthenticated;
+      const entry = r.body as VitalEntry;
+      const original = p.id ? s.vitals.find((v) => v.event_id === p.id) : undefined;
+      if (p.id && !original) return error(404, "not_found", "No reading with this id.");
+      const shape = entry.vital_type === "bp" ? /^\d{2,3}\/\d{2,3}$/ : /^\d+(\.\d+)?$/;
+      if (!shape.test(entry.value ?? "") || !["mmHg", "mmol/L", "mg/dL"].includes(entry.unit)) return error(422, "invalid_reading", "Check the value and unit.");
+      const { confirm, evaluation } = mockEvaluate(entry);
+      if (confirm && !entry.confirmed) return error(422, "confirmation_required", "This value looks unusual. Confirm it.");
+      const reading: VitalReading = { event_id: `v-${crypto.randomUUID().slice(0, 8)}`, vital_type: entry.vital_type, value: entry.value,
+        unit: entry.unit, context: entry.context, measured_at: entry.measured_at, verification_status: "patient_reported",
+        version: original ? original.version + 1 : 1, supersedes: original?.event_id ?? null, recorded_at: new Date().toISOString() };
+      s.vitals.push(reading);
+      return ok({ reading, evaluation }, 201);
+    }]),
+    ["POST", "/triage/sessions", (r) => {
+      if (!authed(r)) return unauthenticated;
+      const message = String((r.body as { message?: unknown } | undefined)?.message ?? "");
+      const id = `t-${crypto.randomUUID().slice(0, 8)}`;
+      s.triage[id] = 0;
+      return ok(triageStep(id, message, 0), 201);
+    }],
+    ["POST", "/triage/sessions/{id}/answer", (r, p) => {
+      if (!authed(r)) return unauthenticated;
+      if (!(p.id in s.triage)) return error(404, "not_found", "No triage session with this id.");
+      s.triage[p.id] += 1;
+      return ok(triageStep(p.id, String((r.body as { answer?: unknown } | undefined)?.answer ?? ""), s.triage[p.id]));
+    }],
+    ["GET", "/reminders", (r) => (authed(r) ? ok(s.reminders) : unauthenticated)],
+    ["PATCH", "/reminders/{id}", (r, p) => {
+      if (!authed(r)) return unauthenticated;
+      const rem = s.reminders.find((x) => x.id === p.id);
+      if (!rem) return error(404, "not_found", "No reminder with this id.");
+      const next = (r.body as { status?: string }).status;
+      const allowed: Record<string, string[]> = { proposed: ["active", "ended"], active: ["paused", "ended"], paused: ["active", "ended"], ended: [] };
+      if (!next || !allowed[rem.status].includes(next)) return error(409, "not_allowed_state", "The reminder is not in a state that allows this.");
+      rem.status = next as Reminder["status"];
+      return ok(rem);
+    }],
+    ["POST", "/reminders/{id}/log", (r, p) => {
+      if (!authed(r)) return unauthenticated;
+      const rem = s.reminders.find((x) => x.id === p.id);
+      if (!rem) return error(404, "not_found", "No reminder with this id.");
+      if (rem.status !== "active") return error(409, "not_allowed_state", "Only an active reminder can be logged.");
+      const action = (r.body as { action?: ReminderLogAction }).action;
+      if (!action || !["taken", "skipped", "snoozed"].includes(action)) return error(422, "invalid_action", "Use taken, skipped or snoozed.");
+      rem.log.unshift({ action, at: new Date().toISOString() });
+      return ok(rem);
+    }],
+    ["GET", "/me/emergency-profile", (r) => (authed(r) ? ok(s.emergency) : unauthenticated)],
+    ["PUT", "/me/emergency-profile", (r) => {
+      if (!authed(r)) return unauthenticated;
+      const body = r.body as Pick<EmergencyProfile, "enabled" | "fields" | "contacts">;
+      if (body.contacts?.some((c) => !c.name?.trim() || !/^\+?\d{6,15}$/.test(c.phone ?? ""))) {
+        return error(422, "invalid_contact", "Each contact needs a name and a phone number.");
+      }
+      Object.assign(s.emergency, { enabled: !!body.enabled, fields: body.fields ?? [], contacts: body.contacts ?? [] });
+      return ok(s.emergency);
+    }],
   ];
 
   return async (request) => {

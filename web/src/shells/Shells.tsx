@@ -16,34 +16,35 @@ export interface NavItem {
   flag?: keyof typeof flags;
 }
 
-const on = (items: NavItem[]) => items.filter((item) => !item.flag || flags[item.flag]);
+/** The items whose feature flag is on, checked at render time. */
+export const visible = (items: NavItem[]) => items.filter((item) => !item.flag || flags[item.flag]);
 
-export const PATIENT_NAV: NavItem[] = on([
+export const PATIENT_NAV: NavItem[] = [
   { to: "/patient", label: "nav.home", icon: Home, phase: "F1" },
   { to: "/patient/timeline", label: "nav.timeline", icon: Activity, phase: "F1" },
   { to: "/patient/capture", label: "nav.capture", icon: Camera, phase: "F1" },
   { to: "/patient/consent", label: "nav.consent", icon: ShieldCheck, phase: "F1" },
   { to: "/patient/more", label: "nav.more", icon: LayoutGrid, phase: "F2" },
-]);
+];
 
 export const STAFF_NAV: Record<"doctor" | "verifier" | "console", { title: Key; items: NavItem[] }> = {
-  doctor: { title: "portal.doctor", items: on([
+  doctor: { title: "portal.doctor", items: [
     { to: "/doctor", label: "nav.patients", icon: Users, phase: "F3" },
     { to: "/doctor/alerts", label: "nav.alerts", icon: ShieldAlert, phase: "F3" },
     { to: "/doctor/emergency", label: "nav.breakglass", icon: Siren, phase: "F3", flag: "emergencyAccess" },
     { to: "/doctor/credentials", label: "nav.credentials", icon: BadgeCheck, phase: "F3" },
-  ]) },
-  verifier: { title: "portal.verifier", items: on([
+  ] },
+  verifier: { title: "portal.verifier", items: [
     { to: "/verifier", label: "nav.capture", icon: Camera, phase: "F4" },
     { to: "/verifier/queue", label: "nav.queue", icon: ListChecks, phase: "F4" },
-  ]) },
-  console: { title: "portal.console", items: on([
+  ] },
+  console: { title: "portal.console", items: [
     { to: "/console", label: "nav.approvals", icon: KeyRound, phase: "F5" },
     { to: "/console/rules", label: "nav.rules", icon: Gavel, phase: "F5" },
     { to: "/console/reviews", label: "nav.reviews", icon: FileSearch, phase: "F5", flag: "emergencyAccess" },
     { to: "/console/audit", label: "nav.audit", icon: ScrollText, phase: "F5" },
     { to: "/console/metrics", label: "nav.metrics", icon: Inbox, phase: "F5" },
-  ]) },
+  ] },
 };
 
 function TopBar({ subtitle }: { subtitle: Key }) {
@@ -86,7 +87,8 @@ export function PatientShell() {
 /** Doctor, verifier and console: a side menu on wide screens, a scrolling row on narrow ones. */
 export function StaffShell({ portal }: { portal: keyof typeof STAFF_NAV }) {
   const { t } = useI18n();
-  const { title, items } = STAFF_NAV[portal];
+  const { title } = STAFF_NAV[portal];
+  const items = visible(STAFF_NAV[portal].items);
   return (
     <div className="shell" data-portal="staff">
       <SkipLink />

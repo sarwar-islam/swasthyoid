@@ -1,8 +1,9 @@
-import { AlertTriangle, CheckCircle2, FileCheck2, UserRound } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileCheck2, Phone, Siren, UserRound } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { ApiError } from "../api/client";
-import type { DocStatus, Provenance } from "../api/types";
-import { useI18n } from "../i18n/i18n";
+import type { DocStatus, Provenance, ReviewedText } from "../api/types";
+import { EMERGENCY_MESSAGE } from "../content/reviewerPending";
+import { localDigits, useI18n } from "../i18n/i18n";
 import { bn, type Key } from "../i18n/strings";
 
 /** Text for an error: the matching `err.<code>` string, or the generic one. Never a raw server message. */
@@ -71,6 +72,30 @@ export function Section({ title, children, id }: { title: string; children: Reac
     <section aria-labelledby={id} className="section">
       <h2 id={id}>{title}</h2>
       {children}
+    </section>
+  );
+}
+
+/** Text from the clinical reviewer (or the server's rules) in the current language. A REVIEWER-PENDING placeholder is marked as
+ * such, in words, so nobody mistakes it for approved clinical wording. */
+export function Reviewed({ text, as: Tag = "p" }: { text: ReviewedText; as?: "p" | "span" | "strong" }) {
+  const { lang, t } = useI18n();
+  return (
+    <Tag className={text.status === "approved" ? undefined : "reviewer-pending"} title={text.status === "approved" ? undefined : t("reviewer.pending")}>
+      {lang === "bn" ? localDigits(text.bn, lang) : text.en}
+    </Tag>
+  );
+}
+
+/** The emergency card: the 999 call button always works, with no server needed. The message is the reviewer's (or pending). */
+export function EmergencyCard({ advice = false }: { advice?: boolean }) {
+  const { t } = useI18n();
+  return (
+    <section className="card emergency-card" role="alert" aria-labelledby="emergency-title">
+      <h2 id="emergency-title"><Siren size={24} aria-hidden="true" />{t("emergency.title")}</h2>
+      <Reviewed text={EMERGENCY_MESSAGE} />
+      {advice && <p>{t("emergency.seekCare")}</p>}
+      <a className="btn btn-emergency" href="tel:999"><Phone size={20} aria-hidden="true" />{t("emergency.call")}</a>
     </section>
   );
 }
