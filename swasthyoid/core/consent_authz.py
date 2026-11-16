@@ -13,7 +13,8 @@ from psycopg.rows import dict_row
 
 from swasthyoid.core import audit
 
-PURPOSES = {"TIMELINE", "APPOINTMENT", "REFERRAL", "DISPENSING", "EMERGENCY", "CLOUD_AI", "CAREGIVER"}
+# FRD v4: APPOINTMENT, REFERRAL and DISPENSING went with M12, M9 and M11 (DECISIONS.md, "Scope reduction").
+PURPOSES = {"TIMELINE", "EMERGENCY", "CLOUD_AI", "CAREGIVER"}
 
 # Consent state machine, FRD section 4.1, plus pending -> declined (the patient says no;
 # FRD change recorded in docs/DECISIONS.md). expired, revoked and declined are terminal.
@@ -35,19 +36,9 @@ def transition(status, target):
 
 
 @dataclass(frozen=True)
-class Resource:
-    type: str
-    id: str
-    # Is the bound thing usable right now (appointment checked in, referral token
-    # live, prescription open)? The owning module supplies this. Defaults to closed.
-    live: bool = False
-
-
-@dataclass(frozen=True)
 class AccessRequest:
     purpose: str
     data_categories: frozenset
-    resource: Resource | None = None
 
 
 @dataclass(frozen=True)
@@ -59,9 +50,6 @@ class Consent:
     status: str
     allowed_categories: frozenset
     expires_at: object  # tz-aware datetime; a consent without an expiry is denied
-    max_window_ends_at: object = None  # optional hard stop (appointments)
-    resource_type: str | None = None
-    resource_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,17 +61,6 @@ class Decision:
 
 def deny(reason):
     return Decision(False, reason)
-
-
-def binding_valid(consent, resource):
-    if consent.resource_type is None and consent.resource_id is None:
-        return resource is None  # unbound consent (TIMELINE): request must not name a resource
-    return (
-        resource is not None
-        and resource.type == consent.resource_type
-        and resource.id == consent.resource_id
-        and resource.live is True
-    )
 
 
 def authorize_access(req, user, patient, consent, now):
@@ -115,10 +92,6 @@ def _authorize(req, user, patient, consent, now):
         return deny("not_active")
     if consent.expires_at is None or now > consent.expires_at:
         return deny("expired")
-    if consent.max_window_ends_at is not None and now > consent.max_window_ends_at:
-        return deny("expired")
-    if not binding_valid(consent, req.resource):
-        return deny("binding_invalid")
     if not req.data_categories or not req.data_categories <= consent.allowed_categories:
         return deny("category_not_allowed")
     return Decision(True, consent_id=consent.id)
@@ -138,8 +111,7 @@ def _log(conn, row, action, actor_id):
     )
     audit.append(
         conn, action=f"consent.{action}", result="allow", actor_id=actor_id, patient_id=row["patient_id"],
-        consent_id=row["id"], purpose=row["purpose"], resource_type=row["resource_type"],
-        resource_id=row["resource_id"],
+        consent_id=row["id"], purpose=row["purpose"],
     )
 
 
@@ -163,17 +135,15 @@ def _change(conn, consent_id, target, action, actor_id, patient_only=False, **co
 
 
 def create(conn, *, patient_id, grantee_id, grantee_role, purpose, allowed_categories, consent_version,
-           policy_version, actor_id, resource_type=None, resource_id=None, max_window_ends_at=None,
-           requested_ttl=None):
+           policy_version, actor_id, requested_ttl=None):
     """Record a consent request as `pending`. It grants nothing until activated."""
     with conn.transaction():
         row = conn.cursor(row_factory=dict_row).execute(
-            """INSERT INTO consents (id, patient_id, grantee_id, grantee_role, purpose, resource_type,
-                   resource_id, allowed_categories, status, max_window_ends_at, consent_version, policy_version,
-                   requested_ttl)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s) RETURNING *""",
-            [uuid4(), patient_id, grantee_id, grantee_role, purpose, resource_type, resource_id,
-             sorted(allowed_categories), max_window_ends_at, consent_version, policy_version, requested_ttl],
+            """INSERT INTO consents (id, patient_id, grantee_id, grantee_role, purpose, allowed_categories, status,
+                   consent_version, policy_version, requested_ttl)
+               VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s) RETURNING *""",
+            [uuid4(), patient_id, grantee_id, grantee_role, purpose, sorted(allowed_categories), consent_version,
+             policy_version, requested_ttl],
         ).fetchone()
         _log(conn, row, "create", actor_id)
         return row
@@ -216,31 +186,24 @@ def restore_grantee(conn, grantee_id, *, actor_id):
 
 
 def expire_due(conn):
-    """Mark active consents past their expiry or max window as expired. For a periodic job;
-    access is already denied by time in authorize_access before this runs."""
-    return _change_all(
-        conn,
-        "status = 'active' AND (expires_at < clock_timestamp() OR max_window_ends_at < clock_timestamp())",
-        [], "expired", "expire", None,
-    )
+    """Mark active consents past their expiry as expired. For a periodic job; access is already
+    denied by time in authorize_access before this runs."""
+    return _change_all(conn, "status = 'active' AND expires_at < clock_timestamp()", [], "expired", "expire", None)
 
 
-def find(conn, *, grantee_id, patient_id, purpose, resource=None):
+def find(conn, *, grantee_id, patient_id, purpose):
     """The consent to judge a request against, or None. Prefers an active one, then the newest."""
     row = conn.cursor(row_factory=dict_row).execute(
         """SELECT * FROM consents
            WHERE grantee_id = %s AND patient_id = %s AND purpose = %s
-             AND resource_type IS NOT DISTINCT FROM %s AND resource_id IS NOT DISTINCT FROM %s
            ORDER BY (status = 'active') DESC, created_at DESC LIMIT 1""",
-        [grantee_id, patient_id, purpose, resource and resource.type, resource and resource.id],
+        [grantee_id, patient_id, purpose],
     ).fetchone()
     if row is None:
         return None
     return Consent(
         id=row["id"], patient_id=row["patient_id"], grantee_id=row["grantee_id"], purpose=row["purpose"],
-        status=row["status"], allowed_categories=frozenset(row["allowed_categories"]),
-        expires_at=row["expires_at"], max_window_ends_at=row["max_window_ends_at"],
-        resource_type=row["resource_type"], resource_id=row["resource_id"],
+        status=row["status"], allowed_categories=frozenset(row["allowed_categories"]), expires_at=row["expires_at"],
     )
 
 
@@ -255,22 +218,21 @@ def list_for_patient(conn, patient_id):
         "SELECT * FROM consents WHERE patient_id = %s ORDER BY created_at DESC, id", [patient_id]).fetchall()
 
 
-def check_access(conn, *, user, patient_id, purpose, categories, action, resource=None, **client):
+def check_access(conn, *, user, patient_id, purpose, categories, action, **client):
     """C1 then C2 for one non-patient read: decide, write the audit entry, return the Decision.
 
     The entry is written for allow and deny alike, before any data is read. If the consent
     lookup or the audit write fails this raises, and the caller must not return data.
     `client` is the audit context: device_id, ip, user_agent.
     """
-    consent = find(conn, grantee_id=user.id, patient_id=patient_id, purpose=purpose, resource=resource)
+    consent = find(conn, grantee_id=user.id, patient_id=patient_id, purpose=purpose)
     decision = authorize_access(
-        AccessRequest(purpose, frozenset(categories), resource), user, SimpleNamespace(id=patient_id),
-        consent, _now(conn),
+        AccessRequest(purpose, frozenset(categories)), user, SimpleNamespace(id=patient_id), consent, _now(conn),
     )
     audit.append(
         conn, action=action, result="allow" if decision.allowed else "deny", reason=decision.reason,
         actor_id=user.id, actor_role=user.role, patient_id=patient_id, consent_id=consent and consent.id,
-        purpose=purpose, resource_type=resource and resource.type, resource_id=resource and resource.id, **client,
+        purpose=purpose, **client,
     )
     return decision
 

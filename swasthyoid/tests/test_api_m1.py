@@ -65,6 +65,16 @@ def request_consent(api, people, **over):
 
 # ---- login
 
+@pytest.mark.parametrize("role", ["clinical_reviewer", "admin", "pharmacist"])
+def test_console_and_removed_roles_cannot_self_register(api, role):
+    phone = "+8801900000030"
+    assert api.http.post(f"{V1}/auth/otp/request", json={"phone": phone}).status_code == 204
+    r = api.http.post(f"{V1}/auth/otp/verify", json={"phone": phone, "code": api.codes[phone], "device_id": "d",
+                                                     "account": "staff", "staff": {"role": role, "name": "Synthetic"}})
+    assert r.status_code == 422
+    assert api.conn.execute("SELECT count(*) FROM users").fetchone()[0] == 0
+
+
 def test_patient_registers_logs_in_and_refreshes(api):
     api.http.post(f"{V1}/auth/otp/request", json={"phone": PATIENT})
     r = api.http.post(f"{V1}/auth/otp/verify", json={"phone": PATIENT, "code": api.codes[PATIENT], "device_id": "d"})

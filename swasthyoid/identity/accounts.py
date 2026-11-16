@@ -39,10 +39,13 @@ def _insert_user(conn, phone, role, name, status):
     ).fetchone()
 
 
+SELF_REGISTER_ROLES = ("doctor", "verifier")  # console roles are created by an admin (owner decision 2026-11-16)
+
+
 def register_user(conn, *, phone, role, name):
-    """Create a staff user as `pending`. They can do nothing until an admin approves a credential."""
-    if role == "admin":
-        raise PermissionError("admins are created by seed_admin only")
+    """Create a staff user as `pending`. They can do nothing until an admin approves them."""
+    if role not in SELF_REGISTER_ROLES:
+        raise PermissionError(f"{role} accounts cannot self-register")
     return _insert_user(conn, phone, role, name, "pending")
 
 
@@ -64,7 +67,7 @@ def _log(conn, action, admin_id, user_id):
 
 
 def submit_credential(conn, *, user_id, type, number, doc_key=None):
-    """Record a credential (e.g. BMDC number, pharmacy licence) as `pending` for admin review."""
+    """Record a credential (e.g. BMDC number) as `pending` for admin review."""
     return conn.cursor(row_factory=dict_row).execute(
         "INSERT INTO credentials (id, user_id, type, number, doc_key) VALUES (%s, %s, %s, %s, %s) RETURNING *",
         [uuid4(), user_id, type, number, doc_key],

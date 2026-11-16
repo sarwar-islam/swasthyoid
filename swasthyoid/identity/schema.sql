@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS patients (
 
 CREATE TABLE IF NOT EXISTS users (
     id                uuid PRIMARY KEY,
-    role              text NOT NULL CHECK (role IN ('doctor', 'pharmacist', 'verifier', 'clinical_reviewer', 'admin')),
+    role              text NOT NULL CHECK (role IN ('doctor', 'verifier', 'clinical_reviewer', 'admin')),
     name              text NOT NULL CHECK (name <> ''),
     status            text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'suspended')),
     clinic_id         uuid,                     -- clinics table arrives with the module that needs it
@@ -30,10 +30,14 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at        timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
+-- FRD v4: the pharmacist role went with M11 (also for a database created before v4).
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('doctor', 'verifier', 'clinical_reviewer', 'admin'));
+
 CREATE TABLE IF NOT EXISTS credentials (
     id          uuid PRIMARY KEY,
     user_id     uuid NOT NULL REFERENCES users (id),
-    type        text NOT NULL CHECK (type <> ''),      -- e.g. BMDC number, pharmacy licence
+    type        text NOT NULL CHECK (type <> ''),      -- e.g. BMDC number
     number      text NOT NULL UNIQUE CHECK (number <> ''),
     doc_key     text,                                  -- object-storage key of the credential document
     status      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'suspended')),

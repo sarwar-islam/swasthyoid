@@ -50,7 +50,8 @@ class PatientProfile(BaseModel):
 
 
 class StaffProfile(BaseModel):
-    role: Literal["doctor", "pharmacist", "verifier", "clinical_reviewer"]
+    # Console roles (clinical_reviewer, admin) never self-register: an admin creates them (owner decision 2026-11-16).
+    role: Literal["doctor", "verifier"]
     name: str = Field(min_length=1)
 
 
@@ -126,7 +127,7 @@ class CredentialBody(BaseModel):
 
 @router.post("/credentials", status_code=201)
 def submit_credential(body: CredentialBody, request: Request, conn=Depends(get_conn),
-                      a: Actor = Depends(require("doctor", "pharmacist", verified=False))):
+                      a: Actor = Depends(require("doctor", verified=False))):
     def work():
         try:
             row = accounts.submit_credential(conn, user_id=a.id, **body.model_dump())

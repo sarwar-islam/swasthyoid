@@ -31,13 +31,12 @@ def active(conn, **over):
                        actor_id=row["patient_id"])
 
 
-def decide(conn, row, resource=None):
+def decide(conn, row):
     """What the next request by the grantee gets: load the consent, then decide."""
-    consent = c1.find(conn, grantee_id=row["grantee_id"], patient_id=row["patient_id"],
-                      purpose=row["purpose"], resource=resource)
+    consent = c1.find(conn, grantee_id=row["grantee_id"], patient_id=row["patient_id"], purpose=row["purpose"])
     user = SimpleNamespace(id=row["grantee_id"], is_verified=True, is_active=True)
     patient = SimpleNamespace(id=row["patient_id"])
-    return c1.authorize_access(c1.AccessRequest(row["purpose"], CATS, resource), user, patient, consent, now(conn))
+    return c1.authorize_access(c1.AccessRequest(row["purpose"], CATS), user, patient, consent, now(conn))
 
 
 def status(conn, consent_id):
@@ -106,9 +105,11 @@ def test_illegal_changes_are_rejected(conn):
 
 @pytest.mark.parametrize("bad", [
     {"purpose": "MARKETING"},
+    {"purpose": "APPOINTMENT"},  # removed in FRD v4, with REFERRAL and DISPENSING
+    {"purpose": "REFERRAL"},
+    {"purpose": "DISPENSING"},
     {"allowed_categories": set()},
     {"grantee_role": ""},
-    {"resource_type": "appointment"},  # binding needs both type and id
     {"consent_version": None},
 ])
 def test_invalid_consent_is_rejected(conn, bad):
@@ -140,14 +141,11 @@ def test_credential_suspension_and_restore(conn):
 
 def test_expire_due(conn):
     due, fresh = active(conn), active(conn)
-    window = active(conn)
     conn.execute("UPDATE consents SET expires_at = clock_timestamp() - interval '1 minute' WHERE id = %s", [due["id"]])
-    conn.execute("UPDATE consents SET max_window_ends_at = clock_timestamp() - interval '1 minute' WHERE id = %s",
-                 [window["id"]])
     assert decide(conn, due).reason == "expired"  # denied by time even before the sweep runs
 
-    assert c1.expire_due(conn) == 2
-    assert [status(conn, r["id"]) for r in (due, window, fresh)] == ["expired", "expired", "active"]
+    assert c1.expire_due(conn) == 1
+    assert [status(conn, r["id"]) for r in (due, fresh)] == ["expired", "active"]
     assert actions(conn, "audit_logs", due["id"])[-1] == "consent.expire"
     assert c1.expire_due(conn) == 0
 
@@ -169,22 +167,22 @@ def test_change_fails_if_audit_write_fails(conn, monkeypatch):
     assert conn.execute("SELECT count(*) FROM consents").fetchone()[0] == 1
 
 
-def test_find_matches_the_resource_binding_and_prefers_active(conn):
-    doctor, patient, appt = uuid4(), uuid4(), uuid4()
+def test_find_prefers_the_active_consent(conn):
+    doctor, patient = uuid4(), uuid4()
     old = active(conn, grantee_id=doctor, patient_id=patient)
     c1.revoke(conn, old["id"], actor_id=patient)
     assert c1.find(conn, grantee_id=doctor, patient_id=patient, purpose="TIMELINE").status == "revoked"
     current = active(conn, grantee_id=doctor, patient_id=patient)
     new(conn, grantee_id=doctor, patient_id=patient)  # a newer pending request must not hide the active one
     assert c1.find(conn, grantee_id=doctor, patient_id=patient, purpose="TIMELINE").id == current["id"]
+    assert c1.find(conn, grantee_id=doctor, patient_id=patient, purpose="CLOUD_AI") is None  # purpose must match
 
-    bound = active(conn, grantee_id=doctor, patient_id=patient, purpose="APPOINTMENT",
-                   resource_type="appointment", resource_id=appt)
-    live = c1.Resource("appointment", appt, live=True)
-    assert decide(conn, bound, live).consent_id == bound["id"]
-    assert decide(conn, bound, c1.Resource("appointment", appt)).reason == "binding_invalid"  # not checked in
-    assert decide(conn, bound, c1.Resource("appointment", uuid4(), live=True)).reason == "consent_required"
-    assert decide(conn, bound).reason == "consent_required"  # no resource named
+
+def test_the_v4_consent_table_has_no_binding_or_window_columns(conn):
+    cols = {r[0] for r in conn.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'consents' "
+        "AND table_schema = current_schema()")}
+    assert not cols & {"resource_type", "resource_id", "max_window_ends_at"}
 
 
 @pytest.mark.parametrize("sql", ["UPDATE consent_events SET action = 'x'", "DELETE FROM consent_events",

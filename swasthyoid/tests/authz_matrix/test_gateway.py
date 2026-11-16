@@ -101,13 +101,15 @@ def test_patient_reads_own_data_without_consent_and_nobody_elses(world):
     assert len(served) == 1
 
 
-@pytest.mark.parametrize("role", ["pharmacist", "verifier", "clinical_reviewer", "admin"])
+@pytest.mark.parametrize("role", ["verifier", "clinical_reviewer", "admin"])
 def test_other_roles_are_denied_even_with_a_consent_in_place(world, role):
     grant(world)
     if role == "admin":
         headers = world.p.admin
     else:
-        headers = login(world.api, "+8801900000009", account="staff", staff={"role": role, "name": "Synthetic Staff"})
+        if role == "clinical_reviewer":  # never self-registered: an admin creates the account (B2 adds the route)
+            accounts._insert_user(world.api.conn, "+8801900000009", role, "Synthetic Staff", "verified")
+        headers = login(world.api, "+8801900000009", account="staff", staff={"role": "verifier", "name": "Synthetic Staff"})
         world.api.conn.execute("UPDATE users SET status = 'verified' WHERE role = %s", [role])
     r = read(world, headers)
     assert (r.status_code, r.json()["code"]) == (403, "role_not_allowed")

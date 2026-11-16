@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import pytest
 
 from swasthyoid.core.consent_authz import (
+    PURPOSES,
     TRANSITIONS,
     AccessRequest,
     Consent,
-    Resource,
     authorize_access,
     transition,
 )
@@ -22,12 +22,11 @@ DOCTOR = SimpleNamespace(id="user-1", is_verified=True, is_active=True)
 PATIENT = SimpleNamespace(id="patient-1")
 CATS = frozenset({"timeline"})
 
-# purpose -> resource type the consent is bound to (None = bound to doctor + patient only)
-BINDINGS = {"TIMELINE": None, "APPOINTMENT": "appointment", "REFERRAL": "referral", "DISPENSING": "prescription"}
+# Purposes a consent can grant today (EMERGENCY is refused until M10 is enabled, see test_deny_reasons).
+GRANTABLE = sorted(PURPOSES - {"EMERGENCY"})
 
 
 def make(purpose, status="active"):
-    rtype = BINDINGS[purpose]
     consent = Consent(
         id="consent-1",
         patient_id=PATIENT.id,
@@ -36,14 +35,19 @@ def make(purpose, status="active"):
         status=status,
         allowed_categories=frozenset({"timeline", "documents"}),
         expires_at=NOW + timedelta(hours=1),
-        resource_type=rtype,
-        resource_id="res-1" if rtype else None,
     )
-    resource = Resource(rtype, "res-1", live=True) if rtype else None
-    return AccessRequest(purpose, CATS, resource), consent
+    return AccessRequest(purpose, CATS), consent
 
 
-@pytest.mark.parametrize("purpose", BINDINGS)
+def test_v4_purposes_only():
+    # M9, M11 and M12 are removed (FRD v4): their purposes are unknown and refused
+    assert PURPOSES == {"TIMELINE", "EMERGENCY", "CLOUD_AI", "CAREGIVER"}
+    for gone in ("APPOINTMENT", "REFERRAL", "DISPENSING"):
+        req, consent = make("TIMELINE")
+        assert decide(req=replace(req, purpose=gone), consent=replace(consent, purpose=gone)).reason == "unknown_purpose"
+
+
+@pytest.mark.parametrize("purpose", GRANTABLE)
 @pytest.mark.parametrize("status", TRANSITIONS)
 def test_purpose_x_state(purpose, status):
     req, consent = make(purpose, status)
@@ -64,7 +68,6 @@ def decide(req=None, user=DOCTOR, patient=PATIENT, consent="default", now=NOW, p
 
 def test_deny_reasons():
     req, consent = make("TIMELINE")
-    areq, aconsent = make("APPOINTMENT")
     cases = {
         "user_not_verified": [
             decide(user=SimpleNamespace(id="user-1", is_verified=False, is_active=True)),
@@ -76,18 +79,10 @@ def test_deny_reasons():
         "consent_required": [decide(consent=None)],
         "patient_mismatch": [decide(patient=SimpleNamespace(id="patient-2"))],
         "grantee_mismatch": [decide(user=SimpleNamespace(id="user-2", is_verified=True, is_active=True))],
-        "purpose_mismatch": [decide(req=replace(req, purpose="REFERRAL"))],
+        "purpose_mismatch": [decide(req=replace(req, purpose="CLOUD_AI"))],
         "expired": [
             decide(now=NOW + timedelta(hours=2)),
             decide(consent=replace(consent, expires_at=None)),
-            decide(consent=replace(consent, max_window_ends_at=NOW - timedelta(minutes=1))),
-        ],
-        "binding_invalid": [
-            decide(req=replace(req, resource=Resource("appointment", "res-1", live=True))),
-            decide(req=replace(areq, resource=None), consent=aconsent),
-            decide(req=replace(areq, resource=Resource("appointment", "res-2", live=True)), consent=aconsent),
-            decide(req=replace(areq, resource=Resource("referral", "res-1", live=True)), consent=aconsent),
-            decide(req=replace(areq, resource=Resource("appointment", "res-1")), consent=aconsent),
         ],
         "category_not_allowed": [
             decide(req=replace(req, data_categories=frozenset({"timeline", "safety"}))),

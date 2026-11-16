@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS events (
     patient_id          uuid NOT NULL,
     event_type          text NOT NULL CHECK (event_type IN (
                             'visit', 'diagnosis', 'medication', 'lab_result', 'allergy', 'follow_up',
-                            'prescription', 'dispense', 'vital_reading', 'referral', 'referral_feedback')),
+                            'prescription', 'vital_reading')),
     event_date          date NOT NULL,
     -- DECISION-PENDING: the FRD names date_precision but not its values; day/month/year assumed.
     date_precision      text NOT NULL CHECK (date_precision IN ('day', 'month', 'year')),
@@ -62,8 +62,7 @@ CREATE TABLE IF NOT EXISTS events (
     verified_by         uuid,
     verified_at         timestamptz,
     verification_status text NOT NULL CHECK (verification_status IN (
-                            'document_verified', 'clinician_authored', 'pharmacist_recorded',
-                            'doctor_submitted', 'patient_reported', 'pending')),
+                            'document_verified', 'patient_reported', 'pending')),
     related_record_id   uuid,
     version             int NOT NULL CHECK (version >= 1),
     supersedes          uuid UNIQUE REFERENCES events (id),  -- UNIQUE: one successor per event
@@ -75,6 +74,14 @@ CREATE TABLE IF NOT EXISTS events (
     CONSTRAINT version_matches_supersedes CHECK ((supersedes IS NULL) = (version = 1))
 );
 -- Foreign keys to patients, users and documents are added with those tables.
+
+-- FRD v4 (M9, M11, M12 removed): the same two CHECKs for a database created before v4.
+ALTER TABLE events DROP CONSTRAINT IF EXISTS events_event_type_check;
+ALTER TABLE events ADD CONSTRAINT events_event_type_check CHECK (event_type IN (
+    'visit', 'diagnosis', 'medication', 'lab_result', 'allergy', 'follow_up', 'prescription', 'vital_reading'));
+ALTER TABLE events DROP CONSTRAINT IF EXISTS events_verification_status_check;
+ALTER TABLE events ADD CONSTRAINT events_verification_status_check CHECK (verification_status IN (
+    'document_verified', 'patient_reported', 'pending'));
 
 CREATE INDEX IF NOT EXISTS events_patient_date ON events (patient_id, event_date);
 CREATE INDEX IF NOT EXISTS events_patient_type ON events (patient_id, event_type);
@@ -94,16 +101,12 @@ CREATE TABLE IF NOT EXISTS consents (
     patient_id         uuid NOT NULL,
     grantee_id         uuid NOT NULL,
     grantee_role       text NOT NULL CHECK (grantee_role <> ''),
-    purpose            text NOT NULL CHECK (purpose IN (
-                           'TIMELINE', 'APPOINTMENT', 'REFERRAL', 'DISPENSING', 'EMERGENCY', 'CLOUD_AI')),
-    resource_type      text,
-    resource_id        uuid,
+    purpose            text NOT NULL CHECK (purpose IN ('TIMELINE', 'EMERGENCY', 'CLOUD_AI')),
     allowed_categories text[] NOT NULL CHECK (cardinality(allowed_categories) > 0),
     method             text,                    -- OTP / QR / in-app, set on activation
     status             text NOT NULL CHECK (status IN ('pending', 'active', 'suspended', 'expired', 'revoked')),
     activated_at       timestamptz,
     expires_at         timestamptz,
-    max_window_ends_at timestamptz,
     revoked_at         timestamptz,
     revoked_by         uuid,
     -- LEGAL-PENDING (FRD open question 8): versions of the consent wording and policy shown to the patient.
@@ -111,7 +114,6 @@ CREATE TABLE IF NOT EXISTS consents (
     policy_version     text NOT NULL,
     created_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
-    CONSTRAINT binding_is_whole CHECK ((resource_type IS NULL) = (resource_id IS NULL)),
     CONSTRAINT active_has_expiry CHECK (status <> 'active' OR expires_at IS NOT NULL)
 );
 -- Foreign keys to patients and users are added with those tables (slice 6).
@@ -179,19 +181,23 @@ ALTER TABLE consents ADD COLUMN IF NOT EXISTS requested_ttl interval;  -- durati
 
 ALTER TABLE consents DROP CONSTRAINT IF EXISTS consents_purpose_check;
 ALTER TABLE consents ADD CONSTRAINT consents_purpose_check CHECK (purpose IN (
-    'TIMELINE', 'APPOINTMENT', 'REFERRAL', 'DISPENSING', 'EMERGENCY', 'CLOUD_AI', 'CAREGIVER'));
+    'TIMELINE', 'EMERGENCY', 'CLOUD_AI', 'CAREGIVER'));
 
 ALTER TABLE consents DROP CONSTRAINT IF EXISTS consents_status_check;
 ALTER TABLE consents ADD CONSTRAINT consents_status_check CHECK (status IN (
     'pending', 'active', 'suspended', 'expired', 'revoked', 'declined'));
 
--- A caregiver authorization: fixed role, no resource binding, never yourself, only the three
+-- A caregiver authorization: fixed role, never yourself, only the three
 -- approved scopes (verify_documents is deliberately absent: caregivers cannot verify), and
 -- never longer than 90 days. PROVISIONAL: 90 days also lives in core/consent_authz.py.
 ALTER TABLE consents DROP CONSTRAINT IF EXISTS caregiver_shape;
+-- FRD v4: the resource binding and the appointment window served only M9, M11 and M12.
+ALTER TABLE consents DROP CONSTRAINT IF EXISTS binding_is_whole;
+ALTER TABLE consents DROP COLUMN IF EXISTS resource_type;
+ALTER TABLE consents DROP COLUMN IF EXISTS resource_id;
+ALTER TABLE consents DROP COLUMN IF EXISTS max_window_ends_at;
 ALTER TABLE consents ADD CONSTRAINT caregiver_shape CHECK (purpose <> 'CAREGIVER' OR (
     grantee_role = 'caregiver'
-    AND resource_type IS NULL
     AND grantee_id <> patient_id
     AND allowed_categories <@ ARRAY['upload_documents', 'view_documents', 'view_timeline']
     AND requested_ttl IS NOT NULL

@@ -81,13 +81,20 @@ def user_status(conn, user_id):
     return conn.execute("SELECT status FROM users WHERE id = %s", [user_id]).fetchone()[0]
 
 
-def test_staff_start_pending_and_admins_cannot_self_register(conn):
+def test_staff_start_pending_and_only_doctors_and_verifiers_self_register(conn):
     doctor = accounts.register_user(conn, phone="+8801900000002", role="doctor", name="Synthetic Doctor")
-    assert doctor["status"] == "pending"
-    with pytest.raises(PermissionError):
-        accounts.register_user(conn, phone="+8801900000003", role="admin", name="Sneaky")
+    verifier = accounts.register_user(conn, phone="+8801900000005", role="verifier", name="Synthetic Verifier")
+    assert (doctor["status"], verifier["status"]) == ("pending", "pending")
+    # console roles are created by an admin (owner decision 2026-11-16); pharmacist went with M11 (FRD v4)
+    for i, role in enumerate(("admin", "clinical_reviewer", "pharmacist", "wizard")):
+        with pytest.raises(PermissionError):
+            accounts.register_user(conn, phone=f"+880190000001{i}", role=role, name="Synthetic Staff")
+    assert conn.execute("SELECT count(*) FROM users").fetchone()[0] == 2
+
+
+def test_the_database_refuses_the_removed_pharmacist_role(conn):
     with pytest.raises(psycopg.Error):
-        accounts.register_user(conn, phone="+8801900000004", role="wizard", name="X")
+        accounts._insert_user(conn, "+8801900000020", "pharmacist", "Synthetic Staff", "pending")
 
 
 def test_credential_approval(conn, staff):
