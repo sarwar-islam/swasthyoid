@@ -4,13 +4,16 @@ First the pure decision logic, then the consent store. The caller loads the cons
 with find(), calls authorize_access, and MUST write the C2 audit entry for every
 decision, allow or deny.
 """
+import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import psycopg
 from psycopg.rows import dict_row
 
+from swasthyoid import pii
 from swasthyoid.core import audit
 
 # FRD v4: APPOINTMENT, REFERRAL and DISPENSING went with M12, M9 and M11 (DECISIONS.md, "Scope reduction").
@@ -135,15 +138,16 @@ def _change(conn, consent_id, target, action, actor_id, patient_only=False, **co
 
 
 def create(conn, *, patient_id, grantee_id, grantee_role, purpose, allowed_categories, consent_version,
-           policy_version, actor_id, requested_ttl=None):
-    """Record a consent request as `pending`. It grants nothing until activated."""
+           policy_version, actor_id, requested_ttl=None, method=None):
+    """Record a consent request as `pending`. It grants nothing until activated. `method` is how the patient
+    is to confirm it (OTP or QR), so they can be told how to answer; activation writes the method actually used."""
     with conn.transaction():
         row = conn.cursor(row_factory=dict_row).execute(
             """INSERT INTO consents (id, patient_id, grantee_id, grantee_role, purpose, allowed_categories, status,
-                   consent_version, policy_version, requested_ttl)
-               VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s) RETURNING *""",
+                   consent_version, policy_version, requested_ttl, method)
+               VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s) RETURNING *""",
             [uuid4(), patient_id, grantee_id, grantee_role, purpose, sorted(allowed_categories), consent_version,
-             policy_version, requested_ttl],
+             policy_version, requested_ttl, method],
         ).fetchone()
         _log(conn, row, "create", actor_id)
         return row
@@ -235,6 +239,71 @@ def check_access(conn, *, user, patient_id, purpose, categories, action, **clien
         purpose=purpose, **client,
     )
     return decision
+
+
+# ---- Consent by QR (owner decisions 2026-11-16): the doctor shows a QR (a link holding a random token) and an 8-character
+# short code; the patient named in the request answers in their own signed-in app. Only keyed hashes are stored, each QR
+# works once, and it lives as long as a one-time code (the caller passes otp.CODE_TTL).
+
+QR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O or 1/I/L: read and typed by hand
+QR_CODE_LENGTH = 8
+
+
+def _qr_hash(kind, value):
+    return pii.secret_hash(f"consent-qr:{kind}:{value}")
+
+
+def create_qr(conn, consent_id, *, ttl):
+    """Give a pending request its QR. Returns (token, short_code, expires_at): the only time either is in plain form."""
+    for _ in range(5):  # a short code clashing with another open one is retried with a fresh pair
+        token = secrets.token_urlsafe(32)
+        code = "".join(secrets.choice(QR_ALPHABET) for _ in range(QR_CODE_LENGTH))
+        try:
+            with conn.transaction():
+                expires_at = conn.execute(
+                    "INSERT INTO consent_qr (consent_id, token_hash, code_hash, expires_at) "
+                    "VALUES (%s, %s, %s, clock_timestamp() + %s) RETURNING expires_at",
+                    [consent_id, _qr_hash("token", token), _qr_hash("code", code), ttl],
+                ).fetchone()[0]
+            return token, code, expires_at
+        except psycopg.errors.UniqueViolation as e:
+            if e.diag.constraint_name != "consent_qr_open_code":
+                raise
+    raise RuntimeError("could not allocate a unique QR short code")
+
+
+def find_qr(conn, ref, *, patient_id):
+    """The consent a QR token or short code (any case) points at, with its QR state, or None. Only ever for the
+    patient the request names: anyone else gets None, exactly as for an unknown ref."""
+    ref = str(ref).strip()
+    row = conn.cursor(row_factory=dict_row).execute(
+        """SELECT c.*, q.expires_at AS qr_expires_at, q.used_at AS qr_used_at,
+                  q.expires_at <= clock_timestamp() AS qr_expired
+           FROM consent_qr q JOIN consents c ON c.id = q.consent_id
+           WHERE q.token_hash = %s OR q.code_hash = %s
+           ORDER BY (q.used_at IS NULL) DESC, q.created_at DESC LIMIT 1""",
+        [_qr_hash("token", ref), _qr_hash("code", ref.upper())],
+    ).fetchone()
+    if row is None or row["patient_id"] != UUID(str(patient_id)):
+        return None
+    return row
+
+
+def answer_qr(conn, consent_id, *, patient_id, approve, lifetime):
+    """The named patient approves (active for `lifetime`, method QR) or declines an open QR request. Single use:
+    raises ValueError if the QR is used, expired or the request is no longer pending."""
+    with conn.transaction():
+        q = conn.cursor(row_factory=dict_row).execute(
+            "SELECT q.used_at, q.expires_at <= clock_timestamp() AS expired, c.patient_id FROM consent_qr q "
+            "JOIN consents c ON c.id = q.consent_id WHERE q.consent_id = %s FOR UPDATE OF q", [consent_id]).fetchone()
+        if q is None or q["patient_id"] != UUID(str(patient_id)):
+            raise LookupError("QR request not found")
+        if q["used_at"] is not None or q["expired"]:
+            raise ValueError("QR request is not open")
+        conn.execute("UPDATE consent_qr SET used_at = clock_timestamp() WHERE consent_id = %s", [consent_id])
+        if approve:
+            return activate(conn, consent_id, method="QR", expires_at=_now(conn) + lifetime, actor_id=patient_id)
+        return decline(conn, consent_id, actor_id=patient_id)
 
 
 # ---- Caregiver authorization (purpose CAREGIVER). A caregiver is an ordinary person account

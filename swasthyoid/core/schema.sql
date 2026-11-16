@@ -205,6 +205,18 @@ ALTER TABLE consents ADD CONSTRAINT caregiver_shape CHECK (purpose <> 'CAREGIVER
     AND requested_ttl <= interval '90 days'
     AND (expires_at IS NULL OR activated_at IS NULL OR expires_at <= activated_at + interval '90 days')));
 
+-- Consent by QR (B2; owner decisions 2026-11-16). One per TIMELINE request made with method QR: the doctor shows the token
+-- (in the QR) and the short code once; only keyed hashes are stored. Single use: used_at is set when the patient answers.
+CREATE TABLE IF NOT EXISTS consent_qr (
+    consent_id uuid PRIMARY KEY REFERENCES consents (id),
+    token_hash text NOT NULL UNIQUE,
+    code_hash  text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    used_at    timestamptz,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS consent_qr_open_code ON consent_qr (code_hash) WHERE used_at IS NULL;
+
 -- At most one active and one pending authorization per patient-caregiver pair. The pending
 -- one is the request for renewal or different scopes; approving it replaces the active one.
 CREATE UNIQUE INDEX IF NOT EXISTS caregiver_one_active ON consents (patient_id, grantee_id)

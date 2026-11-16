@@ -38,13 +38,23 @@ CREATE TABLE IF NOT EXISTS credentials (
     id          uuid PRIMARY KEY,
     user_id     uuid NOT NULL REFERENCES users (id),
     type        text NOT NULL CHECK (type <> ''),      -- e.g. BMDC number
-    number      text NOT NULL UNIQUE CHECK (number <> ''),
+    number      text NOT NULL CHECK (number <> ''),    -- unique among credentials not rejected (index below)
     doc_key     text,                                  -- object-storage key of the credential document
-    status      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'suspended')),
+    status      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'suspended', 'rejected')),
     reviewed_by uuid REFERENCES users (id),
     created_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at  timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+
+-- B2 (owner decision 2026-11-16): a rejected credential is kept with the admin's reason, and its number may be submitted
+-- again. Also upgrades a database created before B2.
+ALTER TABLE credentials ADD COLUMN IF NOT EXISTS review_reason text;
+ALTER TABLE credentials DROP CONSTRAINT IF EXISTS credentials_number_key;
+CREATE UNIQUE INDEX IF NOT EXISTS credentials_number_live ON credentials (number) WHERE status <> 'rejected';
+ALTER TABLE credentials DROP CONSTRAINT IF EXISTS credentials_status_check;
+ALTER TABLE credentials ADD CONSTRAINT credentials_status_check CHECK (status IN ('pending', 'verified', 'suspended', 'rejected'));
+-- The admin's reason for the last status change of a staff account (suspension). Never written to the audit log.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status_reason text;
 
 -- One-time codes. Only a keyed hash of the code is stored.
 CREATE TABLE IF NOT EXISTS otp_codes (

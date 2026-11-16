@@ -107,10 +107,11 @@ def test_other_roles_are_denied_even_with_a_consent_in_place(world, role):
     if role == "admin":
         headers = world.p.admin
     else:
-        if role == "clinical_reviewer":  # never self-registered: an admin creates the account (B2 adds the route)
-            accounts._insert_user(world.api.conn, "+8801900000009", role, "Synthetic Staff", "verified")
-        headers = login(world.api, "+8801900000009", account="staff", staff={"role": "verifier", "name": "Synthetic Staff"})
-        world.api.conn.execute("UPDATE users SET status = 'verified' WHERE role = %s", [role])
+        # an admin creates the account (console roles never self-register; owner decision 2026-11-16)
+        r = world.api.http.post(f"{V1}/admin/staff", headers=world.p.admin,
+                                json={"role": role, "name": "Synthetic Staff", "phone": "+8801900000009"})
+        assert r.status_code == 201, r.text
+        headers = login(world.api, "+8801900000009", account="staff")
     r = read(world, headers)
     assert (r.status_code, r.json()["code"]) == (403, "role_not_allowed")
     assert served == []
