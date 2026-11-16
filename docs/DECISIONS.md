@@ -2089,3 +2089,45 @@ plus the chooser and four sign-in pages at 768 px: 440 checks, no violation, no 
 finished before each check. Click-through: QR request, the link opened signed out, sign-in, approve; inbox; thresholds saved as
 version 2. Every request went to localhost. Not covered in the browser: the doctor's screen moving on after the patient approves
 (one tab holds one session; covered by a test), scanning the QR with a real phone, and the M10-off build (covered by a test).
+
+## Backend sync plan B0–B8 (owner approval 2026-11-16)
+
+**Why.** The frontend (F0–F6) calls many routes the backend does not have. Built today: login and refresh, `POST /credentials`
+and approve, consent request/confirm/list/revoke, access history, the caregiver routes, document upload/view/manual entry/retry,
+`GET /internal/metrics`. Not built: M3 review/confirm/reject, M4 timeline, M5, M6, M7, M8, M10, M13 and every GAP route.
+Leftovers of the v4 removals remain (the `pharmacist` role, purposes `APPOINTMENT`, `REFERRAL`, `DISPENSING`, removed event
+types and provenance values, empty packages), and `clinical_reviewer` can still self-register.
+
+**Phases.** Each ends with a code commit and a docs commit, after the owner sees the test results.
+- **B0** Local PostgreSQL 16 (installed with winget) so pytest and the live server run on this machine, not only in CI.
+- **B1** v4 cleanup: remove the `pharmacist` role, the three removed purposes, the removed event types and provenance values,
+  the empty `appointments/`, `referral/`, `prescribing/` packages; only `doctor` and `verifier` may self-register; remove the
+  appointment window (`max_window_ends_at`) and resource binding from C1 (only the removed modules used them); update the
+  authorization matrix tests.
+- **B2** Identity and consent: `GET /me` (patient and every staff role); `patient_id`, `health_id` and `method` in consent
+  responses; QR consent (`method: "qr"`, `GET /consents/requests/{id}`, `/consents/qr/{ref}` with approve and decline); admin
+  credentials list, reject and `GET /credentials/{id}/document`; `POST /admin/users/{id}/suspend`; `/admin/staff` routes.
+- **B3** C3 inbox: `GET /notifications`, `POST /notifications/{id}/read`; notices written on consent and caregiver requests;
+  every notice shows in the app whatever its delivery status.
+- **B4** M3 review/confirm/reject, M4 timeline, and verifier assisted sessions (`ASSISTED_CAPTURE`) with verifier access to the
+  document routes during a session.
+- **B5** Console: rule registry (list, draft, approve, reject), `GET /audit` with keyed references, `POST /catalog/import`
+  through the existing catalog loader.
+- **B6** `GET /patients/{id}/safety-alerts` and ack on an alerts table (empty until an M6 engine writes alerts);
+  `GET`/`PUT /patients/{id}/vital-thresholds` with fields from approved `vital_threshold` rules (none yet, so empty).
+- **B7** M10 behind a server flag, off by default: emergency access and profile, break-glass notices, post-hoc reviews.
+- **B8** Wiring: the live web build against the running server, a synthetic seed script, pytest and vitest, a browser
+  click-through, and the list of screens still without a backend.
+
+**Owner decisions on the open points.**
+1. B0: PostgreSQL 16 installed locally with winget.
+2. M3 and M4 join B4. Turning confirmed fields into timeline events follows FRD v4 strictly; any clinical mapping rule or
+   threshold stays REVIEWER-PENDING.
+3. QR token: cryptographically random, stored server-side only as a keyed hash, single use, 5-minute lifetime (not signed).
+4. Suspension stays at `POST /admin/users/{id}/suspend` (the frontend's contract).
+5. Audit references: keyed HMAC with the prefix `auditref:`, cut to 10 hex characters.
+6. Credential document: only `GET /credentials/{id}/document` for now; uploading the document stays unbuilt.
+7. Four-eyes rule: the backend refuses approval of a rule version by its author; the frontend mock and tests follow.
+8. `vital_threshold` rule definitions carry `vital_type` and `unit`, from which the editable fields come; that vocabulary is
+   REVIEWER-PENDING.
+9. M10 server flag off by default; the emergency purpose and emergency access are refused unless it is on.
