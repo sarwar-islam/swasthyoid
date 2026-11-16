@@ -27,10 +27,13 @@ export function Inbox() {
 
   const what = (n: PatientNotification) => n.categories.map((k) => t(`cat.${k}` as Key)).join(", ");
   const someone = (n: PatientNotification) => n.actor_name ?? t("history.someone");
-  const text = (n: PatientNotification) =>
-    n.kind === "consent_request" ? t("inbox.consent", { name: someone(n), what: what(n) })
-      : n.kind === "caregiver_request" ? t("inbox.caregiver", { name: someone(n), what: what(n) })
-        : t("inbox.emergency", { name: someone(n), facility: n.facility ?? "" });
+  const TEXT: Record<Exclude<PatientNotification["kind"], "emergency_access">, Key> = {
+    consent_request: "inbox.consent", consent_granted: "inbox.consentGranted",
+    caregiver_request: "inbox.caregiver", caregiver_granted: "inbox.caregiverGranted",
+  };
+  const text = (n: PatientNotification) => n.kind === "emergency_access"
+    ? t("inbox.emergency", { name: someone(n), facility: n.facility ?? "" })
+    : t(TEXT[n.kind], { name: someone(n), what: what(n) });
 
   return (
     <>

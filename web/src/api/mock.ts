@@ -462,6 +462,7 @@ export function mockTransport(): Transport {
     c.expires_at = new Date(Date.now() + (c.requested_days ?? 30) * 86400_000).toISOString();
     audit(pid, { actor_id: c.grantee_id, actor_role: "caregiver", action: "caregiver.granted", purpose: "CAREGIVER", result: "allow", reason: null,
                  consent_id: c.id, actor_name: c.grantee_name });
+    notify("caregiver_granted", c.grantee_name, c.allowed_categories, null, pid);
   };
   const ownConsent = (id: string) => s.consents.find((x) => x.id === id && s.patientOf[x.id] === MOCK_PATIENT_ID);
   /** Upload for `patientId` (M2); the mock-only "blur" file name rule lets the retake flow be tried. */
@@ -508,6 +509,7 @@ export function mockTransport(): Transport {
     c.status = "active";
     c.activated_at = new Date().toISOString();
     c.expires_at = new Date(Date.now() + 24 * 3600_000).toISOString(); // the backend reads TIMELINE_CONSENT_HOURS
+    notify("consent_granted", c.grantee_name, c.allowed_categories);
   };
   /** The signed-in patient's pending-or-answered QR request by token or short code; never another patient's. */
   const qrConsent = (ref: string) => {

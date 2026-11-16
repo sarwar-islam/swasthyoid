@@ -189,7 +189,9 @@ def test_consent_request_confirm_list_revoke(api, people):
     assert [(c["id"], c["status"], c["grantee_name"], c["purpose"]) for c in listed] == [
         (consent_id, "active", "Synthetic Doctor", "TIMELINE")]
     assert sorted(listed[0]["allowed_categories"]) == ["safety", "timeline"]
-    assert api.conn.execute("SELECT template_id FROM notifications").fetchall() == [("CONSENT_GRANTED_PLACEHOLDER",)]
+    # B3: the request itself is a notice too, before the grant
+    assert api.conn.execute("SELECT template_id FROM notifications ORDER BY created_at").fetchall() == [
+        ("CONSENT_REQUEST_PLACEHOLDER",), ("CONSENT_GRANTED_PLACEHOLDER",)]
 
     history = api.http.get(f"{V1}/me/access-history", headers=people.patient).json()
     assert [h["action"] for h in history] == ["consent.activate", "consent.create"]

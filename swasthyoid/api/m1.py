@@ -197,6 +197,9 @@ def request_consent(body: ConsentRequestBody, request: Request, conn=Depends(get
                 allowed_categories=set(body.categories), consent_version=CONSENT_VERSION,
                 policy_version=POLICY_VERSION, actor_id=a.id, method=body.method.upper(),
             )
+            # C3 security notice (B3): the consent id only, never a code, token or name
+            notification.enqueue(conn, recipient_id=patient[0], template_id="CONSENT_REQUEST_PLACEHOLDER",
+                                 payload={"consent_id": str(row["id"])})
             if body.method == "qr":
                 token, code, expires_at = consent_authz.create_qr(conn, row["id"], ttl=otp.CODE_TTL)
                 return {**_doctor_view(conn, row), "qr": {"token": token, "short_code": code, "expires_at": expires_at}}

@@ -97,10 +97,31 @@ def deliver_due(conn, channels, *, max_attempts=3, backoff=timedelta(minutes=1),
     return done
 
 
-def inbox(conn, recipient_id):
-    """In-app inbox: the recipient's notifications that fell back to in-app, newest first."""
+# The in-app kind of each template the patient's inbox shows (B3; owner decisions 2026-11-16). Consent, caregiver and
+# emergency-access notices are security notices: there is no setting to switch them off (FRD 4.3). Others stay out.
+INBOX_KINDS = {
+    "CONSENT_REQUEST_PLACEHOLDER": "consent_request",
+    "CONSENT_GRANTED_PLACEHOLDER": "consent_granted",
+    "CAREGIVER_REQUEST_PLACEHOLDER": "caregiver_request",
+    "CAREGIVER_GRANTED_PLACEHOLDER": "caregiver_granted",
+    "EMERGENCY_ACCESS_PLACEHOLDER": "emergency_access",  # written by M10 (B7)
+}
+INBOX_LIMIT = 100
+
+
+def inbox(conn, recipient_id, limit=INBOX_LIMIT):
+    """In-app inbox: the recipient's newest notifications, whatever happened to push or SMS delivery (B3). The in-app
+    copy is always there; a delivery failure only adds the audit entry."""
     return conn.cursor(row_factory=dict_row).execute(
-        "SELECT * FROM notifications WHERE recipient_id = %s AND status = 'fallback_in_app' "
-        "ORDER BY created_at DESC, id",
-        [recipient_id],
+        "SELECT * FROM notifications WHERE recipient_id = %s ORDER BY created_at DESC, id LIMIT %s",
+        [recipient_id, limit],
     ).fetchall()
+
+
+def mark_read(conn, notification_id, recipient_id):
+    """Mark one of the recipient's notifications read (once; a repeat keeps the first time). None if not theirs."""
+    return conn.cursor(row_factory=dict_row).execute(
+        "UPDATE notifications SET read_at = COALESCE(read_at, clock_timestamp()) "
+        "WHERE id = %s AND recipient_id = %s RETURNING *",
+        [notification_id, recipient_id],
+    ).fetchone()

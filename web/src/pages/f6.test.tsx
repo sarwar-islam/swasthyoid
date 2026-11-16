@@ -195,6 +195,25 @@ describe("F6 screens", () => {
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Mark as read" })).toHaveLength(2));
   });
 
+  it("patient: an approved QR request and caregiver show as granted notices (B3)", async () => {
+    const t = mockTransport();
+    const req = await qrRequest(t);
+    await client(t, PATIENT_TOKEN).request("POST", `/consents/qr/${req.qr.token}/approve`);
+    const pending = (await client(t, PATIENT_TOKEN).request<{ id: string; purpose: string; status: string }[]>("GET", "/consents"))
+      .find((c) => c.purpose === "CAREGIVER" && c.status === "pending")!;
+    await client(t, PATIENT_TOKEN).request("POST", `/caregiver-authorizations/${pending.id}/approve`);
+    for (const lang of ["bn", "en"] as const) {
+      const { container } = renderApp("/patient/inbox", { lang, signedIn: true, transport: t });
+      await screen.findAllByRole("button", { name: lang === "en" ? "Mark as read" : "পড়া হয়েছে" });
+      if (lang === "en") {
+        expect(screen.getByText(/With your permission, .* can now see your record \(timeline, safety information\)\./)).toBeTruthy();
+        expect(screen.getByText(/With your permission, .* is now your caregiver/)).toBeTruthy();
+      }
+      expect(await axeViolations(container)).toEqual([]);
+      cleanup();
+    }
+  });
+
   it("patient without M10: no break-glass notice", async () => {
     renderApp("/patient/inbox", { lang: "en", signedIn: true });
     await screen.findAllByRole("button", { name: "Mark as read" });

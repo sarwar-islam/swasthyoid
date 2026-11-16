@@ -151,6 +151,8 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX IF NOT EXISTS notifications_due ON notifications (next_attempt_at) WHERE status = 'queued';
 CREATE INDEX IF NOT EXISTS notifications_recipient ON notifications (recipient_id, created_at);
+-- B3: the in-app inbox shows every notice; the patient marks one read (also upgrades an existing database).
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS notification_deliveries (
     id              uuid PRIMARY KEY,

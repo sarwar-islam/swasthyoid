@@ -534,8 +534,10 @@ export interface QrConsentRequest {
 /** The patient's C3 in-app inbox. GAP: GET /notifications (newest first), POST /notifications/{id}/read. Consent and
  * emergency-access notices are security notices: they cannot be switched off (FRD C3), only marked read. The inbox never grants
  * anything: a doctor's consent still needs the code read out or the QR; caregiver requests are answered in the Consent Center.
- * `emergency_access` exists only where M10 is enabled (the server writes one for every break-glass session, FRD M10). */
-export type NotificationKind = "consent_request" | "caregiver_request" | "emergency_access";
+ * `emergency_access` exists only where M10 is enabled (the server writes one for every break-glass session, FRD M10).
+ * BUILT in B3, with `consent_granted` and `caregiver_granted` added (owner decision 2026-11-16). A notice about a request that
+ * later closed stays as history. */
+export type NotificationKind = "consent_request" | "consent_granted" | "caregiver_request" | "caregiver_granted" | "emergency_access";
 export interface PatientNotification {
   id: string;
   kind: NotificationKind;

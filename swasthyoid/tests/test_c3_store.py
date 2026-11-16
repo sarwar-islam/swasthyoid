@@ -80,7 +80,7 @@ def test_retry_with_backoff_then_in_app_fallback_and_audit(conn):
     assert c3.deliver_due(conn, channels, max_attempts=3) == 1
     assert row(conn, n) == ("queued", 1)
     assert c3.deliver_due(conn, channels, max_attempts=3) == 0  # backing off, not due yet
-    assert c3.inbox(conn, recipient) == []
+    assert [i["id"] for i in c3.inbox(conn, recipient)] == [n["id"]]  # in-app from the start (B3)
 
     make_due(conn)
     c3.deliver_due(conn, channels, max_attempts=3)
@@ -129,14 +129,22 @@ def test_one_failing_notification_does_not_block_the_rest(conn):
     assert row(conn, good) == ("delivered", 1)
 
 
-def test_inbox_is_per_recipient_and_only_fallbacks(conn):
+def test_inbox_is_per_recipient_and_shows_every_notice_whatever_the_delivery(conn):
     me, other = uuid4(), uuid4()
-    queue(conn, me), queue(conn, other)
+    failed, _ = queue(conn, me), queue(conn, other)
     c3.deliver_due(conn, [("push", Fake(fail=True))], max_attempts=1)
     delivered = queue(conn, me)
     c3.deliver_due(conn, [("push", Fake())])
-    assert len(c3.inbox(conn, me)) == 1 and c3.inbox(conn, me)[0]["id"] != delivered["id"]
+    assert {i["id"] for i in c3.inbox(conn, me)} == {failed["id"], delivered["id"]}  # B3: not only fallbacks
     assert len(c3.inbox(conn, other)) == 1
+
+
+def test_mark_read_only_for_the_recipient_and_only_once(conn):
+    me = uuid4()
+    n = queue(conn, me)
+    assert c3.mark_read(conn, n["id"], uuid4()) is None
+    first = c3.mark_read(conn, n["id"], me)["read_at"]
+    assert first is not None and c3.mark_read(conn, n["id"], me)["read_at"] == first
 
 
 def test_if_the_audit_write_fails_the_notification_stays_queued(conn, monkeypatch):
