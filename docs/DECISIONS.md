@@ -1903,3 +1903,21 @@ check and the build (`e00e1a9`).
 **Verification.** 71 web tests (vitest, testing-library, axe-core in Bangla and English, a check that no flow calls the network).
 Browser pane: every F2 page at 375 px with no horizontal scroll or clipping; the 180/120 escalation card at desktop width; every
 request went to localhost. jsdom has no layout engine, so screen widths are checked only in the browser.
+
+## F3 doctor portal: three API contracts approved (owner decision 2026-11-16; frontend commit `b78a1ed`)
+
+The F3 doctor portal (web/) needed three endpoints the backend and the FRD did not have. All three are **APPROVED** as contracts
+(not built in the backend yet; mocked in `web/src/api/mock.ts`, typed in `web/src/api/types.ts`):
+
+1. **`GET /me` for staff:** for a doctor it returns `id`, `role`, `name`, `status` (`pending`, `verified`, `suspended`),
+   `emergency_enabled` and `credential` (`type` BMDC, `number`, `status`, or null). The doctor portal uses it for the status banner
+   and to block consent requests until verified. (The patient form of `GET /me` was approved on 2026-11-15.)
+2. **`patient_id` and `health_id` in the consent responses** of `POST /consents/requests` and
+   `POST /consents/requests/{id}/confirm`, so the doctor can open the record after confirming.
+3. **`GET /patients/{id}/safety-alerts`:** the M6 alerts on verified prescriptions (`id`, `rule_id`, `severity`, `explanation`
+   as reviewer text, `evidence_event_ids`, `source_document_id`, `created_at`, `status`, `reason`), under an active consent with the
+   `safety` category; acknowledged or overridden with `POST /safety/alerts/{id}/ack` (an override needs a reason).
+
+Also F3, recorded for the next phases: consent by QR is not built (no QR flow is designed); doctor consents are held in memory
+only, like the token. Verification: 89 web tests (axe in Bangla and English, no network); browser pane at 375 px and desktop, no
+horizontal scroll, no external request.
