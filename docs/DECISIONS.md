@@ -1868,3 +1868,38 @@ and JetBrains Mono) covers the Patient app (with a caregiver mode limited to the
 **Not changed yet (separate code change later):** the backend still carries the removed purposes in `core/consent_authz.py` and the
 `core/schema.sql` CHECKs, the `pharmacist` role in `identity/schema.sql` and `api/m1.py`, the removed event types and provenance values
 in `core/schema.sql`, and the empty `appointments/`, `referral/` and `prescribing/` packages.
+
+## Frontend F0 to F2: endpoint contracts and clinical-text placeholders (2026-11-15/16; commits `ea0bd0b`, `e00e1a9`, `e179d20`)
+
+**`GET /me`: APPROVED (owner decision 2026-11-15) as the endpoint contract for the Home Health ID card.** It returns the
+authenticated patient's own `id`, `health_id`, profile metadata (`name`, `language`) and the `cloud_ai_opt_in` flag. Not built in
+the backend yet; the frontend mock implements it (`web/src/api/types.ts`, `Me`).
+
+**Contracts the frontend uses that the backend does not have yet (mocked; shapes PROPOSED in `web/src/api/types.ts`).**
+- From the FRD (section 7), shapes not specified there: `POST /vitals`, `GET /vitals`, `POST /vitals/{id}/correct` (a 422
+  `confirmation_required` until the patient confirms an implausible value; the response carries the server's evaluation:
+  `within_range`, `flagged`, `critical` or `not_evaluated`, with the reviewed message); `POST /triage/sessions`,
+  `POST /triage/sessions/{id}/answer` (state `question`, `emergency` or `suggestion`); `GET /reminders`, `PATCH /reminders/{id}`,
+  `POST /reminders/{id}/log`; `PUT /me/emergency-profile`; `PUT /documents/{id}/review`, `POST /documents/{id}/confirm`,
+  `/reject`; `GET /patients/{id}/timeline`.
+- **GAP, to decide:** `GET /me/emergency-profile`: the FRD lists only the `PUT`, but the screen must show the current profile and
+  the verified values each field could hold.
+
+**No clinical rule or clinical text lives in the frontend.** Vital thresholds, plausibility limits, red flags, the department guide,
+escalation and emergency messages are decided by the server from the reviewer-approved M6 registry (invariant 2). The UI only shows
+what the server returns. Static clinical text (the emergency message, the first-aid cards) lives in one file,
+`web/src/content/reviewerPending.ts`, as `REVIEWER-PENDING` placeholders that say so on screen, until the clinical reviewer (not yet
+named, FRD question 7) supplies the signed wording. The mock has a few trigger values so each screen state can be tried; they are
+labelled mock-only and are not clinical rules (180/120 as "critical" is the FRD's own M13 example; the red-flag trigger is the test
+phrase `SYNTH-RED-FLAG`).
+
+**Other frontend decisions of these days.** Patients never see raw M6 alerts (as recorded on 2026-11-15). A critical home reading
+always shows the escalation card with the 999 call and a link to the emergency card, and no reading is ever called safe. Any triage
+failure shows the emergency card and general advice (FRD M7 fail-safe). Reminders never run until the patient switches them on. The
+emergency-profile screen exists only with `VITE_FEATURE_EMERGENCY_ACCESS=1` (M10 stays conditional). Fonts are self-hosted
+(Atkinson Hyperlegible, Hind Siliguri, JetBrains Mono); the build makes no Google Fonts request. CI runs the web tests, the type
+check and the build (`e00e1a9`).
+
+**Verification.** 71 web tests (vitest, testing-library, axe-core in Bangla and English, a check that no flow calls the network).
+Browser pane: every F2 page at 375 px with no horizontal scroll or clipping; the 180/120 escalation card at desktop width; every
+request went to localhost. jsdom has no layout engine, so screen widths are checked only in the browser.
