@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
 import type { Provenance, TimelineEvent } from "../../api/types";
 import { ErrorNote, Loading, ProvenanceBadge } from "../../components/ui";
 import { formatDate, formatNumber, localDigits, useI18n } from "../../i18n/i18n";
@@ -8,11 +8,11 @@ import { useLoad, useSession } from "../../session";
 
 type Filter = "all" | Provenance;
 
-function EventCard({ event, older }: { event: TimelineEvent; older: TimelineEvent[] }) {
+function EventCard({ event, older, docBase }: { event: TimelineEvent; older: TimelineEvent[]; docBase: string | null }) {
   const { t, lang } = useI18n();
   const field = (k: string): string => (`f.${k}` in bn ? t(`f.${k}` as Key) : k);
   return (
-    <article className={`card event ${event.verification_status}`} aria-labelledby={`ev-${event.event_id}`}>
+    <article id={`event-${event.event_id}`} tabIndex={-1} className={`card event ${event.verification_status}`} aria-labelledby={`ev-${event.event_id}`}>
       <div className="row">
         <h2 id={`ev-${event.event_id}`} style={{ fontSize: "1.1rem", margin: 0 }}>
           {t(`tl.${event.event_type}` as Key)} · {formatDate(event.date, lang)}
@@ -26,7 +26,7 @@ function EventCard({ event, older }: { event: TimelineEvent; older: TimelineEven
       </dl>
       <div className="row">
         {event.version > 1 && <span className="muted">{t("tl.corrected", { n: formatNumber(event.version, lang) })}</span>}
-        {event.source_document_id && <Link to={`/patient/documents/${event.source_document_id}`}>{t("tl.source")}</Link>}
+        {event.source_document_id && docBase && <Link to={`${docBase}/${event.source_document_id}`}>{t("tl.source")}</Link>}
       </div>
       {older.length > 0 && (
         <details>
@@ -47,10 +47,25 @@ function EventCard({ event, older }: { event: TimelineEvent; older: TimelineEven
 /** M4: the patient's own timeline. Corrections are new events (invariant 5): a corrected event shows its latest version, with
  * the earlier ones under "correction history". Patient-reported entries are always labelled and can be filtered on their own. */
 export function Timeline() {
+  const { claims } = useSession();
+  return <TimelineView patientId={claims?.sub ?? ""} docBase="/patient/documents" title />;
+}
+
+/** A timeline for any portal. `docBase` null hides source links (the viewer may not see documents). The event named in the URL
+ * hash (a summary citation) is scrolled to and focused. */
+export function TimelineView({ patientId, docBase, title = false }: { patientId: string; docBase: string | null; title?: boolean }) {
   const { t } = useI18n();
-  const { api, claims } = useSession();
-  const events = useLoad(() => api.request<TimelineEvent[]>("GET", `/patients/${claims?.sub}/timeline`), [claims?.sub]);
+  const { api } = useSession();
+  const events = useLoad(() => api.request<TimelineEvent[]>("GET", `/patients/${patientId}/timeline`), [patientId]);
   const [filter, setFilter] = useState<Filter>("all");
+  const { hash } = useLocation();
+  useEffect(() => {
+    const target = hash && document.getElementById(hash.slice(1));
+    if (target) {
+      target.scrollIntoView?.({ block: "center" });
+      target.focus();
+    }
+  }, [hash, events.data]);
 
   const all = events.data ?? [];
   const superseded = new Set(all.map((e) => e.supersedes).filter(Boolean));
@@ -65,7 +80,7 @@ export function Timeline() {
 
   return (
     <>
-      <h1>{t("tl.title")}</h1>
+      {title && <h1>{t("tl.title")}</h1>}
       <fieldset className="segmented">
         <legend className="sr-only">{t("tl.filter")}</legend>
         {(["all", "document_verified", "patient_reported"] as const).map((f) => (
@@ -77,7 +92,7 @@ export function Timeline() {
       </fieldset>
       {events.loading ? <Loading /> : <ErrorNote error={events.error} />}
       {!events.loading && shown.length === 0 && <p className="muted">{t("tl.empty")}</p>}
-      <div className="list">{shown.map((e) => <EventCard key={e.event_id} event={e} older={history(e)} />)}</div>
+      <div className="list">{shown.map((e) => <EventCard key={e.event_id} event={e} older={history(e)} docBase={docBase} />)}</div>
     </>
   );
 }

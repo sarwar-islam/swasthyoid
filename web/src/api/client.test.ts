@@ -54,7 +54,7 @@ describe("mock transport", () => {
   });
 
   it("answers 501 for any route it does not know, never a made-up success", async () => {
-    const failure = await failed(client.request("GET", "/patients/1/summary"));
+    const failure = await failed(client.request("GET", "/patients/1/referrals")); // M9 is out of scope: never mocked
     expect([failure.status, failure.code]).toEqual([501, "not_built_in_mock"]);
   });
 });

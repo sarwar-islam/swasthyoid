@@ -1,7 +1,8 @@
 import type { ApiRequest, ApiResponse, Method, Transport } from "./client";
 import type {
-  AccessEntry, Consent, DocType, DocumentView, EmergencyProfile, ExtractedField, ExtractionResponse, FieldRow, Me, OtpVerifyBody,
-  Reminder, ReminderLogAction, ReviewBody, ReviewedText, TimelineEvent, TriageState, VitalEntry, VitalEvaluation, VitalReading,
+  AccessEntry, Cited, Consent, DocType, DocumentView, DoctorConsent, EmergencyProfile, EmergencySession, ExtractedField,
+  ExtractionResponse, FieldRow, Me, OtpVerifyBody, Reminder, ReminderLogAction, ReviewBody, ReviewedText, SafetyAlert, SearchHit,
+  StaffMe, StaffVerifyBody, Summary, TimelineEvent, TriageState, VitalEntry, VitalEvaluation, VitalReading,
 } from "./types";
 
 // In-memory stand-in for /api/v1 with SYNTHETIC data only (invariant 9): no real person, drug or clinic. It answers with the
@@ -11,7 +12,12 @@ import type {
 export const MOCK_CODE = "123456"; // the one-time code the mock accepts (no SMS in the mock)
 export const MOCK_PHONE = "+8801700000001"; // already registered; any other phone must register with a profile
 export const MOCK_PATIENT_ID = "11111111-1111-4111-8111-111111111111";
-const DOCTOR_ID = "22222222-2222-4222-8222-222222222222";
+export const MOCK_DOCTOR_ID = "22222222-2222-4222-8222-222222222222";
+const DOCTOR_ID = MOCK_DOCTOR_ID;
+export const MOCK_DOCTOR_PHONE = "+8801900000002"; // a verified, emergency-enabled synthetic doctor
+export const MOCK_PENDING_DOCTOR_PHONE = "+8801900000003"; // a synthetic doctor whose BMDC credential is still pending
+export const MOCK_HEALTH_ID = "SID-4827190356";
+const PENDING_DOCTOR_ID = "55555555-5555-4555-8555-555555555555";
 const CAREGIVER_ID = "33333333-3333-4333-8333-333333333333";
 const OTHER_DOCTOR_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -96,6 +102,9 @@ function createState() {
   const timeline: TimelineEvent[] = [
     ev("e-rx", "prescription", "2026-11-08", "document_verified", { prescriber_name: "Dr. Synthetic Prescriber" }, { source_document_id: "d-verified" }),
     ev("e-med", "medication", "2026-11-08", "document_verified", { name_as_written: "SYNTH-DRUG-003" }, { source_document_id: "d-verified" }),
+    ev("e-allergy", "allergy", "2026-10-02", "document_verified", { allergy_text: "SYNTH-ALLERGEN-01" }, { source_document_id: "d-verified" }),
+    ev("e-lab-1", "lab_result", "2026-09-15", "document_verified", { test_name: "SYNTH-TEST-A", result: "5.4", unit: "mg/dL" }),
+    ev("e-lab-2", "lab_result", "2026-11-01", "document_verified", { test_name: "SYNTH-TEST-A", result: "5.9", unit: "mg/dL" }),
     ev("e-bp-1", "vital_reading", "2026-11-10", "patient_reported", { reading: "150/95 mmHg" }),
     ev("e-bp-2", "vital_reading", "2026-11-10", "patient_reported", { reading: "130/85 mmHg" }, { version: 2, supersedes: "e-bp-1" }),
   ];
@@ -118,7 +127,23 @@ function createState() {
   const emergency: EmergencyProfile = { enabled: false, fields: [], contacts: [],
     available: { blood_group: null, allergies: [], active_medications: ["SYNTH-DRUG-003"], conditions: [] } };
   return { me, consents, history, documents, extractions, timeline, phones: new Set([MOCK_PHONE]), reviews: {} as Record<string, ReviewBody["fields"]>,
-           vitals, reminders, emergency, triage: {} as Record<string, number> };
+           vitals, reminders, emergency, triage: {} as Record<string, number>,
+           doctors: {
+             [DOCTOR_ID]: { id: DOCTOR_ID, role: "doctor", name: "ডা. সিনথেটিক চিকিৎসক", status: "verified", emergency_enabled: true,
+                            credential: { type: "BMDC", number: "SYNTH-BMDC-0001", status: "verified" } },
+             [PENDING_DOCTOR_ID]: { id: PENDING_DOCTOR_ID, role: "doctor", name: "ডা. নতুন সিনথেটিক", status: "pending", emergency_enabled: false,
+                                    credential: null },
+           } as Record<string, StaffMe>,
+           staffPhones: new Map([[MOCK_DOCTOR_PHONE, DOCTOR_ID], [MOCK_PENDING_DOCTOR_PHONE, PENDING_DOCTOR_ID]]),
+           patientOf: {} as Record<string, string>, // consent id -> patient id, for doctor consents
+           alerts: [
+             { id: "a-1", rule_id: "SYNTH-DDI-0001", severity: "major", source_document_id: "d-verified", evidence_event_ids: ["e-med", "e-rx"],
+               explanation: pendingText("Approved interaction explanation for SYNTH-DRUG-003 goes here.", "SYNTH-DRUG-003-এর অনুমোদিত ব্যাখ্যা এখানে বসবে।"),
+               created_at: iso(-47), status: "open", reason: null },
+             { id: "a-2", rule_id: "SYNTH-ALG-0001", severity: "moderate", source_document_id: "d-verified", evidence_event_ids: ["e-allergy", "e-med"],
+               explanation: pendingText("Approved allergy explanation goes here.", "অ্যালার্জির অনুমোদিত ব্যাখ্যা এখানে বসবে।"),
+               created_at: iso(-47), status: "open", reason: null },
+           ] as SafetyAlert[] };
 }
 
 // ---- F2 mock rules. SYNTHETIC and MOCK-ONLY: they exist so every screen state can be tried. They are NOT clinical rules and the
@@ -155,6 +180,34 @@ function triageStep(id: string, text: string, answered: number): TriageState {
     options: [{ id: "yes", text: { status: "approved", en: "Yes", bn: "হ্যাঁ" } }, { id: "no", text: { status: "approved", en: "No", bn: "না" } }] } };
 }
 
+function pendingText(en: string, bn: string): ReviewedText {
+  return { status: "REVIEWER-PENDING", en: `[REVIEWER-PENDING] ${en}`, bn: `[রিভিউয়ার-অনুমোদন বাকি] ${bn}` };
+}
+
+/** The template summary: built from the permitted events only, every sentence citing them (invariant 3). Synthetic text. */
+function templateSummary(events: TimelineEvent[]): Summary {
+  const current = events.filter((e) => !events.some((x) => x.supersedes === e.event_id));
+  const line = (e: TimelineEvent): Cited => ({ text: `${Object.values(e.payload).join(" ")} · ${e.date}`, citations: [e.event_id] });
+  const verified = current.filter((e) => e.verification_status === "document_verified");
+  const labs = verified.filter((e) => e.event_type === "lab_result").sort((a, b) => a.date.localeCompare(b.date));
+  const byTest = new Map<string, TimelineEvent[]>();
+  labs.forEach((e) => byTest.set(e.payload.test_name, [...(byTest.get(e.payload.test_name) ?? []), e]));
+  const of = (type: TimelineEvent["event_type"]) => verified.filter((e) => e.event_type === type).map(line);
+  return {
+    mode: "template", generated_at: new Date().toISOString(),
+    sections: [
+      { id: "active_medications", sentences: of("medication") },
+      { id: "allergies", sentences: of("allergy") },
+      { id: "diagnoses", sentences: of("diagnosis") },
+      { id: "labs", sentences: [...byTest.entries()].map(([name, list]) => ({
+        text: `${name}: ${list.map((e) => `${e.payload.result} ${e.payload.unit} (${e.date})`).join(" → ")}`, citations: list.map((e) => e.event_id) })) },
+      { id: "visits", sentences: [...of("visit"), ...of("prescription")] },
+      { id: "follow_ups", sentences: of("follow_up") },
+    ],
+    patient_reported: current.filter((e) => e.verification_status === "patient_reported").map(line),
+  };
+}
+
 function syntheticPage(): Blob {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840" viewBox="0 0 600 840"><rect width="600" height="840" fill="#f4f1e8"/>
 <text x="40" y="70" font-family="sans-serif" font-size="26" fill="#1f2937">SYNTHETIC PRESCRIPTION</text>
@@ -169,7 +222,32 @@ function syntheticPage(): Blob {
 
 export function mockTransport(): Transport {
   const s = createState();
-  const authed = (r: ApiRequest) => (r.headers.Authorization ?? "").startsWith("Bearer ");
+  const who = (r: ApiRequest): { sub: string; role: string } | null => {
+    try {
+      return JSON.parse(atob((r.headers.Authorization ?? "").replace(/^Bearer /, "").split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    } catch {
+      return null;
+    }
+  };
+  const authed = (r: ApiRequest) => who(r)?.role === "patient";
+  const doctorOf = (r: ApiRequest) => (who(r)?.role === "doctor" ? s.doctors[who(r)!.sub] ?? null : null);
+  const record = (doctor: StaffMe, action: string, result: "allow" | "deny", reason: string | null, consentId: string | null) =>
+    s.history.unshift({ at: new Date().toISOString(), actor_id: doctor.id, actor_role: "doctor", action, purpose: "TIMELINE", result,
+                        reason, consent_id: consentId, actor_name: doctor.name });
+  /** C1 for the mock: an active, unexpired TIMELINE consent of this doctor for this patient covering the category; every
+   * allow and deny is written to the patient's access history (C2). */
+  const consentFor = (r: ApiRequest, patientId: string, category: "timeline" | "documents" | "safety", action: string): ApiResponse | null => {
+    const doctor = doctorOf(r);
+    if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
+    const c = s.consents.find((x) => x.grantee_id === doctor.id && s.patientOf[x.id] === patientId && x.status === "active"
+      && x.expires_at !== null && Date.parse(x.expires_at) > Date.now());
+    const reason = !c ? "consent_required" : !c.allowed_categories.includes(category) ? "category_not_allowed" : null;
+    record(doctor, action, reason ? "deny" : "allow", reason, c?.id ?? null);
+    return reason ? error(403, reason, reason === "consent_required" ? "No active consent." : "This consent does not cover that.") : null;
+  };
+  const doctorView = (c: Consent): DoctorConsent => ({ id: c.id, purpose: "TIMELINE", allowed_categories: c.allowed_categories as DoctorConsent["allowed_categories"],
+    status: c.status, activated_at: c.activated_at, expires_at: c.expires_at, created_at: c.created_at, patient_id: s.patientOf[c.id],
+    health_id: s.me.health_id });
   const unauthenticated = error(401, "unauthenticated", "Sign in first.");
   const findDoc = (id: string) => s.documents.find((d) => d.id === id);
   const notFound = error(404, "not_found", "No document with this id.");
@@ -181,15 +259,101 @@ export function mockTransport(): Transport {
       return typeof phone === "string" && phone.trim() ? ok(null, 204) : error(422, "invalid_phone", "Enter a phone number.");
     }],
     ["POST", "/auth/otp/verify", (r) => {
-      const body = r.body as Partial<OtpVerifyBody> | undefined;
+      const body = r.body as Partial<OtpVerifyBody & StaffVerifyBody> | undefined;
       if (body?.code !== MOCK_CODE) return error(401, "invalid_code", "The code is wrong or has expired.");
+      if (body.account === "staff") {
+        let id = s.staffPhones.get(body.phone ?? "");
+        if (!id) {
+          if (!body.staff?.name) return error(409, "registration_required", "Request a new code and send your profile with it.");
+          id = crypto.randomUUID();
+          s.staffPhones.set(body.phone ?? "", id);
+          s.doctors[id] = { id, role: "doctor", name: body.staff.name, status: "pending", emergency_enabled: false, credential: null };
+        }
+        if (s.doctors[id].status === "suspended") return error(403, "user_suspended", "This account is suspended.");
+        return ok({ access_token: mockJwt(id, "doctor"), refresh_token: "synthetic-refresh-token" });
+      }
       if (!s.phones.has(body.phone ?? "")) {
         if (!body.profile) return error(409, "registration_required", "Request a new code and send your profile with it.");
         s.phones.add(body.phone ?? ""); // shortcut: every mock registration signs in to the one synthetic patient
       }
       return ok({ access_token: mockJwt(MOCK_PATIENT_ID, "patient"), refresh_token: "synthetic-refresh-token" });
     }],
-    ["GET", "/me", (r) => (authed(r) ? ok(s.me) : unauthenticated)],
+    ["GET", "/me", (r) => (authed(r) ? ok(s.me) : doctorOf(r) ? ok(doctorOf(r)) : unauthenticated)],
+    ["POST", "/credentials", (r) => {
+      const doctor = doctorOf(r);
+      if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
+      const number = String((r.body as { number?: unknown }).number ?? "").trim();
+      if (!number) return error(422, "invalid_credential", "Enter the registration number.");
+      if (Object.values(s.doctors).some((d) => d.credential?.number === number)) return error(409, "credential_exists", "This credential number is already registered.");
+      doctor.credential = { type: "BMDC", number, status: "pending" };
+      return ok({ id: `cred-${doctor.id.slice(0, 8)}`, status: "pending" }, 201);
+    }],
+    ["POST", "/consents/requests", (r) => {
+      const doctor = doctorOf(r);
+      if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
+      if (doctor.status !== "verified") return error(403, "user_not_verified", "You are not allowed to do this.");
+      const body = r.body as { health_id?: string; categories?: string[] };
+      if (body.health_id !== s.me.health_id) return error(404, "patient_not_found", "No patient has this Health ID.");
+      const categories = (body.categories ?? []).filter((c) => ["timeline", "documents", "safety"].includes(c));
+      if (!categories.length) return error(422, "invalid_categories", "Choose at least one category.");
+      const c: Consent = { id: `c-${crypto.randomUUID().slice(0, 8)}`, grantee_id: doctor.id, grantee_role: "doctor", purpose: "TIMELINE",
+        allowed_categories: categories, status: "pending", activated_at: null, expires_at: null, created_at: new Date().toISOString(),
+        grantee_name: doctor.name, grantee_phone_tail: null, requested_days: null };
+      s.consents.unshift(c);
+      s.patientOf[c.id] = s.me.id;
+      return ok(doctorView(c), 201);
+    }],
+    ["POST", "/consents/requests/{id}/confirm", (r, p) => {
+      const doctor = doctorOf(r);
+      if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
+      const c = s.consents.find((x) => x.id === p.id && x.grantee_id === doctor.id && x.status === "pending");
+      if (!c) return error(404, "not_found", "No pending consent request with this id.");
+      if ((r.body as { code?: string }).code !== MOCK_CODE) return error(403, "invalid_code", "The code is wrong or has expired.");
+      c.status = "active";
+      c.activated_at = new Date().toISOString();
+      c.expires_at = new Date(Date.now() + 24 * 3600_000).toISOString(); // the backend reads TIMELINE_CONSENT_HOURS
+      return ok(doctorView(c));
+    }],
+    ["GET", "/patients/{id}/summary", (r, p) => consentFor(r, p.id, "timeline", "summary.read") ?? ok(templateSummary(s.timeline))],
+    ["GET", "/patients/{id}/search", (r, p) => {
+      const denied = consentFor(r, p.id, "timeline", "search");
+      if (denied) return denied;
+      const q = decodeURIComponent((r.path.split("?q=")[1] ?? "").split("&")[0]).trim().toLowerCase();
+      const hits: SearchHit[] = q ? s.timeline.filter((e) => JSON.stringify(e.payload).toLowerCase().includes(q)).map((e) => ({
+        event_id: e.event_id, event_type: e.event_type, date: e.date, source_document_id: e.source_document_id, snippet: Object.values(e.payload).join(" ") })) : [];
+      return ok(hits);
+    }],
+    ["GET", "/patients/{id}/safety-alerts", (r, p) => consentFor(r, p.id, "safety", "safety.read") ?? ok(s.alerts)],
+    ["POST", "/safety/alerts/{id}/ack", (r, p) => {
+      const denied = consentFor(r, s.me.id, "safety", "safety.ack");
+      if (denied) return denied;
+      const alert = s.alerts.find((a) => a.id === p.id);
+      if (!alert) return error(404, "not_found", "No alert with this id.");
+      if (alert.status !== "open") return error(409, "not_open", "This alert was already handled.");
+      const body = r.body as { action?: string; reason?: string };
+      const reason = (body.reason ?? "").trim();
+      if (body.action === "override" && !reason) return error(422, "reason_required", "An override needs a reason.");
+      if (body.action !== "acknowledge" && body.action !== "override") return error(422, "invalid_action", "Acknowledge or override.");
+      alert.status = body.action === "override" ? "overridden" : "acknowledged";
+      alert.reason = reason || null;
+      return ok(alert);
+    }],
+    ["POST", "/emergency/access", (r) => {
+      const doctor = doctorOf(r);
+      if (!doctor || doctor.status !== "verified" || !doctor.emergency_enabled) return error(403, "emergency_not_enabled", "You are not allowed to do this.");
+      const body = r.body as { health_id?: string; reason?: string; facility?: string };
+      if (!body.reason?.trim() || !body.facility?.trim()) return error(422, "reason_required", "A reason and a facility are required.");
+      if (body.health_id !== s.me.health_id) return error(404, "patient_not_found", "No patient has this Health ID.");
+      record(doctor, "emergency.access", "allow", body.reason.trim(), null); // audit first, then the card (FRD M10)
+      const e = s.emergency;
+      const pick = <K extends keyof NonNullable<EmergencySession["card"]>>(k: K, v: NonNullable<EmergencySession["card"]>[K]) =>
+        (e.fields.includes(k as never) ? { [k]: v } : {});
+      const card = !e.enabled ? null : { ...pick("blood_group", e.available.blood_group ?? undefined), ...pick("allergies", e.available.allergies),
+        ...pick("active_medications", e.available.active_medications), ...pick("conditions", e.available.conditions),
+        ...pick("emergency_contacts", e.contacts) };
+      const session: EmergencySession = { session_id: `es-${crypto.randomUUID().slice(0, 8)}`, expires_at: new Date(Date.now() + 2 * 3600_000).toISOString(), card };
+      return ok(session, 201);
+    }],
     ["GET", "/consents", (r) => (authed(r) ? ok(s.consents) : unauthenticated)],
     ["POST", "/consents/{id}/revoke", (r, p) => {
       if (!authed(r)) return unauthenticated;
@@ -234,13 +398,15 @@ export function mockTransport(): Transport {
       s.documents.unshift(created);
       return ok(created, 201);
     }],
-    ["GET", "/documents/{id}", (r, p) => (!authed(r) ? unauthenticated : findDoc(p.id) ? ok(findDoc(p.id)) : notFound)],
+    ["GET", "/documents/{id}", (r, p) => (doctorOf(r) ? consentFor(r, s.me.id, "documents", "document.read") ?? (findDoc(p.id) ? ok(findDoc(p.id)) : notFound)
+      : !authed(r) ? unauthenticated : findDoc(p.id) ? ok(findDoc(p.id)) : notFound)],
     ["GET", "/documents/{id}/extraction", (r, p) => {
       if (!authed(r)) return unauthenticated;
       const d = findDoc(p.id);
       return d ? ok({ document_id: d.id, status: d.status, threshold: 0.85, extraction: s.extractions[d.id] ?? null }) : notFound;
     }],
-    ["GET", "/documents/{id}/images/{n}", (r, p) => (!authed(r) ? unauthenticated : findDoc(p.id) ? ok(syntheticPage()) : notFound)],
+    ["GET", "/documents/{id}/images/{n}", (r, p) => (doctorOf(r) ? consentFor(r, s.me.id, "documents", "document.image.read") ?? (findDoc(p.id) ? ok(syntheticPage()) : notFound)
+      : !authed(r) ? unauthenticated : findDoc(p.id) ? ok(syntheticPage()) : notFound)],
     ["POST", "/documents/{id}/manual-entry", (r, p) => {
       if (!authed(r)) return unauthenticated;
       const d = findDoc(p.id);
@@ -296,7 +462,8 @@ export function mockTransport(): Transport {
       d.status = "rejected";
       return ok(d);
     }],
-    ["GET", "/patients/{id}/timeline", (r) => (authed(r) ? ok(s.timeline) : unauthenticated)],
+    ["GET", "/patients/{id}/timeline", (r, p) => (doctorOf(r) ? consentFor(r, p.id, "timeline", "timeline.read") ?? ok(s.timeline)
+      : authed(r) ? ok(s.timeline) : unauthenticated)],
     ["GET", "/vitals", (r) => (authed(r) ? ok(s.vitals) : unauthenticated)],
     ...(["/vitals", "/vitals/{id}/correct"] as const).map((path): [Method, string, Handler] => ["POST", path, (r, p) => {
       if (!authed(r)) return unauthenticated;

@@ -5,6 +5,10 @@ import { LanguageToggle, ThemeSelect } from "./components/Controls";
 import { flags } from "./flags";
 import { localDigits, useI18n } from "./i18n/i18n";
 import type { Key } from "./i18n/strings";
+import { DoctorFrame } from "./pages/doctor/doctor";
+import { AllAlerts, BreakGlass, Credentials } from "./pages/doctor/Other";
+import { Patients } from "./pages/doctor/Patients";
+import { AlertsPage, DoctorDocument, DoctorTimeline, SearchPage, SummaryPage, Workspace } from "./pages/doctor/Workspace";
 import { ConsentCenter } from "./pages/patient/Consent";
 import { Capture } from "./pages/patient/Capture";
 import { DocumentPage } from "./pages/patient/Document";
@@ -87,7 +91,26 @@ export function AppRoutes() {
           <Route path="*" element={<Navigate to="/patient" replace />} />
         </Route>
       </Route>
-      {(["doctor", "verifier", "console"] as const).map((portal) => (
+      <Route path="/doctor/login" element={<Login portal="doctor" />} />
+      <Route element={<RequireRole role="doctor" login="/doctor/login" />}>
+        <Route path="/doctor" element={<StaffShell portal="doctor" />}>
+          <Route element={<DoctorFrame />}>
+            <Route index element={<Patients />} />
+            <Route path="alerts" element={<AllAlerts />} />
+            <Route path="credentials" element={<Credentials />} />
+            {flags.emergencyAccess && <Route path="emergency" element={<BreakGlass />} />}
+            <Route path="patients/:pid" element={<Workspace />}>
+              <Route index element={<SummaryPage />} />
+              <Route path="timeline" element={<DoctorTimeline />} />
+              <Route path="search" element={<SearchPage />} />
+              <Route path="alerts" element={<AlertsPage />} />
+              <Route path="documents/:docId" element={<DoctorDocument />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/doctor" replace />} />
+          </Route>
+        </Route>
+      </Route>
+      {(["verifier", "console"] as const).map((portal) => (
         <Route key={portal} path={`/${portal}`} element={<StaffShell portal={portal} />}>
           {pages(visible(STAFF_NAV[portal].items), `/${portal}`)}
         </Route>

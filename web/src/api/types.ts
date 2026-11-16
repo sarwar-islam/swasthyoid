@@ -245,3 +245,94 @@ export interface EmergencyProfile {
   /** What the card could show, built from verified events only (null: nothing verified for it yet). */
   available: { blood_group: string | null; allergies: string[]; active_medications: string[]; conditions: string[] };
 }
+
+// ---- F3 doctor portal
+
+/** POST /auth/otp/verify for staff: `account: "staff"`, and on first login `staff: { role, name }`. BUILT. */
+export interface StaffVerifyBody {
+  phone: string;
+  code: string;
+  device_id: string;
+  account: "staff";
+  staff?: { role: "doctor" | "verifier" | "clinical_reviewer"; name: string };
+}
+
+export type StaffStatus = "pending" | "verified" | "suspended";
+
+/** GET /me for a staff member. GAP: the approved GET /me covers patients; a doctor needs their own credential status (BMDC)
+ * to know whether they may request consent. Mocked; owner to decide. */
+export interface StaffMe {
+  id: string;
+  role: "doctor";
+  name: string;
+  status: StaffStatus;
+  emergency_enabled: boolean;
+  credential: { type: "BMDC"; number: string; status: StaffStatus } | null;
+}
+
+/** POST /credentials { type, number, doc_key? } -> { id, status }. BUILT. */
+export interface CredentialBody {
+  type: "BMDC";
+  number: string;
+}
+
+/** POST /consents/requests { health_id, categories } and POST /consents/requests/{id}/confirm { code }. BUILT, but the response
+ * has no patient: GAP `patient_id` (and the Health ID echoed back) so the doctor can open the record. Mocked with both. */
+export interface DoctorConsent {
+  id: string;
+  purpose: "TIMELINE";
+  allowed_categories: Array<"timeline" | "documents" | "safety">;
+  status: "pending" | "active" | "expired" | "revoked" | "declined" | "suspended";
+  activated_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  patient_id: string; // GAP
+  health_id: string; // GAP
+}
+
+/** One sentence of a summary, with the events it cites (invariant 3). */
+export interface Cited {
+  text: string;
+  citations: string[];
+}
+
+/** GET /patients/{id}/summary. FRD (M5), not built. `mode: template` when no LLM adapter is configured or validation failed. */
+export interface Summary {
+  mode: "llm" | "template";
+  generated_at: string;
+  sections: Array<{ id: "active_medications" | "allergies" | "diagnoses" | "labs" | "visits" | "follow_ups"; sentences: Cited[] }>;
+  patient_reported: Cited[]; // home vitals: a separate section, "reported by patient, not verified"
+}
+
+/** GET /patients/{id}/search?q= : event ids with source links, never generated answers. FRD (M5), not built. */
+export interface SearchHit {
+  event_id: string;
+  event_type: EventType;
+  date: string;
+  source_document_id: string | null;
+  snippet: string;
+}
+
+export type Severity = "contraindicated" | "major" | "moderate" | "minor";
+
+/** An M6 alert on a newly verified prescription. Ack: POST /safety/alerts/{id}/ack { action, reason } (FRD). Listing alerts:
+ * GAP `GET /patients/{id}/safety-alerts` (the FRD has no list endpoint). Mocked. */
+export interface SafetyAlert {
+  id: string;
+  rule_id: string;
+  severity: Severity;
+  explanation: ReviewedText;
+  evidence_event_ids: string[];
+  source_document_id: string;
+  created_at: string;
+  status: "open" | "acknowledged" | "overridden";
+  reason: string | null;
+}
+
+/** POST /emergency/access { health_id, reason, facility }. FRD (M10), not built; only with VITE_FEATURE_EMERGENCY_ACCESS=1. */
+export interface EmergencySession {
+  session_id: string;
+  expires_at: string;
+  card: { blood_group?: string; allergies?: string[]; active_medications?: string[]; conditions?: string[];
+          emergency_contacts?: Array<{ name: string; phone: string }> } | null; // null: the patient has no emergency profile on
+}

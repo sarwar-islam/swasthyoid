@@ -163,7 +163,7 @@ describe("M4 timeline", () => {
   it("labels every entry's provenance, hides corrected versions under history, and filters self-reported entries", async () => {
     renderApp("/patient/timeline", { lang: "en", signedIn: true });
     await screen.findAllByRole("article");
-    expect(screen.getAllByRole("article")).toHaveLength(3); // e-bp-1 is shown only inside e-bp-2's history
+    expect(screen.getAllByRole("article")).toHaveLength(6); // e-bp-1 is shown only inside e-bp-2's history
     expect(screen.getByText("Corrected (version 2)")).toBeTruthy();
     expect(screen.getByText("Correction history")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Self-reported"));

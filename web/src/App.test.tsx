@@ -59,8 +59,8 @@ describe("portal shells", () => {
   });
 
   it("each page says which phase builds it", () => {
-    renderAt("/doctor/alerts", "en");
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Safety alerts");
-    expect(screen.getByText("This page is built in phase F3.")).toBeTruthy();
+    renderAt("/console/rules", "en");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Rule registry");
+    expect(screen.getByText("This page is built in phase F5.")).toBeTruthy();
   });
 });
