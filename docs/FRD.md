@@ -5,6 +5,8 @@
 and Pharmacist Dispensing, and M12 Appointment-Bound Consent are removed, with the Pharmacist and Receiving Doctor roles and the
 `APPOINTMENT`, `REFERRAL` and `DISPENSING` consent purposes. M6 now checks prescriptions once they are human-verified. Module numbers
 are not reused.
+**Updated 16 November 2026 (owner decisions during the frontend phases F0–F5):** the approved `GET /me` (patient and staff), consent
+response and safety-alert list contracts in section 7, and the verifier's code read-out in sections 2 and 5 (M3) and question 3.
 **Status:** v4 revision, pending owner approval. Decisions it relies on are recorded in `docs/DECISIONS.md`; M2 work is planned in `docs/M2_COMPLETION_PLAN.md`.
 **Principle:** *AI reads → Human verifies → Rules check → Doctor decides → Every access is consented and audited.*
 
@@ -102,7 +104,7 @@ flowchart LR
 | **Patient** (phone OTP) | Upload, verify own extractions, view own timeline and access history, grant/revoke consent, log vitals, reminders, triage, set emergency profile | See other patients, see raw M6 safety alerts (owner decision 2026-11-15) |
 | **Doctor** (BMDC verified, admin approved) | Request consent, read summary/timeline under consent, acknowledge or override M6 safety alerts with a reason (the treating doctor, under active consent) | Read without consent, edit verified events |
 | **Emergency-enabled Doctor** | Break-glass access to the minimal emergency card | Full timeline, documents, search |
-| **Verifier** (staff/CHW) | Capture and verify for a present, consenting patient | Read timelines, grant consent for a patient |
+| **Verifier** (staff/CHW) | Capture and verify for a present, consenting patient, after the patient reads out the code sent to their own phone (owner decision 2026-11-16) | Read timelines, grant consent for a patient |
 | **Clinical Reviewer** | Draft/approve rules, thresholds, red-flag lists, emergency messages, review break-glass sessions | Access patient data |
 | **Admin** | Users, credential approval, catalog import, audit export | Read clinical content |
 | **Caregiver** (own person account, phone OTP) | With a patient-approved `CAREGIVER` authorization, only the scopes granted: `upload_documents`, `view_documents`, `view_timeline`; request an authorization | Verify extractions, grant or revoke consent for the patient, read the patient's access history, approve their own request |
@@ -433,7 +435,12 @@ sequenceDiagram
 - Image beside extracted fields. Fields under the confidence threshold (start 0.85, configurable) are highlighted. Confirm stays disabled until every field is edited or confirmed.
 - Drug names resolve to generic ingredients through the catalog with suggestions.
 - **Confirm:** one database transaction writes immutable events (`document_verified`), sets the document `verified`, logs each correction as before/after, and queues indexing and reminder proposals. **Reject:** status `rejected`.
-- The verifier is the patient, or staff/CHW assisting a present, consenting patient.
+- The verifier is the patient, or staff/CHW assisting a present, consenting patient. **Presence and consent (owner decision
+  2026-11-16):** the staff member enters the patient's Health ID, a one-time code goes to the patient's own phone, and the present
+  patient reads it out; only a correct, unexpired, unused code opens a short session for that staff member and patient. A tick-box
+  never stands in for it. In the session the staff member may upload, list the documents not yet verified and check them; never the
+  timeline, verified content or consent. The backend routes and the C1 purpose name are still to be approved (`docs/DECISIONS.md`,
+  F4); the session length is REVIEWER-PENDING.
 - **Done when:** no event exists for an unverified document; per-field correction rate is recorded; repeating confirm creates no duplicates.
 
 ```mermaid
@@ -1054,8 +1061,9 @@ All endpoints need a bearer token except OTP request and verify. Errors use `{ "
 | Module | Endpoints | Role |
 |---|---|---|
 | M1 | `POST /auth/otp/request`, `/auth/otp/verify`, `/auth/refresh` | Any |
+| M1 | `GET /me` (approved 2026-11-15 for the patient: own `id`, `health_id`, `name`, `language`, `cloud_ai_opt_in`; approved 2026-11-16 for staff: `id`, `role`, `name`, `status`, `emergency_enabled`, `credential`) | Patient; doctor, verifier, clinical reviewer, admin |
 | M1 | `POST /credentials`, `POST /credentials/{id}/approve` | Doctor; admin |
-| M1/C1 | `POST /consents/requests`, `POST /consents/requests/{id}/confirm` | Doctor |
+| M1/C1 | `POST /consents/requests`, `POST /consents/requests/{id}/confirm` (both responses carry `patient_id` and the echoed `health_id`, approved 2026-11-16) | Doctor |
 | M1/C1 | `GET /consents`, `POST /consents/{id}/revoke`, `GET /me/access-history` | Patient |
 | M1/C1 | `POST /caregiver-authorizations`, `POST /caregiver-authorizations/confirm` (patient's code read out) | Caregiver |
 | M1/C1 | `GET /caregiver-authorizations`, `POST /caregiver-authorizations/{id}/approve`, `/{id}/decline` | Patient |
@@ -1063,14 +1071,18 @@ All endpoints need a bearer token except OTP request and verify. Errors use `{ "
 | M2 | `GET /documents/{id}/extraction` | Patient only (unverified data). Verifier pending (question 3) |
 | M2 | Retry and manual entry endpoints (M2 plan step 8; not built) | Decision D10 |
 | M3 | `PUT /documents/{id}/review`, `POST /documents/{id}/confirm`, `/reject` | Patient, verifier |
-| M4 | `GET /patients/{id}/timeline?from&to&type` | Patient; doctor with consent |
+| M4 | `GET /patients/{id}/timeline?from&to&type` | Patient; doctor with consent; caregiver with `view_timeline`. Never a verifier |
 | M5 | `GET /patients/{id}/summary`, `GET /patients/{id}/search?q=` | Doctor with consent |
-| M6 | `POST /safety/check` (run on M3 confirm of a prescription), `POST /safety/alerts/{id}/ack` | System; treating doctor under consent |
+| M6 | `POST /safety/check` (run on M3 confirm of a prescription), `GET /patients/{id}/safety-alerts` (approved 2026-11-16), `POST /safety/alerts/{id}/ack` | System; treating doctor under consent covering `safety` |
 | M7 | `POST /triage/sessions`, `POST /triage/sessions/{id}/answer` | Patient |
 | M8 | `GET /reminders`, `PATCH /reminders/{id}`, `POST /reminders/{id}/log` | Patient |
 | M10 | `PUT /me/emergency-profile`; `POST /emergency/access`; `GET /admin/emergency/reviews`, `POST .../{id}/review` | Patient; emergency doctor; reviewer |
 | M13 | `POST /vitals`, `GET /vitals`, `POST /vitals/{id}/correct`, `PUT /patients/{id}/vital-thresholds` | Patient; treating doctor |
 | Admin | `POST /rules`, `/rules/{id}/approve`, `POST /catalog/import`, `GET /audit` | Reviewer, admin |
+
+Routes the frontend uses that are not approved yet (verifier assisted sessions, rule and credential lists, rejections, staff
+provisioning, suspension, `GET /me/emergency-profile`, response shapes of the FRD routes above) are proposals marked GAP in
+`web/src/api/types.ts` and listed in `docs/DECISIONS.md`; they join this table once the owner approves them.
 
 **Async and idempotency:** background jobs are at-least-once, so each handler is keyed by `document_id` and `version` and does nothing on a repeat.
 
@@ -1312,7 +1324,7 @@ gantt
 |---|---|---|
 | 1 | Which drug catalog source can we legally use, and on what terms? | P0 |
 | 2 | MongoDB + Qdrant, or one PostgreSQL with pgvector and pg_trgm? **DECIDED 2026-11-11: one PostgreSQL** (`docs/DECISIONS.md`) | P0 |
-| 3 | Who verifies in the pilot: patient only, or clinic staff too? | P2 |
+| 3 | Who verifies in the pilot: patient only, or clinic staff too? **Mechanism decided 2026-11-16:** when staff/CHW verify, the present patient reads out a one-time code sent to their own phone (M3). Still open: the backend routes and C1 purpose (`docs/DECISIONS.md`, F4) and the session length (REVIEWER-PENDING) | P2 |
 | 4 | Where is the system hosted, and must health data stay in Bangladesh? | P0 |
 | 5 | Is any cloud AI provider used at all, and on which terms, or is the system local-only? | P0 |
 | 6 | Is emergency access in scope, and what is the break-glass policy? | P8 |

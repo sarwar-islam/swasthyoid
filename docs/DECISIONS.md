@@ -1860,8 +1860,8 @@ removed from SwasthyoID. In scope: C1–C4 and M1–M8, M10 (still conditional o
 - **Acknowledgment:** only the treating doctor, viewing the record under an active consent, acknowledges or overrides with a reason.
 - **Patients do not see raw M6 alerts** in the prototype or pilot (invariant 6); they see only the non-diagnostic M13 escalation cards.
 
-**Frontend decisions of the same day.** The UI (`web/`, React + TypeScript + Vite, self-hosted Atkinson Hyperlegible, Noto Sans Bengali
-and JetBrains Mono) covers the Patient app (with a caregiver mode limited to the granted `upload_documents`, `view_documents`,
+**Frontend decisions of the same day.** The UI (`web/`, React + TypeScript + Vite, self-hosted Atkinson Hyperlegible, Hind Siliguri
+(corrected 2026-11-16; this entry first said Noto Sans Bengali, which was never shipped) and JetBrains Mono) covers the Patient app (with a caregiver mode limited to the granted `upload_documents`, `view_documents`,
 `view_timeline` scopes), the Doctor portal, the Verifier/CHW app and the Reviewer/Admin console; no screens for the removed modules.
 `frontend demo/` stays untracked as a read-only reference.
 
@@ -1962,7 +1962,7 @@ English), no network; type check and build clean. Browser pane at 375 px and 128
 the check; caregiver list, frame, upload and request; no horizontal scroll, visible keyboard focus, only localhost requests. Found
 and fixed there: the narrow staff layout grew to 419 px at 375 px because of the file input (the grid column now shrinks).
 
-## F5 clinical reviewer and admin console (owner approval 2026-11-16; not committed yet)
+## F5 clinical reviewer and admin console (owner approval 2026-11-16; frontend commit `759ba38`, docs commit `6aa44ea`)
 
 One console (`/console`, its own sign-in) for two staff roles, each with its own menu and pages: `clinical_reviewer` (the backend's
 role name in `identity/schema.sql`; the request said "reviewer") and `admin`. Console accounts are never self-registered: an
@@ -2006,3 +2006,34 @@ network; type check and build clean. Browser pane at 375 px and 1280 px, Bangla 
 console page, approve, suspend, unjustified review; only localhost requests. Found and fixed there: the audit table's screen-reader
 text escaped its scroll box and widened the page to 893 px at 375 px (the box is now positioned); Bangla times showed a Latin
 "AM" (now 24-hour); break-glass times showed dates only.
+
+## Documentation audit closed; staff provisioning; console roles never self-register (owner decisions 2026-11-16)
+
+An audit after F5 found seven gaps; all are closed here.
+
+1. The F5 entry now names its commits (`759ba38`, `6aa44ea`).
+2. **APPROVED, labelled so in `web/src/api/types.ts`** (they had still said GAP): `GET /me` for the patient and for every staff
+   role (`doctor`, `verifier`, `clinical_reviewer`, `admin`; the 2026-11-16 decision widens the F3 approval beyond doctors);
+   `patient_id` and `health_id` in the consent request and confirm responses; `GET /patients/{id}/safety-alerts`. None is built in
+   the backend yet.
+3. The scope-reduction entry named Noto Sans Bengali; the app ships Hind Siliguri (corrected there).
+4. Covered by 2: every staff app reads its own status from `GET /me`.
+5. and 6. **Decision: console roles (`clinical_reviewer`, `admin`) never self-register; an admin creates them.** The backend still
+   accepts `clinical_reviewer` in the self-registration body (`api/m1.py`, `role: Literal[...]`): it is to be removed in the
+   separate backend change (with the removed `pharmacist`). **No staff role may stay pending with nobody able to approve it:** doctors
+   are approved through their BMDC credential, verifiers who registered themselves are approved by an admin, and clinical reviewers
+   are created by an admin already verified. The admin console has a Staff accounts page for this (frontend change, not committed
+   yet). **GAP routes** (mocked, typed in `types.ts` `StaffAccount`, `StaffCreateBody`):
+   - `GET /admin/staff?status=`: verifiers and clinical reviewers, with the phone's last four digits only.
+   - `POST /admin/staff { role: verifier | clinical_reviewer, name, phone }`: creates the account, verified; `409 phone_exists`.
+   - `POST /admin/staff/{id}/approve`: a pending verifier registration.
+   - `POST /admin/users/{id}/suspend { reason }` now covers verifiers and clinical reviewers too (not admins); a suspended verifier's
+     open assisted session ends.
+   Open for the owner: who creates or suspends an admin (only the seeded admin exists, `identity` `seed_admin`).
+7. `docs/FRD.md` updated: section 7 (the approved `GET /me`, consent response fields and safety-alert list; caregiver and verifier
+   on the timeline row; a note pointing to the GAP list here), section 2 (Verifier), M3 and open question 3 (the patient's code
+   read-out for staff-assisted verification), and a dated revision line at the top.
+
+**Verification.** 165 web tests (6 new: staff provisioning at the API layer and on screen, axe on the new page in Bangla and
+English), no network; type check clean. Browser pane at 375 px (Bangla and English) and 1280 px: the Staff accounts page, approve,
+create with a phone typed in Bangla digits; no horizontal scroll.
