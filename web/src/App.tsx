@@ -5,7 +5,7 @@ import { LanguageToggle, ThemeSelect } from "./components/Controls";
 import { flags } from "./flags";
 import { useI18n } from "./i18n/i18n";
 import type { Key } from "./i18n/strings";
-import { AuditPage, CatalogPage, CredentialsPage, MetricsPage } from "./pages/console/Admin";
+import { AuditPage, CatalogPage, CredentialsPage, MetricsPage, StaffPage } from "./pages/console/Admin";
 import { ConsoleIndex, OnlyRole } from "./pages/console/console";
 import { ReviewsPage, RulesPage } from "./pages/console/Reviewer";
 import { DoctorFrame } from "./pages/doctor/doctor";
@@ -131,6 +131,7 @@ export function AppRoutes() {
           <Route path="rules" element={reviewer(<RulesPage />)} />
           {flags.emergencyAccess && <Route path="reviews" element={reviewer(<ReviewsPage />)} />}
           <Route path="credentials" element={admin(<CredentialsPage />)} />
+          <Route path="staff" element={admin(<StaffPage />)} />
           <Route path="catalog" element={admin(<CatalogPage />)} />
           <Route path="audit" element={admin(<AuditPage />)} />
           <Route path="metrics" element={admin(<MetricsPage />)} />

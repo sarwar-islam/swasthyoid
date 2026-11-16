@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Activity, BadgeCheck, Camera, Database, FileSearch, Gavel, HeartPulse, Home, Inbox, KeyRound, LayoutGrid,
-  ListChecks, ScrollText, ShieldAlert, ShieldCheck, Siren, Users } from "lucide-react";
+  ListChecks, ScrollText, ShieldAlert, ShieldCheck, Siren, UserPlus, Users } from "lucide-react";
 import { Link, NavLink, Outlet } from "react-router";
 import { LanguageToggle, ThemeSelect } from "../components/Controls";
 import { flags } from "../flags";
@@ -47,6 +47,7 @@ export const STAFF_NAV: Record<"doctor" | "verifier" | "console", { title: Key; 
     { to: "/console/rules", label: "nav.rules", icon: Gavel, phase: "F5", roles: REVIEWER },
     { to: "/console/reviews", label: "nav.reviews", icon: FileSearch, phase: "F5", flag: "emergencyAccess", roles: REVIEWER },
     { to: "/console/credentials", label: "nav.approvals", icon: KeyRound, phase: "F5", roles: ADMIN },
+    { to: "/console/staff", label: "nav.staff", icon: UserPlus, phase: "F5", roles: ADMIN },
     { to: "/console/catalog", label: "nav.catalog", icon: Database, phase: "F5", roles: ADMIN },
     { to: "/console/audit", label: "nav.audit", icon: ScrollText, phase: "F5", roles: ADMIN },
     { to: "/console/metrics", label: "nav.metrics", icon: Inbox, phase: "F5", roles: ADMIN },

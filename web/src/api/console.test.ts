@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_TOKEN, CAREGIVER_TOKEN, DOCTOR_TOKEN, PATIENT_TOKEN, REVIEWER_TOKEN, VERIFIER_TOKEN } from "../test-utils";
 import { ApiError, createClient, type Transport } from "./client";
-import { MOCK_DOCTOR_ID, MOCK_HEALTH_ID, MOCK_PATIENT_ID, MOCK_SUBMITTED_DOCTOR_ID, mockTransport } from "./mock";
-import type { AuditPage, CatalogImport, CredentialReview, DoctorConsent, EmergencyReview, Rule, StaffMe, WorkerMetrics } from "./types";
+import { MOCK_CODE, MOCK_DOCTOR_ID, MOCK_HEALTH_ID, MOCK_PATIENT_ID, MOCK_PENDING_VERIFIER_ID, MOCK_PENDING_VERIFIER_PHONE, MOCK_SUBMITTED_DOCTOR_ID,
+  MOCK_VERIFIER_ID, mockTransport } from "./mock";
+import type { AssistSession, AuditPage, CatalogImport, CredentialReview, DoctorConsent, EmergencyReview, Rule, StaffAccount, StaffMe, TokenPair,
+  WorkerMetrics } from "./types";
 
 // F5 console rules at the API layer, called around the UI: a clinical reviewer and an admin each reach only their own routes, and
 // neither reaches any patient's record.
@@ -186,6 +188,53 @@ describe("admin: credentials, catalog, audit, metrics", () => {
       }
       expect(await failure(as(token).request("POST", "/catalog/import", { body: csv() }))).toEqual([403, "role_not_allowed"]);
     }
+  });
+});
+
+describe("admin: staff provisioning (GAP routes; console roles never self-register)", () => {
+  const signIn = (phone: string, staff?: object) => createClient(transport).request<TokenPair>("POST", "/auth/otp/verify",
+    { body: { phone, code: MOCK_CODE, device_id: "t", account: "staff", ...(staff ? { staff } : {}) } });
+  const openSession = async (token: string) => {
+    const s = await as(token).request<AssistSession>("POST", "/verifier/sessions", { body: { health_id: MOCK_HEALTH_ID } });
+    return as(token).request<AssistSession>("POST", `/verifier/sessions/${s.id}/confirm`, { body: { code: MOCK_CODE } });
+  };
+
+  it("approves a pending verifier registration, who can then start a session; nothing is left unapprovable", async () => {
+    const pending = await admin().request<StaffAccount[]>("GET", "/admin/staff?status=pending");
+    expect(pending).toEqual([{ id: MOCK_PENDING_VERIFIER_ID, role: "verifier", name: "সিনথেটিক নতুন স্বাস্থ্যকর্মী", status: "pending", phone_tail: "0007" }]);
+    const token = (await signIn(MOCK_PENDING_VERIFIER_PHONE)).access_token;
+    expect(await failure(as(token).request("POST", "/verifier/sessions", { body: { health_id: MOCK_HEALTH_ID } }))).toEqual([403, "user_not_verified"]);
+    await admin().request("POST", `/admin/staff/${MOCK_PENDING_VERIFIER_ID}/approve`);
+    expect((await openSession(token)).status).toBe("active");
+    expect(await admin().request("GET", "/admin/staff?status=pending")).toEqual([]);
+    expect(await failure(admin().request("POST", `/admin/staff/${MOCK_PENDING_VERIFIER_ID}/approve`))).toEqual([404, "not_found"]);
+    // every staff role has an approver: doctors by credential, verifiers here, reviewers and admins are never pending (never self-registered)
+    expect(await failure(signIn("+8801900000098", { role: "clinical_reviewer", name: "Self" }))).toEqual([422, "invalid_role"]);
+    expect(await failure(signIn("+8801900000098", { role: "admin", name: "Self" }))).toEqual([422, "invalid_role"]);
+  });
+
+  it("creates verifier and reviewer accounts that can sign in at once, and refuses anything else", async () => {
+    const reviewer2 = await admin().request<StaffAccount>("POST", "/admin/staff", { body: { role: "clinical_reviewer", name: "Synthetic Reviewer 2", phone: "+8801900000011" } });
+    expect(reviewer2).toMatchObject({ role: "clinical_reviewer", status: "verified", phone_tail: "0011" });
+    const token = (await signIn("+8801900000011")).access_token;
+    expect((await as(token).request<Rule[]>("GET", "/rules")).length).toBeGreaterThan(0);
+    for (const [body, code] of [[{ role: "admin", name: "x", phone: "+8801900000012" }, "invalid_role"], [{ role: "doctor", name: "x", phone: "+8801900000012" }, "invalid_role"],
+      [{ role: "verifier", name: " ", phone: "+8801900000012" }, "invalid_name"], [{ role: "verifier", name: "x", phone: "phone" }, "invalid_phone"]] as const) {
+      expect(await failure(admin().request("POST", "/admin/staff", { body }))).toEqual([422, code]);
+    }
+    expect(await failure(admin().request("POST", "/admin/staff", { body: { role: "verifier", name: "x", phone: "+8801900000011" } }))).toEqual([409, "phone_exists"]);
+    for (const t of [REVIEWER_TOKEN, VERIFIER_TOKEN, DOCTOR_TOKEN, PATIENT_TOKEN]) {
+      expect(await failure(as(t).request("POST", "/admin/staff", { body: { role: "verifier", name: "x", phone: "+8801900000013" } }))).toEqual([403, "role_not_allowed"]);
+      expect(await failure(as(t).request("GET", "/admin/staff"))).toEqual([403, "role_not_allowed"]);
+    }
+  });
+
+  it("suspends a verifier with a reason: their open session ends and they cannot start another; an admin cannot be suspended", async () => {
+    await openSession(VERIFIER_TOKEN);
+    await admin().request("POST", `/admin/users/${MOCK_VERIFIER_ID}/suspend`, { body: { reason: "Investigation" } });
+    expect(await failure(as(VERIFIER_TOKEN).request("GET", `/patients/${MOCK_PATIENT_ID}/documents`))).toEqual([403, "user_not_verified"]);
+    expect(await failure(as(VERIFIER_TOKEN).request("POST", "/verifier/sessions", { body: { health_id: MOCK_HEALTH_ID } }))).toEqual([403, "user_not_verified"]);
+    expect(await failure(admin().request("POST", "/admin/users/99999999-9999-4999-8999-999999999999/suspend", { body: { reason: "x" } }))).toEqual([404, "not_found"]);
   });
 });
 

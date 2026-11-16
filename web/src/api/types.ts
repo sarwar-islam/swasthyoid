@@ -259,8 +259,9 @@ export interface StaffVerifyBody {
 
 export type StaffStatus = "pending" | "verified" | "suspended";
 
-/** GET /me for a staff member. GAP: the approved GET /me covers patients; a doctor needs their own credential status (BMDC)
- * to know whether they may request consent. Mocked; owner to decide. */
+/** GET /me for a staff member (doctor, verifier, clinical_reviewer, admin). APPROVED contract (owner decisions 2026-11-16), not built
+ * yet: a doctor needs their own credential status (BMDC) to know whether they may request consent; every staff app shows its
+ * own pending or suspended status from it. Mocked. */
 export interface StaffMe {
   id: string;
   role: "doctor" | "verifier" | "clinical_reviewer" | "admin";
@@ -276,8 +277,9 @@ export interface CredentialBody {
   number: string;
 }
 
-/** POST /consents/requests { health_id, categories } and POST /consents/requests/{id}/confirm { code }. BUILT, but the response
- * has no patient: GAP `patient_id` (and the Health ID echoed back) so the doctor can open the record. Mocked with both. */
+/** POST /consents/requests { health_id, categories } and POST /consents/requests/{id}/confirm { code }. BUILT; `patient_id` and the
+ * echoed `health_id` in both responses are an APPROVED addition (owner decision 2026-11-16), not built yet, so the doctor can open
+ * the record. Mocked with both. */
 export interface DoctorConsent {
   id: string;
   purpose: "TIMELINE";
@@ -286,8 +288,8 @@ export interface DoctorConsent {
   activated_at: string | null;
   expires_at: string | null;
   created_at: string;
-  patient_id: string; // GAP
-  health_id: string; // GAP
+  patient_id: string; // APPROVED, not built
+  health_id: string; // APPROVED, not built
 }
 
 /** One sentence of a summary, with the events it cites (invariant 3). */
@@ -316,7 +318,7 @@ export interface SearchHit {
 export type Severity = "contraindicated" | "major" | "moderate" | "minor";
 
 /** An M6 alert on a newly verified prescription. Ack: POST /safety/alerts/{id}/ack { action, reason } (FRD). Listing alerts:
- * GAP `GET /patients/{id}/safety-alerts` (the FRD has no list endpoint). Mocked. */
+ * `GET /patients/{id}/safety-alerts`, APPROVED contract (owner decision 2026-11-16), not built yet. Mocked. */
 export interface SafetyAlert {
   id: string;
   rule_id: string;
@@ -449,6 +451,24 @@ export interface CredentialReview {
   number: string;
   status: StaffStatus; // a rejected credential is removed, so the doctor can submit again
   user_status: StaffStatus;
+}
+
+/** Staff accounts an admin manages: verifiers and clinical reviewers (doctors go through their BMDC credential). GAP routes for
+ * the owner decision of 2026-11-16 (console roles never self-register; no staff role may stay pending with nobody able to approve
+ * it): GET /admin/staff?status=, POST /admin/staff { role, name, phone } (the account starts verified), POST
+ * /admin/staff/{id}/approve (a verifier's own registration). Suspension is POST /admin/users/{id}/suspend { reason } for any of them.
+ * The list carries the phone's last four digits only. */
+export interface StaffAccount {
+  id: string;
+  role: "verifier" | "clinical_reviewer";
+  name: string;
+  status: StaffStatus;
+  phone_tail: string | null;
+}
+export interface StaffCreateBody {
+  role: "verifier" | "clinical_reviewer";
+  name: string;
+  phone: string;
 }
 
 /** POST /catalog/import (multipart: file): FRD route, response GAP. The drug catalog source and its licence are undecided

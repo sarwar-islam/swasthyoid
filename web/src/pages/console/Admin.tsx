@@ -1,8 +1,8 @@
 import { AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert, Upload } from "lucide-react";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { AuditPage as AuditData, CatalogImport, CredentialReview, DocStatus, WorkerMetrics } from "../../api/types";
+import type { AuditPage as AuditData, CatalogImport, CredentialReview, DocStatus, StaffAccount, StaffCreateBody, WorkerMetrics } from "../../api/types";
 import { ConfirmDialog, ErrorNote, Loading, Section } from "../../components/ui";
-import { formatDateTime, formatNumber, useI18n } from "../../i18n/i18n";
+import { formatDateTime, formatNumber, localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
 import { useLoad, useSession } from "../../session";
 import { useAction } from "./console";
@@ -86,6 +86,102 @@ export function CredentialsPage() {
                      confirmLabel={t("cr.approve")} onCancel={() => setApproving(null)}
                      onConfirm={() => { const c = approving!; setApproving(null);
                        act.run(() => api.request("POST", `/credentials/${c.id}/approve`)).then(after(t("cr.approved", { name: c.name }))); }} />
+    </>
+  );
+}
+
+/** Staff provisioning (owner decision 2026-11-16, routes GAP): approve a verifier's own registration, create verifier and clinical
+ * reviewer accounts (console roles never self-register), and suspend with a reason. Doctors are approved by their BMDC credential. */
+export function StaffPage() {
+  const { t, lang } = useI18n();
+  const { api } = useSession();
+  const pending = useLoad(() => api.request<StaffAccount[]>("GET", "/admin/staff?status=pending"), []);
+  const active = useLoad(() => api.request<StaffAccount[]>("GET", "/admin/staff?status=verified"), []);
+  const [role, setRole] = useState<StaffCreateBody["role"]>("verifier");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [approving, setApproving] = useState<StaffAccount | null>(null);
+  const [suspending, setSuspending] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const act = useAction(() => { pending.reload(); active.reload(); setSuspending(null); });
+  const after = (message: string) => (ok: boolean) => ok && setDone(message);
+  const roleName = (a: StaffAccount) => t(`role.${a.role}`);
+  const line = (a: StaffAccount) => (
+    <div className="row">
+      <strong>{a.name}</strong>
+      <span className="muted">{roleName(a)}{a.phone_tail && <> · {t("staff.phoneTail", { tail: localDigits(a.phone_tail, lang) })}</>}</span>
+    </div>
+  );
+  const add = (e: FormEvent) => {
+    e.preventDefault();
+    const body: StaffCreateBody = { role, name: name.trim(), phone: toAsciiDigits(phone.trim()) };
+    act.run(() => api.request("POST", "/admin/staff", { body })).then((ok) => {
+      if (!ok) return;
+      setDone(t("staff.added", { name: body.name }));
+      setName("");
+      setPhone("");
+    });
+  };
+  return (
+    <>
+      <h1>{t("nav.staff")}</h1>
+      <p className="notice">{t("staff.intro")}</p>
+      {done && <p className="ok-note" role="status">{done}</p>}
+      <ErrorNote error={act.error} />
+      <Section id="staff-pending" title={t("staff.pending")}>
+        {pending.loading && !pending.data ? <Loading /> : <ErrorNote error={pending.error} />}
+        {pending.data?.length === 0 && <p className="muted">{t("staff.nonePending")}</p>}
+        <ul className="list">
+          {pending.data?.map((a) => (
+            <li key={a.id} className="card stack">
+              {line(a)}
+              <div className="actions"><button type="button" className="btn-primary" disabled={act.busy} onClick={() => setApproving(a)}>{t("cr.approve")}</button></div>
+            </li>
+          ))}
+        </ul>
+      </Section>
+      <Section id="staff-add" title={t("staff.addTitle")}>
+        <form onSubmit={add} className="card" noValidate>
+          <div className="field">
+            <label htmlFor="staff-role">{t("audit.role")}</label>
+            <select id="staff-role" value={role} onChange={(e) => setRole(e.target.value as StaffCreateBody["role"])}>
+              <option value="verifier">{t("role.verifier")}</option>
+              <option value="clinical_reviewer">{t("role.clinical_reviewer")}</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="staff-name">{t("login.name")}</label>
+            <input id="staff-name" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="staff-phone">{t("login.phone")}</label>
+            <input id="staff-phone" type="tel" inputMode="tel" autoComplete="off" value={phone} aria-describedby="staff-phone-hint" onChange={(e) => setPhone(e.target.value)} />
+            <span id="staff-phone-hint" className="hint">{t("staff.phoneHint")}</span>
+          </div>
+          <button type="submit" className="btn-primary" disabled={act.busy || !name.trim() || !phone.trim()}>{t("staff.add")}</button>
+        </form>
+      </Section>
+      <Section id="staff-active" title={t("staff.active")}>
+        {active.data?.length === 0 && <p className="muted">{t("staff.noneActive")}</p>}
+        <ul className="list">
+          {active.data?.map((a) => (
+            <li key={a.id} className="card stack">
+              {line(a)}
+              {suspending === a.id ? (
+                <ReasonForm id={`suspend-${a.id}`} label={t("cr.suspendReason")} submit={t("cr.suspend")} busy={act.busy} onCancel={() => setSuspending(null)}
+                            onSubmit={(reason) => act.run(() => api.request("POST", `/admin/users/${a.id}/suspend`, { body: { reason } }))
+                              .then(after(t("staff.suspended", { name: a.name })))} />
+              ) : (
+                <div className="actions"><button type="button" disabled={act.busy} onClick={() => setSuspending(a.id)}>{t("cr.suspend")}</button></div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </Section>
+      <ConfirmDialog open={!!approving} danger={false} title={approving ? t("staff.approveAsk", { name: approving.name, role: roleName(approving) }) : ""}
+                     confirmLabel={t("cr.approve")} onCancel={() => setApproving(null)}
+                     onConfirm={() => { const a = approving!; setApproving(null);
+                       act.run(() => api.request("POST", `/admin/staff/${a.id}/approve`)).then(after(t("staff.approved", { name: a.name }))); }} />
     </>
   );
 }

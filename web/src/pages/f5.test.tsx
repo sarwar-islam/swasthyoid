@@ -176,13 +176,38 @@ describe("admin", () => {
     click("Read again");
     expect(await screen.findByRole("heading", { name: "Worker" })).toBeTruthy();
   });
+
+  it("approves a pending verifier, creates a reviewer account, and suspends only with a reason", async () => {
+    const { seen, transport } = spy();
+    asAdmin("/console/staff", "en", transport);
+    const pending = (await screen.findByText("সিনথেটিক নতুন স্বাস্থ্যকর্মী")).closest("li")!;
+    expect(within(pending).getByText(/Verifier · phone …0007/)).toBeTruthy();
+    fireEvent.click(within(pending).getByRole("button", { name: "Approve" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("সিনথেটিক নতুন স্বাস্থ্যকর্মী's account is approved.")).toBeTruthy();
+    expect(await screen.findByText("No registration is waiting for approval.")).toBeTruthy();
+    type("Role", "clinical_reviewer");
+    type("Full name", "Synthetic Reviewer 2");
+    type("Mobile number", "+৮৮০১৯০০০০০০১১"); // Bangla digits are converted before sending
+    click("Create account");
+    expect(await screen.findByText("Synthetic Reviewer 2's account is created. They can sign in now.")).toBeTruthy();
+    expect(seen.find((r) => r.method === "POST" && r.path === "/admin/staff")!.body)
+      .toEqual({ role: "clinical_reviewer", name: "Synthetic Reviewer 2", phone: "+8801900000011" });
+    const row = (await screen.findByText("Synthetic Reviewer 2")).closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Suspend" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Suspend" }));
+    expect(within(row).getByRole("alert").textContent).toBe("Write a reason.");
+    fireEvent.change(within(row).getByLabelText("Reason for suspending"), { target: { value: "Left the project" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Suspend" }));
+    expect(await screen.findByText(/Synthetic Reviewer 2 is suspended/)).toBeTruthy();
+  });
 });
 
 describe("console accessibility", () => {
   const pages: Array<[string, "admin" | "reviewer", RegExp]> = [
     ["/console/rules", "reviewer", /SYNTH-DDI-0001/], ["/console/reviews", "reviewer", /unconscious on arrival/],
     ["/console/credentials", "admin", /SYNTH-BMDC-0042/], ["/console/catalog", "admin", /CSV/], ["/console/audit", "admin", /SID|timeline|rule|assist|\d/],
-    ["/console/metrics", "admin", /[0-9০-৯]/],
+    ["/console/metrics", "admin", /[0-9০-৯]/], ["/console/staff", "admin", /সিনথেটিক নতুন স্বাস্থ্যকর্মী/],
   ];
   it.each((["bn", "en"] as const).flatMap((lang) => pages.map(([path, role, ready]) => [lang, path, role, ready] as const)))(
     "%s %s has no axe violations", async (lang, path, role, ready) => {

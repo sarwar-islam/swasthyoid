@@ -1,6 +1,6 @@
 import type { ApiRequest, ApiResponse, Method, Transport } from "./client";
 import type {
-  AccessEntry, AuditEntry, Cited, Consent, CredentialReview, DocType, DocumentView, DoctorConsent, EmergencyProfile, EmergencyReview,
+  AccessEntry, AuditEntry, Cited, Consent, CredentialReview, StaffAccount, DocType, DocumentView, DoctorConsent, EmergencyProfile, EmergencyReview,
   EmergencySession, ExtractedField, ExtractionResponse, FieldRow, Me, OtpVerifyBody, Reminder, ReminderLogAction, ReviewBody, ReviewedText,
   Rule, RuleType, SafetyAlert, SearchHit, Severity, StaffMe, StaffVerifyBody, Summary, TimelineEvent, TriageState, VitalEntry,
   VitalEvaluation, VitalReading, WorkerMetrics,
@@ -29,6 +29,8 @@ export const MOCK_REVIEWER_PHONE = "+8801900000005"; // a synthetic clinical rev
 export const MOCK_ADMIN_ID = "99999999-9999-4999-8999-999999999999";
 export const MOCK_ADMIN_PHONE = "+8801900000006"; // a synthetic admin
 export const MOCK_SUBMITTED_DOCTOR_ID = "66666666-6666-4666-8666-666666666666"; // a doctor whose BMDC number waits for an admin
+export const MOCK_PENDING_VERIFIER_ID = "7a7a7a7a-7a7a-47a7-87a7-7a7a7a7a7a7a";
+export const MOCK_PENDING_VERIFIER_PHONE = "+8801900000007"; // a verifier who registered and waits for an admin
 
 // Fictional patients the mock patient may act for as a caregiver, one per authorization state (caregiver mode, F4).
 export const MOCK_OTHERS = {
@@ -197,9 +199,12 @@ function createState() {
              [MOCK_REVIEWER_ID]: { id: MOCK_REVIEWER_ID, role: "clinical_reviewer", name: "সিনথেটিক রিভিউয়ার", status: "verified",
                                    emergency_enabled: false, credential: null },
              [MOCK_ADMIN_ID]: { id: MOCK_ADMIN_ID, role: "admin", name: "সিনথেটিক অ্যাডমিন", status: "verified", emergency_enabled: false, credential: null },
+             [MOCK_PENDING_VERIFIER_ID]: { id: MOCK_PENDING_VERIFIER_ID, role: "verifier", name: "সিনথেটিক নতুন স্বাস্থ্যকর্মী", status: "pending",
+                                           emergency_enabled: false, credential: null },
            } as Record<string, StaffMe>,
            staffPhones: new Map([[MOCK_DOCTOR_PHONE, DOCTOR_ID], [MOCK_PENDING_DOCTOR_PHONE, PENDING_DOCTOR_ID], [MOCK_VERIFIER_PHONE, MOCK_VERIFIER_ID],
-                                 [MOCK_REVIEWER_PHONE, MOCK_REVIEWER_ID], [MOCK_ADMIN_PHONE, MOCK_ADMIN_ID]]),
+                                 [MOCK_REVIEWER_PHONE, MOCK_REVIEWER_ID], [MOCK_ADMIN_PHONE, MOCK_ADMIN_ID],
+                                 [MOCK_PENDING_VERIFIER_PHONE, MOCK_PENDING_VERIFIER_ID]]),
            rules: seedRules(iso),
            emergencyReviews: [
              review("er-1", -30, "SYNTH-REASON: unconscious on arrival (synthetic)", ["blood_group", "allergies"]),
@@ -489,6 +494,8 @@ export function mockTransport(): Transport {
   const SEVERITIES: Severity[] = ["contraindicated", "major", "moderate", "minor"];
   const credentialView = (u: StaffMe): CredentialReview => ({ id: `cred-${u.id.slice(0, 8)}`, user_id: u.id, name: u.name, role: "doctor", type: "BMDC",
     number: u.credential!.number, status: u.credential!.status, user_status: u.status });
+  const staffView = (x: StaffMe): StaffAccount => ({ id: x.id, role: x.role as StaffAccount["role"], name: x.name, status: x.status,
+    phone_tail: [...s.staffPhones].find(([, id]) => id === x.id)?.[0].slice(-4) ?? null });
   const credentialOwner = (id: string) => Object.values(s.staff).find((u) => u.role === "doctor" && u.credential && `cred-${u.id.slice(0, 8)}` === id);
   const short = (id: string | null) => (id ? id.replace(/^[a-z]+-/, "").slice(0, 8) : null); // a pseudonymous reference, never a name
 
@@ -919,15 +926,50 @@ export function mockTransport(): Transport {
       const u = consoleUser(r, "admin");
       if (!isUser(u)) return u;
       const target = s.staff[p.id];
-      if (!target || target.role !== "doctor") return error(404, "not_found", "No staff member with this id.");
+      if (!target || target.role === "admin") return error(404, "not_found", "No staff member with this id.");
       if (!reasonOf(r)) return error(422, "reason_required", "A suspension needs a reason.");
       target.status = "suspended";
       if (target.credential) target.credential.status = "suspended";
       target.emergency_enabled = false;
       // FRD section 2: suspension suspends every active grant immediately (the consent state machine's `suspended`)
       s.consents.filter((c) => c.grantee_id === target.id && c.status === "active").forEach((c) => { c.status = "suspended"; });
+      s.sessions.filter((x) => x.verifier_id === target.id && x.status === "active").forEach((x) => { x.status = "revoked"; }); // assisted sessions end
       staffAudit(u, "user.suspend", target.id, "reason_given");
       return ok({ user_id: target.id, status: "suspended" });
+    }],
+    // GAP (owner decision 2026-11-16): an admin creates verifier and clinical reviewer accounts and approves a verifier's own
+    // registration, so no staff role is left pending with nobody able to approve it. Console roles never self-register.
+    ["GET", "/admin/staff", (r) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const status = new URLSearchParams(r.path.split("?")[1] ?? "").get("status");
+      return ok(Object.values(s.staff).filter((x) => (x.role === "verifier" || x.role === "clinical_reviewer") && (!status || x.status === status))
+        .map(staffView));
+    }],
+    ["POST", "/admin/staff", (r) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const b = (r.body ?? {}) as { role?: unknown; name?: unknown; phone?: unknown };
+      if (b.role !== "verifier" && b.role !== "clinical_reviewer") return error(422, "invalid_role", "Choose verifier or clinical reviewer.");
+      const name = String(b.name ?? "").trim();
+      const phone = String(b.phone ?? "").trim();
+      if (!name) return error(422, "invalid_name", "Enter the person's name.");
+      if (!/^\+?\d{6,15}$/.test(phone)) return error(422, "invalid_phone", "Enter a phone number.");
+      if (s.staffPhones.has(phone)) return error(409, "phone_exists", "This phone number already has an account.");
+      const id = crypto.randomUUID();
+      s.staff[id] = { id, role: b.role, name, status: "verified", emergency_enabled: false, credential: null };
+      s.staffPhones.set(phone, id);
+      staffAudit(u, "staff.create", id);
+      return ok(staffView(s.staff[id]), 201);
+    }],
+    ["POST", "/admin/staff/{id}/approve", (r, p) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const target = s.staff[p.id];
+      if (!target || target.role !== "verifier" || target.status !== "pending") return error(404, "not_found", "No pending registration with this id.");
+      target.status = "verified";
+      staffAudit(u, "staff.approve", target.id);
+      return ok(staffView(target));
     }],
     ["POST", "/catalog/import", (r) => {
       const u = consoleUser(r, "admin");

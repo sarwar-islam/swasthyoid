@@ -32,7 +32,7 @@ export function clock(seconds: number, lang: "bn" | "en"): string {
   return localDigits(`${pad(Math.floor(seconds / 3600))}:${pad(Math.floor((seconds % 3600) / 60))}:${pad(seconds % 60)}`, lang);
 }
 
-/** The doctor's own status (GET /me for staff, a GAP mocked for now). */
+/** The signed-in staff member's own status (GET /me for staff: APPROVED, not built; mocked). */
 export function useMe() {
   const { api } = useSession();
   return useLoad(() => api.request<StaffMe>("GET", "/me"), []);
