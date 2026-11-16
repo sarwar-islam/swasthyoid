@@ -192,3 +192,19 @@ legend { font-weight: 700; padding: 0 var(--space-2); }
 .chip.sev-contraindicated, .chip.sev-major { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .chip.sev-moderate { color: var(--reported); border-color: var(--reported-line); background: var(--reported-soft); }
 [id^="event-"]:target, [id^="event-"]:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* ---- F5 console */
+dl.facts, dl.metrics { display: grid; gap: var(--space-1) var(--space-3); margin: 0; }
+dl.facts { grid-template-columns: fit-content(45%) minmax(0, 1fr); }
+dl.metrics { grid-template-columns: minmax(0, 1fr) auto; }
+dl.metrics > div { display: contents; }
+dl.facts dd, dl.metrics dd { margin: 0; overflow-wrap: anywhere; }
+dl.metrics dd { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: var(--space-2) 0 0; }
+.filters { display: grid; gap: 0 var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); align-items: end; }
+.filters .btn-primary { margin-bottom: var(--space-4); }
+.table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); } /* relative: keeps .sr-only text inside */
+.table-wrap:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.table-wrap table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+.table-wrap caption { text-align: left; padding: var(--space-2) var(--space-3); font-weight: 700; }
+.table-wrap th, .table-wrap td { text-align: left; padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line); white-space: nowrap; vertical-align: top; }

@@ -55,10 +55,10 @@ export function useSession(): Session {
   return value;
 }
 
-/** Child routes only for a signed-in user of this role; everyone else goes to `login`. */
-export function RequireRole({ role, login }: { role: string; login: string }) {
+/** Child routes only for a signed-in user of this role (or one of these roles); everyone else goes to `login`. */
+export function RequireRole({ role, login }: { role: string | string[]; login: string }) {
   const { claims } = useSession();
-  return claims?.role === role ? <Outlet /> : <Navigate to={login} replace />;
+  return claims && [role].flat().includes(claims.role) ? <Outlet /> : <Navigate to={login} replace />;
 }
 
 /** Load data on mount and when `deps` change. `reload()` runs the load again. */

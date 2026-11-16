@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { MemoryRouter } from "react-router";
 import { AppRoutes } from "./App";
 import type { Transport } from "./api/client";
-import { MOCK_CAREGIVER_ID, MOCK_DOCTOR_ID, MOCK_PATIENT_ID, MOCK_VERIFIER_ID, mockTransport } from "./api/mock";
+import { MOCK_ADMIN_ID, MOCK_CAREGIVER_ID, MOCK_DOCTOR_ID, MOCK_PATIENT_ID, MOCK_REVIEWER_ID, MOCK_VERIFIER_ID, mockTransport } from "./api/mock";
 import { I18nProvider, type Lang } from "./i18n/i18n";
 import { SessionProvider } from "./session";
 import { ThemeProvider } from "./theme";
@@ -12,7 +12,9 @@ const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, "");
 export const PATIENT_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_PATIENT_ID, role: "patient" })}.test`;
 export const DOCTOR_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_DOCTOR_ID, role: "doctor" })}.test`;
 export const PENDING_DOCTOR_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: "55555555-5555-4555-8555-555555555555", role: "doctor" })}.test`;
-export const VERIFIER_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_VERIFIER_ID, role: "verifier" })}.test`;
+export const REVIEWER_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_REVIEWER_ID, role: "clinical_reviewer" })}.test`;
+export const ADMIN_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_ADMIN_ID, role: "admin" })}.test`;
+export const VERIFIER_TOKEN =`${b64({ alg: "none" })}.${b64({ sub: MOCK_VERIFIER_ID, role: "verifier" })}.test`;
 // another person account (role patient) that has asked to care for the mock patient
 export const CAREGIVER_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_CAREGIVER_ID, role: "patient" })}.test`;
 

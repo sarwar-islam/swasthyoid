@@ -3,8 +3,11 @@ import type React from "react";
 import { Link, Navigate, Route, Routes } from "react-router";
 import { LanguageToggle, ThemeSelect } from "./components/Controls";
 import { flags } from "./flags";
-import { localDigits, useI18n } from "./i18n/i18n";
+import { useI18n } from "./i18n/i18n";
 import type { Key } from "./i18n/strings";
+import { AuditPage, CatalogPage, CredentialsPage, MetricsPage } from "./pages/console/Admin";
+import { ConsoleIndex, OnlyRole } from "./pages/console/console";
+import { ReviewsPage, RulesPage } from "./pages/console/Reviewer";
 import { DoctorFrame } from "./pages/doctor/doctor";
 import { AllAlerts, BreakGlass, Credentials } from "./pages/doctor/Other";
 import { Patients } from "./pages/doctor/Patients";
@@ -23,17 +26,7 @@ import { EmergencyPage, FirstAid, Triage } from "./pages/patient/Triage";
 import { Vitals } from "./pages/patient/Vitals";
 import { AssistDocument, AssistQueue, AssistStart, VerifierFrame } from "./pages/verifier/Verifier";
 import { RequireRole } from "./session";
-import { PATIENT_NAV, PatientShell, STAFF_NAV, StaffShell, visible, type NavItem } from "./shells/Shells";
-
-function Placeholder({ item }: { item: NavItem }) {
-  const { t, lang } = useI18n();
-  return (
-    <section aria-labelledby="page-title">
-      <h1 id="page-title">{t(item.label)}</h1>
-      <p className="notice">{t("page.comingIn", { phase: localDigits(item.phase, lang) })}</p>
-    </section>
-  );
-}
+import { PATIENT_NAV, PatientShell, StaffShell, type NavItem } from "./shells/Shells";
 
 const PORTALS: Array<{ to: string; title: Key; desc: Key }> = [
   { to: "/patient", title: "portal.patient", desc: "portal.patient.desc" },
@@ -64,7 +57,7 @@ function PortalChooser() {
   );
 }
 
-// built pages by route; any other menu item shows which phase builds it
+// the patient app's bottom-bar pages by route
 const BUILT: Record<string, React.ReactNode> = {
   "/patient": <Home />, "/patient/timeline": <Timeline />, "/patient/capture": <Capture />, "/patient/consent": <ConsentCenter />,
   "/patient/more": <More />,
@@ -72,8 +65,10 @@ const BUILT: Record<string, React.ReactNode> = {
 
 const pages = (items: NavItem[], base: string) =>
   items.map((item) => item.to === base
-    ? <Route key={item.to} index element={BUILT[item.to] ?? <Placeholder item={item} />} />
-    : <Route key={item.to} path={item.to.slice(base.length + 1)} element={BUILT[item.to] ?? <Placeholder item={item} />} />);
+    ? <Route key={item.to} index element={BUILT[item.to]} />
+    : <Route key={item.to} path={item.to.slice(base.length + 1)} element={BUILT[item.to]} />);
+const reviewer = (page: React.ReactNode) => <OnlyRole role="clinical_reviewer">{page}</OnlyRole>;
+const admin = (page: React.ReactNode) => <OnlyRole role="admin">{page}</OnlyRole>;
 
 export function AppRoutes() {
   return (
@@ -129,8 +124,18 @@ export function AppRoutes() {
           </Route>
         </Route>
       </Route>
-      <Route path="/console" element={<StaffShell portal="console" />}>
-        {pages(visible(STAFF_NAV.console.items), "/console")}
+      <Route path="/console/login" element={<Login portal="console" />} />
+      <Route element={<RequireRole role={["clinical_reviewer", "admin"]} login="/console/login" />}>
+        <Route path="/console" element={<StaffShell portal="console" />}>
+          <Route index element={<ConsoleIndex />} />
+          <Route path="rules" element={reviewer(<RulesPage />)} />
+          {flags.emergencyAccess && <Route path="reviews" element={reviewer(<ReviewsPage />)} />}
+          <Route path="credentials" element={admin(<CredentialsPage />)} />
+          <Route path="catalog" element={admin(<CatalogPage />)} />
+          <Route path="audit" element={admin(<AuditPage />)} />
+          <Route path="metrics" element={admin(<MetricsPage />)} />
+          <Route path="*" element={<Navigate to="/console" replace />} />
+        </Route>
       </Route>
     </Routes>
   );

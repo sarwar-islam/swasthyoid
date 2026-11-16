@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import { apiMode } from "../../api";
-import { MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE, MOCK_VERIFIER_PHONE } from "../../api/mock";
+import { MOCK_ADMIN_PHONE, MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE, MOCK_REVIEWER_PHONE, MOCK_VERIFIER_PHONE } from "../../api/mock";
 import type { PatientProfile, TokenPair } from "../../api/types";
 import { LanguageToggle, ThemeSelect } from "../../components/Controls";
 import { ErrorNote } from "../../components/ui";
@@ -12,10 +12,11 @@ import { useSession } from "../../session";
 
 type Step = "phone" | "code" | "profile";
 
-/** M1: phone OTP sign-in for the patient app, or for staff (`account: "staff"`): the doctor portal and the verifier/CHW app.
- * A new user's first verify answers 409 registration_required; the code is spent, so the profile is collected and a NEW code is sent with it (the backend's contract).
- * New staff give only a name: registration starts unverified (a doctor then submits the BMDC credential; an admin approves). */
-export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | "verifier" }) {
+/** M1: phone OTP sign-in for the patient app, or for staff (`account: "staff"`): the doctor portal, the verifier/CHW app and the
+ * reviewer/admin console. A new user's first verify answers 409 registration_required; the code is spent, so the profile is
+ * collected and a NEW code is sent with it (the backend's contract). New doctors and verifiers give only a name: registration
+ * starts unverified (a doctor then submits the BMDC credential; an admin approves). Console accounts are never self-registered. */
+export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | "verifier" | "console" }) {
   const staff = portal !== "patient";
   const { t, lang } = useI18n();
   const { api, deviceId, signIn } = useSession();
@@ -63,6 +64,10 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
       } catch (e) {
         if (e instanceof ApiError && e.code === "registration_required") {
           setCode("");
+          if (portal === "console") { // reviewers and admins are created by an admin, never here
+            setStep("phone");
+            throw new ApiError(403, "console_no_signup", "");
+          }
           setStep("profile");
           return;
         }
@@ -90,7 +95,8 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
         <h1>{t("login.title")}</h1>
         <p>{t("login.intro")}</p>
         {apiMode === "mock" && <p className="notice">{t("common.mockMode", { code: localDigits(MOCK_CODE, lang) })}<br />
-          <span lang="en" className="mono">{{ patient: MOCK_PHONE, doctor: MOCK_DOCTOR_PHONE, verifier: MOCK_VERIFIER_PHONE }[portal]}</span></p>}
+          <span lang="en" className="mono">{{ patient: MOCK_PHONE, doctor: MOCK_DOCTOR_PHONE, verifier: MOCK_VERIFIER_PHONE,
+            console: `${MOCK_REVIEWER_PHONE} (reviewer) · ${MOCK_ADMIN_PHONE} (admin)` }[portal]}</span></p>}
         <ErrorNote error={error} />
 
         {step === "phone" && (

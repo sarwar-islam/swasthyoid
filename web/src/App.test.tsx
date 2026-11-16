@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, describe, expect, it } from "vitest";
-import { renderApp } from "./test-utils";
+import { ADMIN_TOKEN, renderApp, REVIEWER_TOKEN } from "./test-utils";
 
 afterEach(() => {
   cleanup();
@@ -49,18 +49,15 @@ describe("portal shells", () => {
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 
-  it("staff menus hold only in-scope pages; the M10 pages stay hidden while its flag is off", () => {
-    renderAt("/console", "en");
-    const names = within(screen.getByRole("navigation", { name: "Main menu" })).getAllByRole("link").map((a) => a.textContent);
-    expect(names).toEqual(["Credential approvals", "Rule registry", "Audit log", "Worker metrics"]);
+  it("console menus hold only each role's in-scope pages; the M10 review stays hidden while its flag is off", () => {
+    const menu = () => within(screen.getByRole("navigation", { name: "Main menu" })).getAllByRole("link").map((a) => a.textContent);
+    renderApp("/console", { lang: "en", token: ADMIN_TOKEN });
+    expect(menu()).toEqual(["Credential approvals", "Drug catalog import", "Audit log", "Worker metrics"]);
     for (const removed of [/referral/i, /pharmac/i, /appointment/i, /dispens/i, /prescription writer/i]) {
       expect(document.body.textContent).not.toMatch(removed);
     }
-  });
-
-  it("each page says which phase builds it", () => {
-    renderAt("/console/rules", "en");
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Rule registry");
-    expect(screen.getByText("This page is built in phase F5.")).toBeTruthy();
+    cleanup();
+    renderApp("/console", { lang: "en", token: REVIEWER_TOKEN });
+    expect(menu()).toEqual(["Rule registry"]);
   });
 });

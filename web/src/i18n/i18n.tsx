@@ -29,6 +29,12 @@ export function formatDate(iso: string, lang: Lang): string {
     .format(new Date(iso));
 }
 
+/** Date and time to the minute (audit and metrics), in the local digits. */
+export function formatDateTime(iso: string, lang: Lang): string {
+  return localDigits(new Intl.DateTimeFormat(lang === "bn" ? "bn-BD" : "en-GB", { day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)), lang); // 24-hour: no Latin AM/PM in Bangla
+}
+
 function readLang(): Lang {
   try {
     return localStorage.getItem(LANG_KEY) === "en" ? "en" : "bn";

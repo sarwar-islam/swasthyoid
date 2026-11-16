@@ -1,8 +1,9 @@
 import type { ApiRequest, ApiResponse, Method, Transport } from "./client";
 import type {
-  AccessEntry, Cited, Consent, DocType, DocumentView, DoctorConsent, EmergencyProfile, EmergencySession, ExtractedField,
-  ExtractionResponse, FieldRow, Me, OtpVerifyBody, Reminder, ReminderLogAction, ReviewBody, ReviewedText, SafetyAlert, SearchHit,
-  StaffMe, StaffVerifyBody, Summary, TimelineEvent, TriageState, VitalEntry, VitalEvaluation, VitalReading,
+  AccessEntry, AuditEntry, Cited, Consent, CredentialReview, DocType, DocumentView, DoctorConsent, EmergencyProfile, EmergencyReview,
+  EmergencySession, ExtractedField, ExtractionResponse, FieldRow, Me, OtpVerifyBody, Reminder, ReminderLogAction, ReviewBody, ReviewedText,
+  Rule, RuleType, SafetyAlert, SearchHit, Severity, StaffMe, StaffVerifyBody, Summary, TimelineEvent, TriageState, VitalEntry,
+  VitalEvaluation, VitalReading, WorkerMetrics,
 } from "./types";
 
 // In-memory stand-in for /api/v1 with SYNTHETIC data only (invariant 9): no real person, drug or clinic. It answers with the
@@ -23,6 +24,11 @@ const CAREGIVER_ID = MOCK_CAREGIVER_ID;
 const OTHER_DOCTOR_ID = "44444444-4444-4444-8444-444444444444";
 export const MOCK_VERIFIER_ID = "77777777-7777-4777-8777-777777777777";
 export const MOCK_VERIFIER_PHONE = "+8801900000004"; // a verified synthetic verifier (CHW)
+export const MOCK_REVIEWER_ID = "88888888-8888-4888-8888-888888888888";
+export const MOCK_REVIEWER_PHONE = "+8801900000005"; // a synthetic clinical reviewer
+export const MOCK_ADMIN_ID = "99999999-9999-4999-8999-999999999999";
+export const MOCK_ADMIN_PHONE = "+8801900000006"; // a synthetic admin
+export const MOCK_SUBMITTED_DOCTOR_ID = "66666666-6666-4666-8666-666666666666"; // a doctor whose BMDC number waits for an admin
 
 // Fictional patients the mock patient may act for as a caregiver, one per authorization state (caregiver mode, F4).
 export const MOCK_OTHERS = {
@@ -170,6 +176,11 @@ function createState() {
     if (status === "pending") codes.set(c.id, { sentAt: now, tries: 0, used: false });
   });
 
+  const review = (id: string, hoursAgo: number, reason: string, fields: EmergencyReview["fields_shown"]): EmergencyReview => ({
+    id, doctor_id: DOCTOR_ID, doctor_name: "ডা. সিনথেটিক চিকিৎসক", reason, facility: "Synthetic General Hospital",
+    opened_at: iso(hoursAgo - 2), closed_at: iso(hoursAgo), fields_shown: fields, status: "review_pending", note: null, reviewed_at: null,
+    capability_suspended: false });
+
   return { me, consents, history, documents, extractions, timeline, phones: new Set([MOCK_PHONE]), reviews: {} as Record<string, ReviewBody["fields"]>,
            vitals, reminders, emergency, triage: {} as Record<string, number>, records, histories, patientOf, codes,
            sessions: [] as Array<{ id: string; verifier_id: string; patient_id: string; status: "pending" | "active" | "expired" | "revoked";
@@ -181,8 +192,21 @@ function createState() {
                                     credential: null },
              [MOCK_VERIFIER_ID]: { id: MOCK_VERIFIER_ID, role: "verifier", name: "সিনথেটিক স্বাস্থ্যকর্মী", status: "verified", emergency_enabled: false,
                                    credential: null },
+             [MOCK_SUBMITTED_DOCTOR_ID]: { id: MOCK_SUBMITTED_DOCTOR_ID, role: "doctor", name: "ডা. তৃতীয় সিনথেটিক", status: "pending",
+                                           emergency_enabled: false, credential: { type: "BMDC", number: "SYNTH-BMDC-0042", status: "pending" } },
+             [MOCK_REVIEWER_ID]: { id: MOCK_REVIEWER_ID, role: "clinical_reviewer", name: "সিনথেটিক রিভিউয়ার", status: "verified",
+                                   emergency_enabled: false, credential: null },
+             [MOCK_ADMIN_ID]: { id: MOCK_ADMIN_ID, role: "admin", name: "সিনথেটিক অ্যাডমিন", status: "verified", emergency_enabled: false, credential: null },
            } as Record<string, StaffMe>,
-           staffPhones: new Map([[MOCK_DOCTOR_PHONE, DOCTOR_ID], [MOCK_PENDING_DOCTOR_PHONE, PENDING_DOCTOR_ID], [MOCK_VERIFIER_PHONE, MOCK_VERIFIER_ID]]),
+           staffPhones: new Map([[MOCK_DOCTOR_PHONE, DOCTOR_ID], [MOCK_PENDING_DOCTOR_PHONE, PENDING_DOCTOR_ID], [MOCK_VERIFIER_PHONE, MOCK_VERIFIER_ID],
+                                 [MOCK_REVIEWER_PHONE, MOCK_REVIEWER_ID], [MOCK_ADMIN_PHONE, MOCK_ADMIN_ID]]),
+           rules: seedRules(iso),
+           emergencyReviews: [
+             review("er-1", -30, "SYNTH-REASON: unconscious on arrival (synthetic)", ["blood_group", "allergies"]),
+             review("er-2", -6, "SYNTH-REASON: unresponsive after a fall (synthetic)", ["allergies", "active_medications"]),
+           ],
+           auditLog: [] as Array<Omit<AuditEntry, "actor_ref" | "patient_ref" | "consent_ref"> & { actor_id: string | null; patient_id: string | null;
+                                   consent_id: string | null; resource: string | null }>,
            alerts: [
              { id: "a-1", rule_id: "SYNTH-DDI-0001", severity: "major", source_document_id: "d-verified", evidence_event_ids: ["e-med", "e-rx"],
                explanation: pendingText("Approved interaction explanation for SYNTH-DRUG-003 goes here.", "SYNTH-DRUG-003-এর অনুমোদিত ব্যাখ্যা এখানে বসবে।"),
@@ -191,6 +215,39 @@ function createState() {
                explanation: pendingText("Approved allergy explanation goes here.", "অ্যালার্জির অনুমোদিত ব্যাখ্যা এখানে বসবে।"),
                created_at: iso(-47), status: "open", reason: null },
            ] as SafetyAlert[] };
+}
+
+/** SYNTHETIC rule versions so the registry screens can be tried. MOCK ONLY and REVIEWER-PENDING: no real drug, interaction,
+ * threshold, red flag or message. The clinical reviewer writes the real ones (FRD question 7). */
+function seedRules(iso: (offsetHours: number) => string): Rule[] {
+  const rule = (ruleId: string, version: number, ruleType: RuleType, severity: Severity | null, status: Rule["status"], hoursAgo: number,
+                extra: Record<string, unknown> = {}): Rule => ({
+    id: `${ruleId}-v${version}`, rule_id: ruleId, version, rule_type: ruleType, severity, status,
+    definition: { placeholder: "REVIEWER-PENDING", synthetic: true, ...extra },
+    explanation: { en: `[REVIEWER-PENDING] Approved explanation for ${ruleId} goes here.`,
+                   bn: `[রিভিউয়ার-অনুমোদন বাকি] ${ruleId}-এর অনুমোদিত ব্যাখ্যা এখানে বসবে।` },
+    created_by_name: "সিনথেটিক রিভিউয়ার", created_at: iso(-hoursAgo),
+    reviewed_by_name: status === "draft" ? null : "সিনথেটিক রিভিউয়ার (দ্বিতীয়)", reviewed_at: status === "draft" ? null : iso(-hoursAgo + 1),
+    reason: null });
+  return [
+    rule("SYNTH-DDI-0001", 1, "ddi", "major", "approved", 200, { drugs: ["SYNTH-DRUG-001", "SYNTH-DRUG-003"] }),
+    rule("SYNTH-DDI-0001", 2, "ddi", "major", "draft", 20, { drugs: ["SYNTH-DRUG-001", "SYNTH-DRUG-003"] }),
+    rule("SYNTH-ALG-0001", 1, "allergy", "moderate", "approved", 190, { allergen: "SYNTH-ALLERGEN-01", drug: "SYNTH-DRUG-003" }),
+    rule("SYNTH-VT-0001", 1, "vital_threshold", null, "draft", 10, { vital_type: "bp" }),
+    rule("SYNTH-RF-0001", 1, "red_flag", null, "draft", 9, { phrase: "SYNTH-RED-FLAG" }),
+    rule("SYNTH-EM-0001", 1, "emergency_message", null, "draft", 8),
+  ];
+}
+
+/** A deterministic stand-in for SHA-256 (64 hex characters). MOCK ONLY: the real chain is core/audit.py entry_hash. */
+function mockHash(text: string): string {
+  let out = "";
+  for (let seed = 0; seed < 8; seed++) {
+    let h = 0x811c9dc5 ^ seed;
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+    out += (h >>> 0).toString(16).padStart(8, "0");
+  }
+  return out;
 }
 
 // ---- F2 mock rules. SYNTHETIC and MOCK-ONLY: they exist so every screen state can be tried. They are NOT clinical rules and the
@@ -283,8 +340,21 @@ export function mockTransport(): Transport {
   const doctorOf = (r: ApiRequest) => staffOf(r, "doctor");
   const live = (iso: string | null) => iso !== null && Date.parse(iso) > Date.now();
   /** C2 for the mock: append to that patient's access history. Never a code or any clinical content. */
-  const audit = (patientId: string, entry: Omit<AccessEntry, "at">) =>
-    (s.histories[patientId] ??= []).unshift({ at: new Date().toISOString(), ...entry });
+  /** C2's one append-only, hash-chained log (every entry links to the one before it). */
+  const appendAudit = (e: { at?: string; actor_id: string | null; actor_role: string | null; action: string; patient_id?: string | null;
+                            consent_id?: string | null; purpose?: string | null; result: "allow" | "deny"; reason?: string | null; resource?: string | null }) => {
+    const prev = s.auditLog.at(-1)?.entry_hash ?? "0".repeat(64);
+    const fields = { id: `al-${s.auditLog.length + 1}`, at: e.at ?? new Date().toISOString(), actor_id: e.actor_id, actor_role: e.actor_role,
+      action: e.action, patient_id: e.patient_id ?? null, consent_id: e.consent_id ?? null, purpose: e.purpose ?? null, result: e.result,
+      reason: e.reason ?? null, resource: e.resource ?? null };
+    s.auditLog.push({ ...fields, prev_hash: prev, entry_hash: mockHash(prev + JSON.stringify(fields)) });
+  };
+  [...s.history].reverse().forEach((h) => appendAudit({ ...h, patient_id: MOCK_PATIENT_ID })); // the seeded history, oldest first
+  const audit = (patientId: string, entry: Omit<AccessEntry, "at">) => {
+    const at = new Date().toISOString();
+    (s.histories[patientId] ??= []).unshift({ at, ...entry });
+    appendAudit({ ...entry, at, patient_id: patientId });
+  };
   const record = (doctor: StaffMe, action: string, result: "allow" | "deny", reason: string | null, consentId: string | null, patientId = MOCK_PATIENT_ID) =>
     audit(patientId, { actor_id: doctor.id, actor_role: "doctor", action, purpose: "TIMELINE", result, reason, consent_id: consentId, actor_name: doctor.name });
   const roleDenied = () => error(403, "role_not_allowed", "You are not allowed to do this.");
@@ -402,6 +472,26 @@ export function mockTransport(): Transport {
   const unauthenticated = error(401, "unauthenticated", "Sign in first.");
   const notFound = error(404, "not_found", "No document with this id.");
 
+  // ---- F5 console: a verified clinical reviewer or admin, each only on their own routes (RBAC); neither reaches patient data,
+  // because every patient route above names only patient, doctor, verifier or caregiver.
+  const consoleUser = (r: ApiRequest, role: "clinical_reviewer" | "admin"): StaffMe | ApiResponse => {
+    const w = who(r);
+    if (!w) return unauthenticated;
+    const u = w.role === role ? s.staff[w.sub] : undefined;
+    if (!u) return roleDenied();
+    return u.status === "verified" ? u : error(403, "user_not_verified", "You are not allowed to do this.");
+  };
+  const isUser = (x: StaffMe | ApiResponse): x is StaffMe => "role" in x;
+  const staffAudit = (u: StaffMe, action: string, resource: string, reason: string | null = null) =>
+    appendAudit({ actor_id: u.id, actor_role: u.role, action, result: "allow", reason, resource });
+  const reasonOf = (r: ApiRequest) => String((r.body as { reason?: unknown } | undefined)?.reason ?? "").trim();
+  const RULE_TYPES: RuleType[] = ["ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "red_flag", "emergency_message"];
+  const SEVERITIES: Severity[] = ["contraindicated", "major", "moderate", "minor"];
+  const credentialView = (u: StaffMe): CredentialReview => ({ id: `cred-${u.id.slice(0, 8)}`, user_id: u.id, name: u.name, role: "doctor", type: "BMDC",
+    number: u.credential!.number, status: u.credential!.status, user_status: u.status });
+  const credentialOwner = (id: string) => Object.values(s.staff).find((u) => u.role === "doctor" && u.credential && `cred-${u.id.slice(0, 8)}` === id);
+  const short = (id: string | null) => (id ? id.replace(/^[a-z]+-/, "").slice(0, 8) : null); // a pseudonymous reference, never a name
+
   const routes: Array<[Method, string, Handler]> = [
     ["GET", "/health", () => ok({ status: "ok" })],
     ["POST", "/auth/otp/request", (r) => {
@@ -430,7 +520,8 @@ export function mockTransport(): Transport {
       return ok({ access_token: mockJwt(MOCK_PATIENT_ID, "patient"), refresh_token: "synthetic-refresh-token" });
     }],
     ["GET", "/me", (r) => {
-      const staff = doctorOf(r) ?? staffOf(r, "verifier");
+      const w = who(r);
+      const staff = w && w.role !== "patient" && s.staff[w.sub]?.role === w.role ? s.staff[w.sub] : null;
       return authed(r) ? ok(s.me) : staff ? ok(staff) : unauthenticated;
     }],
     ["POST", "/credentials", (r) => {
@@ -506,6 +597,11 @@ export function mockTransport(): Transport {
         ...pick("active_medications", e.available.active_medications), ...pick("conditions", e.available.conditions),
         ...pick("emergency_contacts", e.contacts) };
       const session: EmergencySession = { session_id: `es-${crypto.randomUUID().slice(0, 8)}`, expires_at: new Date(Date.now() + 2 * 3600_000).toISOString(), card };
+      // shortcut: the mock queues the post-hoc review at once; the server queues it when the session closes (FRD M10)
+      s.emergencyReviews.unshift({ id: `er-${session.session_id.slice(3)}`, doctor_id: doctor.id, doctor_name: doctor.name, reason: body.reason.trim(),
+        facility: body.facility.trim(), opened_at: new Date().toISOString(), closed_at: session.expires_at,
+        fields_shown: card ? (Object.keys(card) as EmergencyReview["fields_shown"]) : [], status: "review_pending", note: null, reviewed_at: null,
+        capability_suspended: false });
       return ok(session, 201);
     }],
     ["GET", "/consents", (r) => (authed(r) ? ok(s.consents.filter((c) => s.patientOf[c.id] === MOCK_PATIENT_ID)) : unauthenticated)],
@@ -720,6 +816,161 @@ export function mockTransport(): Transport {
       if (!action || !["taken", "skipped", "snoozed"].includes(action)) return error(422, "invalid_action", "Use taken, skipped or snoozed.");
       rem.log.unshift({ action, at: new Date().toISOString() });
       return ok(rem);
+    }],
+    // ---- F5 clinical reviewer: the rule registry (FRD M6: one registry, versions, only approved rules run)
+    ["GET", "/rules", (r) => {
+      const u = consoleUser(r, "clinical_reviewer");
+      if (!isUser(u)) return u;
+      const type = new URLSearchParams(r.path.split("?")[1] ?? "").get("type");
+      return ok(s.rules.filter((x) => !type || x.rule_type === type));
+    }],
+    ["POST", "/rules", (r) => {
+      const u = consoleUser(r, "clinical_reviewer");
+      if (!isUser(u)) return u;
+      const b = (r.body ?? {}) as Partial<{ rule_id: string; rule_type: RuleType; severity: Severity | null; definition: unknown;
+                                            explanation: { en?: unknown; bn?: unknown } }>;
+      const def = b.definition;
+      if (!RULE_TYPES.includes(b.rule_type!) || (b.severity != null && !SEVERITIES.includes(b.severity))
+        || !def || typeof def !== "object" || Array.isArray(def) || !Object.keys(def).length
+        || typeof b.explanation?.en !== "string" || !b.explanation.en.trim() || typeof b.explanation?.bn !== "string" || !b.explanation.bn.trim()) {
+        return error(422, "invalid_rule", "Check the type, severity, definition and both explanations.");
+      }
+      const versions = b.rule_id ? s.rules.filter((x) => x.rule_id === b.rule_id) : [];
+      if (b.rule_id && !versions.length) return error(404, "not_found", "No rule with this id.");
+      if (versions.length && versions[0].rule_type !== b.rule_type) return error(422, "invalid_rule", "A new version keeps the rule's type.");
+      if (versions.some((x) => x.status === "draft")) return error(409, "draft_exists", "This rule already has a draft waiting for review.");
+      const ruleId = b.rule_id ?? `RULE-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+      const rule: Rule = { id: `${ruleId}-v${versions.length + 1}`, rule_id: ruleId, version: versions.length + 1, rule_type: b.rule_type!,
+        severity: b.severity ?? null, status: "draft", definition: def as Record<string, unknown>,
+        explanation: { en: (b.explanation!.en as string).trim(), bn: (b.explanation!.bn as string).trim() }, created_by_name: u.name,
+        created_at: new Date().toISOString(), reviewed_by_name: null, reviewed_at: null, reason: null };
+      s.rules.push(rule);
+      staffAudit(u, "rule.draft", rule.id);
+      return ok(rule, 201);
+    }],
+    ...(["approve", "reject"] as const).map((verb): [Method, string, Handler] => ["POST", `/rules/{id}/${verb}`, (r, p) => {
+      const u = consoleUser(r, "clinical_reviewer");
+      if (!isUser(u)) return u;
+      const rule = s.rules.find((x) => x.id === p.id);
+      if (!rule) return error(404, "not_found", "No rule with this id.");
+      if (rule.status !== "draft") return error(409, "not_draft", "Only a draft can be reviewed.");
+      const reason = reasonOf(r);
+      if (verb === "reject" && !reason) return error(422, "reason_required", "A rejection needs a reason.");
+      if (verb === "approve") {
+        s.rules.filter((x) => x.rule_id === rule.rule_id && x.status === "approved").forEach((x) => { x.status = "superseded"; });
+      }
+      Object.assign(rule, { status: verb === "approve" ? "approved" : "rejected", reviewed_by_name: u.name, reviewed_at: new Date().toISOString(),
+                            reason: reason || null });
+      staffAudit(u, `rule.${verb}`, rule.id);
+      return ok(rule);
+    }]),
+    // ---- F5 clinical reviewer: break-glass post-hoc review (FRD M10)
+    ["GET", "/admin/emergency/reviews", (r) => {
+      const u = consoleUser(r, "clinical_reviewer");
+      return isUser(u) ? ok(s.emergencyReviews) : u;
+    }],
+    ["POST", "/admin/emergency/reviews/{id}/review", (r, p) => {
+      const u = consoleUser(r, "clinical_reviewer");
+      if (!isUser(u)) return u;
+      const item = s.emergencyReviews.find((x) => x.id === p.id);
+      if (!item) return error(404, "not_found", "No review with this id.");
+      if (item.status !== "review_pending") return error(409, "not_pending", "This session was already reviewed.");
+      const body = (r.body ?? {}) as { decision?: unknown; note?: unknown };
+      const note = String(body.note ?? "").trim();
+      if (body.decision !== "justified" && body.decision !== "unjustified") return error(422, "invalid_decision", "Justified or unjustified.");
+      if (body.decision === "unjustified" && !note) return error(422, "reason_required", "Say why the access was not justified.");
+      Object.assign(item, { status: body.decision, note: note || null, reviewed_at: new Date().toISOString() });
+      if (body.decision === "unjustified") { // FRD M10: an unjustified access suspends the doctor's emergency capability
+        if (s.staff[item.doctor_id]) s.staff[item.doctor_id].emergency_enabled = false;
+        item.capability_suspended = true;
+      }
+      staffAudit(u, `emergency.review.${body.decision}`, item.id);
+      return ok(item);
+    }],
+    // ---- F5 admin: credentials (M1), catalog import (M6), audit (C2), worker metrics (D13)
+    ["GET", "/credentials", (r) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const status = new URLSearchParams(r.path.split("?")[1] ?? "").get("status");
+      return ok(Object.values(s.staff).filter((x) => x.role === "doctor" && x.credential && (!status || x.credential.status === status)).map(credentialView));
+    }],
+    ["POST", "/credentials/{id}/approve", (r, p) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const doctor = credentialOwner(p.id);
+      if (!doctor || doctor.credential!.status !== "pending") return error(404, "not_found", "No pending credential with this id.");
+      doctor.credential!.status = "verified";
+      doctor.status = "verified";
+      staffAudit(u, "credential.approve", p.id);
+      return ok({ user_id: doctor.id, status: "verified" });
+    }],
+    ["POST", "/credentials/{id}/reject", (r, p) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const doctor = credentialOwner(p.id);
+      if (!doctor || doctor.credential!.status !== "pending") return error(404, "not_found", "No pending credential with this id.");
+      const reason = reasonOf(r);
+      if (!reason) return error(422, "reason_required", "A rejection needs a reason.");
+      doctor.credential = null; // the doctor may submit again; the reason stays in the audit log only as "reason_given"
+      staffAudit(u, "credential.reject", p.id, "reason_given");
+      return ok({ user_id: doctor.id, status: "rejected" });
+    }],
+    ["POST", "/admin/users/{id}/suspend", (r, p) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const target = s.staff[p.id];
+      if (!target || target.role !== "doctor") return error(404, "not_found", "No staff member with this id.");
+      if (!reasonOf(r)) return error(422, "reason_required", "A suspension needs a reason.");
+      target.status = "suspended";
+      if (target.credential) target.credential.status = "suspended";
+      target.emergency_enabled = false;
+      // FRD section 2: suspension suspends every active grant immediately (the consent state machine's `suspended`)
+      s.consents.filter((c) => c.grantee_id === target.id && c.status === "active").forEach((c) => { c.status = "suspended"; });
+      staffAudit(u, "user.suspend", target.id, "reason_given");
+      return ok({ user_id: target.id, status: "suspended" });
+    }],
+    ["POST", "/catalog/import", (r) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const file = r.body instanceof FormData ? r.body.get("file") : null;
+      if (!(file instanceof File) || !/\.csv$/i.test(file.name) || !file.size) return error(422, "invalid_file", "Choose a non-empty CSV file.");
+      staffAudit(u, "catalog.import", file.name);
+      // the mock reads nothing from the file: no catalog data exists here (FRD question 1, licence undecided)
+      return ok({ id: `imp-${crypto.randomUUID().slice(0, 8)}`, status: "queued", file_name: file.name, size_bytes: file.size }, 202);
+    }],
+    ["GET", "/audit", (r) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const q = new URLSearchParams(r.path.split("?")[1] ?? "");
+      let prev = "0".repeat(64);
+      let broken: string | null = null;
+      for (const e of s.auditLog) { // the server's chain check, over the whole log
+        const { prev_hash, entry_hash, ...fields } = e;
+        if (!broken && (prev_hash !== prev || entry_hash !== mockHash(prev + JSON.stringify(fields)))) broken = e.id;
+        prev = entry_hash;
+      }
+      const entries: AuditEntry[] = [...s.auditLog].reverse()
+        .filter((e) => (!q.get("action") || e.action.startsWith(q.get("action")!)) && (!q.get("result") || e.result === q.get("result"))
+          && (!q.get("role") || e.actor_role === q.get("role")))
+        .slice(0, 100)
+        .map((e) => ({ id: e.id, at: e.at, actor_role: e.actor_role, actor_ref: short(e.actor_id), action: e.action, purpose: e.purpose,
+          result: e.result, reason: e.reason && !/^[a-z_]+$/.test(e.reason) ? "free_text_hidden" : e.reason, // no free text (it may hold PHI)
+          patient_ref: short(e.patient_id), consent_ref: short(e.consent_id), prev_hash: e.prev_hash, entry_hash: e.entry_hash }));
+      return ok({ chain: { status: broken ? "broken" : "intact", checked_at: new Date().toISOString(), entries_checked: s.auditLog.length,
+                           first_broken_id: broken }, entries });
+    }],
+    ["GET", "/internal/metrics", (r) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const count = (st: DocumentView["status"]) => allDocs().filter((d) => d.status === st).length;
+      const documents = Object.fromEntries((["uploaded", "extracting", "needs_review", "extraction_failed", "verified", "rejected"] as const)
+        .map((st) => [st, count(st)])) as WorkerMetrics["documents"];
+      // synthetic worker counts: one expired lease, MOCK ONLY, so the D13 warning can be seen
+      const worker: WorkerMetrics["worker"] = { due: documents.uploaded + 1, in_flight: documents.extracting,
+        lease_expired: 1, failed: documents.extraction_failed, failed_permanent: 0, failed_budget_exhausted: 0,
+        failed_retryable: documents.extraction_failed, waiting_backoff: 0, attempts_open_runs: documents.extracting, ocr_executions_total: 12,
+        failed_no_retry_last_hour: 0, due_over_15_minutes: 0 };
+      return ok({ at: new Date().toISOString(), documents, worker } satisfies WorkerMetrics);
     }],
     ["GET", "/me/emergency-profile", (r) => (authed(r) ? ok(s.emergency) : unauthenticated)],
     ["PUT", "/me/emergency-profile", (r) => {

@@ -263,7 +263,7 @@ export type StaffStatus = "pending" | "verified" | "suspended";
  * to know whether they may request consent. Mocked; owner to decide. */
 export interface StaffMe {
   id: string;
-  role: "doctor" | "verifier";
+  role: "doctor" | "verifier" | "clinical_reviewer" | "admin";
   name: string;
   status: StaffStatus;
   emergency_enabled: boolean;
@@ -382,4 +382,113 @@ export interface AssistSession {
   patient_id: string | null; // only once active
   activated_at: string | null;
   expires_at: string | null;
+}
+
+// ---- F5 clinical reviewer console (staff role `clinical_reviewer`, the backend's name). Never a patient's record.
+
+export type RuleType = "ddi" | "allergy" | "duplicate" | "drug_disease" | "class_lookback" | "vital_threshold" | "red_flag" | "emergency_message";
+export type RuleStatus = "draft" | "approved" | "rejected" | "superseded";
+
+/** One version of a rule in the one registry (FRD M6: every change is a new version; only `approved` runs). Shape GAP.
+ * `definition` is the reviewer's own structured content; the UI never holds a clinical rule, it only shows what the server has. */
+export interface Rule {
+  id: string; // this version
+  rule_id: string; // the rule across versions, e.g. SYNTH-DDI-0001
+  version: number;
+  rule_type: RuleType;
+  severity: Severity | null;
+  status: RuleStatus;
+  definition: Record<string, unknown>;
+  explanation: { en: string; bn: string };
+  created_by_name: string;
+  created_at: string;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  reason: string | null; // why it was rejected
+}
+
+/** GET /rules?type= : GAP (the FRD has no list route). POST /rules (a draft, or a new version of `rule_id`): FRD, body GAP.
+ * POST /rules/{id}/approve: FRD. POST /rules/{id}/reject { reason }: GAP. Approving a version supersedes the rule's approved one. */
+export interface RuleDraftBody {
+  rule_id?: string; // a new version of this rule; absent: a new rule
+  rule_type: RuleType;
+  severity: Severity | null;
+  definition: Record<string, unknown>;
+  explanation: { en: string; bn: string };
+}
+
+/** A closed break-glass session waiting for post-hoc review (FRD M10; only with VITE_FEATURE_EMERGENCY_ACCESS=1).
+ * GET /admin/emergency/reviews and POST /admin/emergency/reviews/{id}/review { decision, note }: FRD routes, shapes GAP. The
+ * reviewer sees who opened it, why, where, when and which card FIELDS were shown, never the patient or the values. */
+export interface EmergencyReview {
+  id: string;
+  doctor_id: string;
+  doctor_name: string;
+  reason: string;
+  facility: string;
+  opened_at: string;
+  closed_at: string;
+  fields_shown: EmergencyField[];
+  status: "review_pending" | "justified" | "unjustified";
+  note: string | null;
+  reviewed_at: string | null;
+  capability_suspended: boolean; // true after "unjustified": the doctor's emergency capability is off
+}
+
+// ---- F5 admin console (staff role `admin`). Never clinical content.
+
+/** GET /credentials?status= : GAP (the FRD has no list route). POST /credentials/{id}/approve -> { user_id, status: "verified" }:
+ * BUILT. POST /credentials/{id}/reject { reason }: GAP. POST /admin/users/{user_id}/suspend { reason }: GAP (FRD section 2:
+ * suspension suspends every active grant at once). */
+export interface CredentialReview {
+  id: string;
+  user_id: string;
+  name: string;
+  role: "doctor";
+  type: "BMDC";
+  number: string;
+  status: StaffStatus; // a rejected credential is removed, so the doctor can submit again
+  user_status: StaffStatus;
+}
+
+/** POST /catalog/import (multipart: file): FRD route, response GAP. The drug catalog source and its licence are undecided
+ * (FRD question 1): no catalog data ships with the UI or the mock. */
+export interface CatalogImport {
+  id: string;
+  status: "queued";
+  file_name: string;
+  size_bytes: number;
+}
+
+/** GET /audit?action=&result=&role= : FRD route (admin), shape GAP. Metadata only: no name, phone, IP, device, free text or
+ * clinical content; people and records appear as short pseudonymous references. `chain` is the server's verification of the
+ * whole hash chain (core/audit.py verify_chain), not something the browser recomputes. */
+export interface AuditEntry {
+  id: string;
+  at: string;
+  actor_role: string | null;
+  actor_ref: string | null;
+  action: string;
+  purpose: string | null;
+  result: "allow" | "deny";
+  reason: string | null; // a reason code, or "free_text_hidden"
+  patient_ref: string | null;
+  consent_ref: string | null;
+  prev_hash: string;
+  entry_hash: string;
+}
+export interface AuditPage {
+  chain: { status: "intact" | "broken"; checked_at: string; entries_checked: number; first_broken_id: string | null };
+  entries: AuditEntry[]; // newest first
+}
+
+/** GET /internal/metrics (admin). BUILT (api/internal.py, workers/monitoring.py; owner decision D13). Counts only. */
+export interface WorkerMetrics {
+  at: string;
+  documents: Record<DocStatus, number>;
+  worker: {
+    due: number; in_flight: number; lease_expired: number; failed: number; failed_permanent: number; failed_budget_exhausted: number;
+    failed_retryable: number; waiting_backoff: number; attempts_open_runs: number; ocr_executions_total: number;
+    failed_no_retry_last_hour: number; due_over_15_minutes: number;
+  };
 }
