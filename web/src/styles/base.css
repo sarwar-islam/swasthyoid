@@ -208,3 +208,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: var(--space-2) 0 0
 .table-wrap table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
 .table-wrap caption { text-align: left; padding: var(--space-2) var(--space-3); font-weight: 700; }
 .table-wrap th, .table-wrap td { text-align: left; padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+
+/* ---- F6 */
+.qr-box { width: fit-content; max-width: 100%; background: #ffffff; padding: var(--space-2); border-radius: var(--radius); border: 1px solid var(--line); line-height: 0; }
+.qr-box img { display: block; width: 240px; max-width: 100%; height: auto; }
+.qr-code { font-size: 1.6em; font-weight: 700; letter-spacing: 0.15em; margin: 0; overflow-wrap: anywhere; }

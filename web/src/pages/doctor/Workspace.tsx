@@ -1,10 +1,10 @@
 import { AlertOctagon, Clock, Search as SearchIcon, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router";
-import type { Client } from "../../api/client";
-import type { DoctorConsent, DocumentView, SafetyAlert, SearchHit, Summary as SummaryData } from "../../api/types";
+import { ApiError, type Client } from "../../api/client";
+import type { DoctorConsent, DocumentView, SafetyAlert, SearchHit, Summary as SummaryData, VitalThresholds } from "../../api/types";
 import { ErrorNote, Loading, Reviewed, Section } from "../../components/ui";
-import { formatDate, formatNumber, localDigits, useI18n } from "../../i18n/i18n";
+import { formatDate, formatDateTime, formatNumber, localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
 import { TimelineView } from "../patient/Timeline";
 import { useLoad, useSession } from "../../session";
@@ -40,6 +40,7 @@ export function Workspace() {
   const tabs: Array<[string, Key, boolean]> = [
     [base, "ws.summary", allows(consent, "timeline")], [`${base}/timeline`, "tl.title", allows(consent, "timeline")],
     [`${base}/search`, "ws.search", allows(consent, "timeline")], [`${base}/alerts`, "nav.alerts", allows(consent, "safety")],
+    [`${base}/thresholds`, "ws.thresholds", allows(consent, "safety")],
   ];
   return (
     <>
@@ -230,6 +231,89 @@ export function AlertsList({ patientId, base, canOpenDocs }: { patientId: string
 export function AlertsPage() {
   const { consent, base } = useCtx();
   return <AlertsList patientId={consent.patient_id} base={base} canOpenDocs={allows(consent, "documents")} />;
+}
+
+/** M13 per-patient threshold overrides (GAP, F6), only under a consent covering `safety`. The server lists the fields a doctor may
+ * set; the defaults are the reviewer's approved rules (or REVIEWER-PENDING). The UI holds no number of its own and checks only that
+ * a value is a number: the allowed range is the server's. Empty means "use the default". */
+export function ThresholdsPage() {
+  const { t, lang } = useI18n();
+  const { api } = useSession();
+  const { consent } = useCtx();
+  const path = `/patients/${consent.patient_id}/vital-thresholds`;
+  const data = useLoad(() => api.request<VitalThresholds>("GET", path), [path]);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [bad, setBad] = useState<string[]>([]);
+  const [error, setError] = useState<unknown>(null);
+  const [saved, setSaved] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (data.data) setDraft(Object.fromEntries(data.data.fields.map((f) => [f.key, f.override_value === null ? "" : formatNumber(f.override_value, lang)])));
+  }, [data.data, lang]);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    const current = data.data!;
+    const values = Object.fromEntries(current.fields.map((f) => {
+      const raw = toAsciiDigits(draft[f.key] ?? "").trim();
+      return [f.key, raw === "" ? null : Number(raw)];
+    }));
+    const wrong = Object.keys(values).filter((k) => values[k] !== null && !(Number.isFinite(values[k]) && (values[k] as number) > 0));
+    setBad(wrong);
+    setSaved(null);
+    setError(null);
+    if (wrong.length) return;
+    setBusy(true);
+    try {
+      const next = await api.request<VitalThresholds>("PUT", path, { body: { version: current.version, overrides: values } });
+      setSaved(next.version);
+      data.reload();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (data.loading && !data.data) return <Loading />;
+  if (!data.data) return <ErrorNote error={data.error} />;
+  const th = data.data;
+  return (
+    <form className="stack" onSubmit={save} noValidate>
+      <p className="notice">{t("th.note")}</p>
+      <p className="muted">
+        {t("th.version", { v: formatNumber(th.version, lang) })} · {th.updated_at && th.updated_by_name
+          ? t("th.changed", { name: th.updated_by_name, date: formatDateTime(th.updated_at, lang) }) : t("th.unchanged")}
+      </p>
+      <ul className="list">
+        {th.fields.map((f) => (
+          <li key={f.key} className="card stack">
+            <Reviewed text={f.label} as="strong" />
+            <p className={f.default_value === null ? "reviewer-pending" : "muted"}>
+              {f.default_value === null ? t("th.defaultPending") : t("th.default", { value: `${formatNumber(f.default_value, lang)} ${f.unit}` })}
+            </p>
+            <div className="field">
+              <label htmlFor={`th-${f.key}`}>{t("th.override", { unit: f.unit })}</label>
+              <input id={`th-${f.key}`} inputMode="decimal" autoComplete="off" value={draft[f.key] ?? ""}
+                     aria-invalid={bad.includes(f.key)} aria-describedby={`th-${f.key}-hint${bad.includes(f.key) ? ` th-${f.key}-err` : ""}`}
+                     onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))} />
+              <span id={`th-${f.key}-hint`} className="hint">{t("th.hint")}</span>
+              {bad.includes(f.key) && <span id={`th-${f.key}-err`} className="error-note" role="alert">{t("th.bad")}</span>}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <ErrorNote error={error} />
+      {saved !== null && <p className="ok-note" role="status">{t("th.saved", { v: formatNumber(saved, lang) })}</p>}
+      <div className="actions">
+        <button type="submit" className="btn-primary" disabled={busy}>{t("th.save")}</button>
+        {error instanceof ApiError && error.code === "version_conflict" && (
+          <button type="button" onClick={() => { setError(null); data.reload(); }}>{t("th.reload")}</button>
+        )}
+      </div>
+    </form>
+  );
 }
 
 function DocImage({ api, id, n }: { api: Client; id: string; n: number }) {

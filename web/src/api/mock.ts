@@ -1,10 +1,12 @@
 import type { ApiRequest, ApiResponse, Method, Transport } from "./client";
 import type {
-  AccessEntry, AuditEntry, Cited, Consent, CredentialReview, StaffAccount, DocType, DocumentView, DoctorConsent, EmergencyProfile, EmergencyReview,
-  EmergencySession, ExtractedField, ExtractionResponse, FieldRow, Me, OtpVerifyBody, Reminder, ReminderLogAction, ReviewBody, ReviewedText,
-  Rule, RuleType, SafetyAlert, SearchHit, Severity, StaffMe, StaffVerifyBody, Summary, TimelineEvent, TriageState, VitalEntry,
-  VitalEvaluation, VitalReading, WorkerMetrics,
+  AccessEntry, AuditEntry, Cited, Consent, ConsentQr, CredentialReview, StaffAccount, DocType, DocumentView, DoctorConsent, EmergencyProfile,
+  EmergencyReview, EmergencySession, ExtractedField, ExtractionResponse, FieldRow, Me, NotificationKind, OtpVerifyBody, PatientNotification,
+  QrConsentRequest, Reminder, ReminderLogAction, ReviewBody, ReviewedText, Rule, RuleType, SafetyAlert, SearchHit, Severity, StaffMe,
+  StaffVerifyBody, Summary, ThresholdField, TimelineEvent, TriageState, VitalEntry, VitalEvaluation, VitalReading, VitalThresholds, WorkerMetrics,
 } from "./types";
+import { flags } from "../flags";
+import { toAsciiDigits } from "../i18n/i18n";
 
 // In-memory stand-in for /api/v1 with SYNTHETIC data only (invariant 9): no real person, drug or clinic. It answers with the
 // backend's shapes and error format (types.ts says which routes are BUILT, FRD or GAP). An unknown route answers 501
@@ -219,8 +221,30 @@ function createState() {
              { id: "a-2", rule_id: "SYNTH-ALG-0001", severity: "moderate", source_document_id: "d-verified", evidence_event_ids: ["e-allergy", "e-med"],
                explanation: pendingText("Approved allergy explanation goes here.", "অ্যালার্জির অনুমোদিত ব্যাখ্যা এখানে বসবে।"),
                created_at: iso(-47), status: "open", reason: null },
-           ] as SafetyAlert[] };
+           ] as SafetyAlert[],
+           qr: {} as Record<string, ConsentQr>, // consent id -> its QR (F6, GAP)
+           thresholds: {} as Record<string, Omit<VitalThresholds, "patient_id" | "fields"> & { overrides: Record<string, number | null> }>,
+           notifications: [
+             note("n-2", "caregiver_request", iso(-1), "সিনথেটিক পরিচর্যাকারী", ["upload_documents", "view_timeline"]),
+             note("n-1", "consent_request", iso(-0.2), "ডা. দ্বিতীয় সিনথেটিক", ["timeline"]),
+             // M10 is conditional: the seeded break-glass notice exists only where the flag is on (the server writes one per session)
+             ...(flags.emergencyAccess ? [note("n-3", "emergency_access", iso(-8), "ডা. সিনথেটিক চিকিৎসক", [], "Synthetic General Hospital")] : []),
+           ].sort((a, b) => b.created_at.localeCompare(a.created_at)) };
 }
+
+const note = (id: string, kind: NotificationKind, created_at: string, actor_name: string | null, categories: string[],
+              facility: string | null = null): PatientNotification => ({ id, kind, created_at, read_at: null, actor_name, categories, facility });
+
+/** MOCK ONLY, REVIEWER-PENDING: the fields a doctor may override. No value and no limit: the approved M6 rules supply them. */
+const THRESHOLD_FIELDS: Array<Omit<ThresholdField, "override_value">> = [
+  { key: "synth_bp_systolic", vital_type: "bp", unit: "mmHg", default_value: null,
+    label: pendingText("Systolic limit, from the approved rule", "সিস্টোলিক সীমা, অনুমোদিত নিয়ম থেকে") },
+  { key: "synth_bp_diastolic", vital_type: "bp", unit: "mmHg", default_value: null,
+    label: pendingText("Diastolic limit, from the approved rule", "ডায়াস্টোলিক সীমা, অনুমোদিত নিয়ম থেকে") },
+  { key: "synth_glucose_fasting", vital_type: "glucose", unit: "mmol/L", default_value: null,
+    label: pendingText("Fasting glucose limit, from the approved rule", "খালি পেটে গ্লুকোজের সীমা, অনুমোদিত নিয়ম থেকে") },
+];
+const QR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I/L: read and typed by hand
 
 /** SYNTHETIC rule versions so the registry screens can be tried. MOCK ONLY and REVIEWER-PENDING: no real drug, interaction,
  * threshold, red flag or message. The clinical reviewer writes the real ones (FRD question 7). */
@@ -476,6 +500,30 @@ export function mockTransport(): Transport {
     health_id: s.me.health_id });
   const unauthenticated = error(401, "unauthenticated", "Sign in first.");
   const notFound = error(404, "not_found", "No document with this id.");
+  /** C3 in-app inbox: only the mock patient has an app here (see `authed`). */
+  const notify = (kind: NotificationKind, actor: string | null, categories: string[], facility: string | null = null, patientId = MOCK_PATIENT_ID) => {
+    if (patientId === MOCK_PATIENT_ID) s.notifications.unshift(note(`n-${crypto.randomUUID().slice(0, 8)}`, kind, new Date().toISOString(), actor, categories, facility));
+  };
+  const activate = (c: Consent) => {
+    c.status = "active";
+    c.activated_at = new Date().toISOString();
+    c.expires_at = new Date(Date.now() + 24 * 3600_000).toISOString(); // the backend reads TIMELINE_CONSENT_HOURS
+  };
+  /** The signed-in patient's pending-or-answered QR request by token or short code; never another patient's. */
+  const qrConsent = (ref: string) => {
+    const want = toAsciiDigits(ref).trim();
+    const id = Object.keys(s.qr).find((k) => s.qr[k].token === want || s.qr[k].short_code === want.toUpperCase());
+    return id && s.patientOf[id] === MOCK_PATIENT_ID ? s.consents.find((c) => c.id === id) : undefined;
+  };
+  const qrView = (c: Consent): QrConsentRequest => ({ consent_id: c.id, doctor_name: c.grantee_name ?? "", status:
+    c.status === "pending" && !live(s.qr[c.id].expires_at) ? "expired" : c.status as QrConsentRequest["status"],
+    categories: c.allowed_categories as QrConsentRequest["categories"], expires_at: s.qr[c.id].expires_at, access_hours: 24 });
+  const qrNotFound = () => error(404, "not_found", "This request is not open.");
+  const thresholdsOf = (pid: string): VitalThresholds => {
+    const t = (s.thresholds[pid] ??= { version: 1, updated_at: null, updated_by_name: null, overrides: {} });
+    return { patient_id: pid, version: t.version, updated_at: t.updated_at, updated_by_name: t.updated_by_name,
+             fields: THRESHOLD_FIELDS.map((f) => ({ ...f, override_value: t.overrides[f.key] ?? null })) };
+  };
 
   // ---- F5 console: a verified clinical reviewer or admin, each only on their own routes (RBAC); neither reaches patient data,
   // because every patient route above names only patient, doctor, verifier or caregiver.
@@ -544,27 +592,82 @@ export function mockTransport(): Transport {
       const doctor = doctorOf(r);
       if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
       if (doctor.status !== "verified") return error(403, "user_not_verified", "You are not allowed to do this.");
-      const body = r.body as { health_id?: string; categories?: string[] };
+      const body = r.body as { health_id?: string; categories?: string[]; method?: string };
       if (body.health_id !== s.me.health_id) return error(404, "patient_not_found", "No patient has this Health ID.");
       const categories = (body.categories ?? []).filter((c) => ["timeline", "documents", "safety"].includes(c));
       if (!categories.length) return error(422, "invalid_categories", "Choose at least one category.");
+      if (body.method !== undefined && body.method !== "otp" && body.method !== "qr") return error(422, "invalid_method", "Use otp or qr.");
       const c: Consent = { id: `c-${crypto.randomUUID().slice(0, 8)}`, grantee_id: doctor.id, grantee_role: "doctor", purpose: "TIMELINE",
         allowed_categories: categories, status: "pending", activated_at: null, expires_at: null, created_at: new Date().toISOString(),
-        grantee_name: doctor.name, grantee_phone_tail: null, requested_days: null };
+        grantee_name: doctor.name, grantee_phone_tail: null, requested_days: null, method: body.method === "qr" ? "qr" : "otp" };
       s.consents.unshift(c);
       s.patientOf[c.id] = s.me.id;
-      return ok(doctorView(c), 201);
+      notify("consent_request", doctor.name, categories);
+      if (body.method !== "qr") return ok(doctorView(c), 201);
+      // GAP: the server signs the token; the mock's is random. No SMS code is sent for a QR request.
+      const pick = () => QR_ALPHABET[crypto.getRandomValues(new Uint32Array(1))[0] % QR_ALPHABET.length];
+      s.qr[c.id] = { token: `qr.${crypto.randomUUID()}`, short_code: Array.from({ length: 8 }, pick).join(""),
+                     expires_at: new Date(Date.now() + CODE_TTL_MS).toISOString() };
+      return ok({ ...doctorView(c), qr: s.qr[c.id] }, 201);
+    }],
+    ["GET", "/consents/requests/{id}", (r, p) => { // GAP: the doctor's screen checks a QR request until the patient answers
+      const doctor = doctorOf(r);
+      if (!doctor) return who(r) ? roleDenied() : unauthenticated;
+      const c = s.consents.find((x) => x.id === p.id && x.grantee_id === doctor.id && x.purpose === "TIMELINE");
+      return c ? ok(doctorView(c)) : error(404, "not_found", "No consent request with this id.");
     }],
     ["POST", "/consents/requests/{id}/confirm", (r, p) => {
       const doctor = doctorOf(r);
       if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
       const c = s.consents.find((x) => x.id === p.id && x.grantee_id === doctor.id && x.status === "pending");
       if (!c) return error(404, "not_found", "No pending consent request with this id.");
-      if ((r.body as { code?: string }).code !== MOCK_CODE) return error(403, "invalid_code", "The code is wrong or has expired.");
-      c.status = "active";
-      c.activated_at = new Date().toISOString();
-      c.expires_at = new Date(Date.now() + 24 * 3600_000).toISOString(); // the backend reads TIMELINE_CONSENT_HOURS
+      // a QR request has no SMS code to read out: only the patient's own app can approve it
+      if (s.qr[c.id] || (r.body as { code?: string }).code !== MOCK_CODE) return error(403, "invalid_code", "The code is wrong or has expired.");
+      activate(c);
       return ok(doctorView(c));
+    }],
+    // GAP (F6): the patient's side of a QR request, only for the patient the doctor named; every other case is the same 404
+    ["GET", "/consents/qr/{ref}", (r, p) => {
+      if (!authed(r)) return who(r) ? roleDenied() : unauthenticated;
+      const c = qrConsent(p.ref);
+      return c ? ok(qrView(c)) : qrNotFound();
+    }],
+    ...(["approve", "decline"] as const).map((verb): [Method, string, Handler] => ["POST", `/consents/qr/{ref}/${verb}`, (r, p) => {
+      if (!authed(r)) return who(r) ? roleDenied() : unauthenticated;
+      const c = qrConsent(p.ref);
+      if (!c || c.status !== "pending" || !live(s.qr[c.id].expires_at)) return qrNotFound();
+      if (verb === "approve") activate(c);
+      else c.status = "declined";
+      audit(MOCK_PATIENT_ID, { actor_id: MOCK_PATIENT_ID, actor_role: "patient", action: `consent.qr.${verb}`, purpose: "TIMELINE",
+                               result: "allow", reason: null, consent_id: c.id, actor_name: s.me.name });
+      return ok(qrView(c));
+    }]),
+    ["GET", "/notifications", (r) => (authed(r) ? ok(s.notifications) : who(r) ? roleDenied() : unauthenticated)],
+    ["POST", "/notifications/{id}/read", (r, p) => {
+      if (!authed(r)) return who(r) ? roleDenied() : unauthenticated;
+      const n = s.notifications.find((x) => x.id === p.id);
+      if (!n) return error(404, "not_found", "No notification with this id.");
+      n.read_at ??= new Date().toISOString();
+      return ok(n);
+    }],
+    // GAP (F6, M13): a treating doctor's per-patient threshold overrides, under a consent covering `safety`
+    ["GET", "/patients/{id}/vital-thresholds", (r, p) => consentFor(r, p.id, "safety", "vital_thresholds.read") ?? ok(thresholdsOf(p.id))],
+    ["PUT", "/patients/{id}/vital-thresholds", (r, p) => {
+      const denied = consentFor(r, p.id, "safety", "vital_thresholds.update");
+      if (denied) return denied;
+      const body = (r.body ?? {}) as { version?: unknown; overrides?: unknown };
+      const current = thresholdsOf(p.id);
+      if (body.version !== current.version) return error(409, "version_conflict", "Someone changed these thresholds. Reload them.");
+      const overrides = body.overrides && typeof body.overrides === "object" && !Array.isArray(body.overrides) ? body.overrides as Record<string, unknown> : null;
+      // shortcut: the mock checks only the type; the allowed range is the approved rule's (REVIEWER-PENDING), checked by the server
+      if (!overrides || Object.entries(overrides).some(([k, v]) => !THRESHOLD_FIELDS.some((f) => f.key === k)
+          || (v !== null && (typeof v !== "number" || !Number.isFinite(v) || v <= 0)))) {
+        return error(422, "invalid_threshold", "Check the fields and values.");
+      }
+      const t = s.thresholds[p.id];
+      Object.assign(t.overrides, overrides);
+      Object.assign(t, { version: t.version + 1, updated_at: new Date().toISOString(), updated_by_name: doctorOf(r)!.name });
+      return ok(thresholdsOf(p.id));
     }],
     ["GET", "/patients/{id}/summary", (r, p) => consentFor(r, p.id, "timeline", "summary.read") ?? ok(templateSummary(s.timeline))],
     ["GET", "/patients/{id}/search", (r, p) => {
@@ -597,6 +700,7 @@ export function mockTransport(): Transport {
       if (!body.reason?.trim() || !body.facility?.trim()) return error(422, "reason_required", "A reason and a facility are required.");
       if (body.health_id !== s.me.health_id) return error(404, "patient_not_found", "No patient has this Health ID.");
       record(doctor, "emergency.access", "allow", body.reason.trim(), null); // audit first, then the card (FRD M10)
+      notify("emergency_access", doctor.name, [], body.facility.trim()); // the patient is always notified (FRD M10)
       const e = s.emergency;
       const pick = <K extends keyof NonNullable<EmergencySession["card"]>>(k: K, v: NonNullable<EmergencySession["card"]>[K]) =>
         (e.fields.includes(k as never) ? { [k]: v } : {});
@@ -660,6 +764,7 @@ export function mockTransport(): Transport {
         issueCode(c.id);
         audit(pid, { actor_id: w.sub, actor_role: "caregiver", action: "caregiver.request", purpose: "CAREGIVER", result: "allow", reason: null,
                      consent_id: c.id, actor_name: c.grantee_name });
+        notify("caregiver_request", c.grantee_name, c.allowed_categories, null, pid);
       }
       return ok({ status: "pending" }, 202);
     }],

@@ -78,7 +78,9 @@ export function PatientShell() {
       <SkipLink />
       <TopBar subtitle="portal.patient" />
       {/* tel: works with no server at all: the emergency route never depends on the backend */}
-      <a className="emergency-bar" href="tel:999"><Siren size={20} aria-hidden="true" />{t("emergency.bar")}</a>
+      <div role="region" aria-label={t("emergency.title")}>
+        <a className="emergency-bar" href="tel:999"><Siren size={20} aria-hidden="true" />{t("emergency.bar")}</a>
+      </div>
       <main id="main" className="content" tabIndex={-1}><Outlet /></main>
       <nav className="bottom-nav" aria-label={t("a11y.mainNav")}>
         <ul>

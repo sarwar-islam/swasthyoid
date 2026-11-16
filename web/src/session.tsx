@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Navigate, Outlet } from "react-router";
+import { Navigate, Outlet, useLocation } from "react-router";
 import { createClient, type Client, type Transport } from "./api/client";
 import type { TokenPair } from "./api/types";
 
@@ -55,10 +55,12 @@ export function useSession(): Session {
   return value;
 }
 
-/** Child routes only for a signed-in user of this role (or one of these roles); everyone else goes to `login`. */
+/** Child routes only for a signed-in user of this role (or one of these roles); everyone else goes to `login`, which returns to
+ * the page asked for (a QR link opened before signing in). */
 export function RequireRole({ role, login }: { role: string | string[]; login: string }) {
   const { claims } = useSession();
-  return claims && [role].flat().includes(claims.role) ? <Outlet /> : <Navigate to={login} replace />;
+  const { pathname } = useLocation();
+  return claims && [role].flat().includes(claims.role) ? <Outlet /> : <Navigate to={login} replace state={{ from: pathname }} />;
 }
 
 /** Load data on mount and when `deps` change. `reload()` runs the load again. */

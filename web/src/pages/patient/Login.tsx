@@ -1,6 +1,6 @@
 import { HeartPulse } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import { apiMode } from "../../api";
 import { MOCK_ADMIN_PHONE, MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE, MOCK_REVIEWER_PHONE, MOCK_VERIFIER_PHONE } from "../../api/mock";
@@ -21,6 +21,7 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
   const { t, lang } = useI18n();
   const { api, deviceId, signIn } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -60,7 +61,9 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
           ...(staff ? { account: "staff", ...(profile ? { staff: { role: portal, name: profile.name } } : {}) }
             : { account: "patient", ...(profile ? { profile } : {}) }) } });
         signIn(tokens);
-        navigate(`/${portal}`, { replace: true });
+        const from = (location.state as { from?: unknown } | null)?.from;
+        // back to the page asked for, only inside this portal
+        navigate(typeof from === "string" && from.startsWith(`/${portal}/`) ? from : `/${portal}`, { replace: true });
       } catch (e) {
         if (e instanceof ApiError && e.code === "registration_required") {
           setCode("");

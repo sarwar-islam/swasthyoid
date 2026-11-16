@@ -11,9 +11,10 @@ import { ReviewsPage, RulesPage } from "./pages/console/Reviewer";
 import { DoctorFrame } from "./pages/doctor/doctor";
 import { AllAlerts, BreakGlass, Credentials } from "./pages/doctor/Other";
 import { Patients } from "./pages/doctor/Patients";
-import { AlertsPage, DoctorDocument, DoctorTimeline, SearchPage, SummaryPage, Workspace } from "./pages/doctor/Workspace";
+import { AlertsPage, DoctorDocument, DoctorTimeline, SearchPage, SummaryPage, ThresholdsPage, Workspace } from "./pages/doctor/Workspace";
 import { CareDocument, CaregiverFrame, CareIndex, CareRoute, CARE_TABS, Caregiving } from "./pages/patient/Caregiver";
-import { ConsentCenter } from "./pages/patient/Consent";
+import { ConsentCenter, QrConsentPage } from "./pages/patient/Consent";
+import { Inbox } from "./pages/patient/Inbox";
 import { Capture } from "./pages/patient/Capture";
 import { DocumentPage } from "./pages/patient/Document";
 import { Home } from "./pages/patient/Home";
@@ -79,6 +80,8 @@ export function AppRoutes() {
         <Route path="/patient" element={<PatientShell />}>
           {pages(PATIENT_NAV, "/patient")}
           <Route path="documents/:id" element={<DocumentPage />} />
+          <Route path="inbox" element={<Inbox />} />
+          <Route path="consent/qr/:ref" element={<QrConsentPage />} />
           <Route path="vitals" element={<Vitals />} />
           <Route path="reminders" element={<Reminders />} />
           <Route path="help" element={<Triage />} />
@@ -107,6 +110,7 @@ export function AppRoutes() {
               <Route path="timeline" element={<DoctorTimeline />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="alerts" element={<AlertsPage />} />
+              <Route path="thresholds" element={<ThresholdsPage />} />
               <Route path="documents/:docId" element={<DoctorDocument />} />
             </Route>
             <Route path="*" element={<Navigate to="/doctor" replace />} />

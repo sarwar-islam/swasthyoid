@@ -67,6 +67,7 @@ export interface Consent {
   grantee_name: string | null;
   grantee_phone_tail: string | null; // caregivers only
   requested_days: number | null; // caregiver requests
+  method?: "otp" | "qr"; // GAP (F6): how a doctor's request is confirmed, so the patient is told the right way to answer
 }
 
 /** An item of GET /me/access-history (newest first). BUILT. */
@@ -500,6 +501,70 @@ export interface AuditEntry {
 export interface AuditPage {
   chain: { status: "intact" | "broken"; checked_at: string; entries_checked: number; first_broken_id: string | null };
   entries: AuditEntry[]; // newest first
+}
+
+// ---- F6 (owner decisions 2026-11-16). Every route here is GAP: proposed by the frontend, mocked, not in the backend or the FRD table.
+
+/** Consent by QR (M1: "the patient confirms by OTP or QR"; owner decision 2026-11-16: the doctor shows the QR, the patient approves
+ * in their own signed-in app). GAP: POST /consents/requests { health_id, categories, method: "qr" } -> DoctorQrConsent (no SMS code
+ * is sent; `method` absent or "otp" is the BUILT flow); GET /consents/requests/{id} -> DoctorConsent, which the doctor's screen
+ * checks until the patient answers. The token is signed by the server and opaque to the browser; token and short code expire with
+ * the backend's OTP lifetime (5 minutes) and work once. */
+export interface ConsentQr {
+  token: string; // goes into the QR as a link to /patient/consent/qr/{token}
+  short_code: string; // typed by a patient whose phone cannot scan
+  expires_at: string;
+}
+export interface DoctorQrConsent extends DoctorConsent {
+  qr: ConsentQr;
+}
+
+/** GET /consents/qr/{ref} (ref: the token or the short code), POST /consents/qr/{ref}/approve, POST /consents/qr/{ref}/decline.
+ * GAP. Patient only, and only the patient whose Health ID the doctor entered: anyone else, an unknown or a used ref all get 404
+ * not_found. Approving makes the TIMELINE consent active for the backend's consent length (`access_hours`). */
+export interface QrConsentRequest {
+  consent_id: string;
+  doctor_name: string;
+  categories: Array<"timeline" | "documents" | "safety">;
+  status: "pending" | "active" | "declined" | "expired";
+  expires_at: string; // the QR's own expiry, not the consent's
+  access_hours: number;
+}
+
+/** The patient's C3 in-app inbox. GAP: GET /notifications (newest first), POST /notifications/{id}/read. Consent and
+ * emergency-access notices are security notices: they cannot be switched off (FRD C3), only marked read. The inbox never grants
+ * anything: a doctor's consent still needs the code read out or the QR; caregiver requests are answered in the Consent Center.
+ * `emergency_access` exists only where M10 is enabled (the server writes one for every break-glass session, FRD M10). */
+export type NotificationKind = "consent_request" | "caregiver_request" | "emergency_access";
+export interface PatientNotification {
+  id: string;
+  kind: NotificationKind;
+  created_at: string;
+  read_at: string | null;
+  actor_name: string | null; // the doctor or caregiver
+  categories: string[]; // what was asked for (consent and caregiver requests)
+  facility: string | null; // emergency_access only; never the reason or the card's values
+}
+
+/** One patient's vital thresholds (M13: per-patient override by the treating doctor under active consent; defaults are the
+ * reviewer-approved M6 rules). GAP: GET /patients/{id}/vital-thresholds (the FRD lists only the PUT) and the shapes of
+ * PUT /patients/{id}/vital-thresholds { version, overrides } -> VitalThresholds. Under a consent covering `safety`. The server
+ * decides which fields exist and their limits; unknown fields are 422 invalid_threshold, a stale version is 409
+ * version_conflict. Every change is a new version and audited. */
+export interface ThresholdField {
+  key: string; // opaque to the UI
+  vital_type: VitalType;
+  unit: VitalUnit;
+  label: ReviewedText;
+  default_value: number | null; // null: no approved rule yet (REVIEWER-PENDING)
+  override_value: number | null; // this patient's override, set by a treating doctor
+}
+export interface VitalThresholds {
+  patient_id: string;
+  version: number;
+  updated_at: string | null;
+  updated_by_name: string | null;
+  fields: ThresholdField[];
 }
 
 /** GET /internal/metrics (admin). BUILT (api/internal.py, workers/monitoring.py; owner decision D13). Counts only. */

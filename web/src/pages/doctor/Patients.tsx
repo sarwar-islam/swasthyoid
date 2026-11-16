@@ -1,7 +1,8 @@
-import { KeyRound, Send } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { KeyRound, QrCode, Send } from "lucide-react";
+import QRCode from "qrcode";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import type { DoctorConsent } from "../../api/types";
+import type { DoctorConsent, DoctorQrConsent } from "../../api/types";
 import { ErrorNote, Section } from "../../components/ui";
 import { toAsciiDigits, useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
@@ -10,6 +11,58 @@ import { clock, useMe, useOpenPatients, useSecondsLeft } from "./doctor";
 
 const CATEGORIES = ["timeline", "documents", "safety"] as const;
 const HEALTH_ID = /^SID-\d{10}$/;
+const POLL_MS = 3000;
+
+/** A QR request (GAP, F6): the QR links to the patient app, where the signed-in patient sees exactly what is asked and answers.
+ * This screen asks the server for the request's state until the patient answers or the QR expires. */
+function QrPending({ request, onActive, onCancel }: { request: DoctorQrConsent; onActive: (c: DoctorConsent) => void; onCancel: () => void }) {
+  const { t, lang } = useI18n();
+  const { api } = useSession();
+  const [src, setSrc] = useState<string | null>(null);
+  const [status, setStatus] = useState<DoctorConsent["status"]>("pending");
+  const [error, setError] = useState<unknown>(null);
+  const left = useSecondsLeft(request.qr.expires_at);
+  const open = status === "pending" && left > 0;
+
+  useEffect(() => {
+    const url = `${window.location.origin}/patient/consent/qr/${encodeURIComponent(request.qr.token)}`;
+    // dark on light whatever the theme: phone cameras need the contrast
+    QRCode.toString(url, { type: "svg", margin: 2, errorCorrectionLevel: "M", color: { dark: "#000000", light: "#ffffff" } })
+      .then((svg) => setSrc(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`), setError);
+  }, [request.qr.token]);
+
+  useEffect(() => {
+    if (!open) return;
+    const timer = setInterval(() => {
+      api.request<DoctorConsent>("GET", `/consents/requests/${request.id}`).then((c) => {
+        setError(null);
+        if (c.status === "active") onActive(c);
+        else setStatus(c.status);
+      }, setError);
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [open, api, request.id]); // onActive only navigates away
+
+  return (
+    <div className="card stack">
+      <h3><QrCode size={20} aria-hidden="true" /> {t("qr.title")}</h3>
+      {open && (
+        <>
+          <p>{t("qr.note")}</p>
+          <div className="qr-box">{src ? <img src={src} alt={t("qr.alt")} width={240} height={240} /> : null}</div>
+          <p>{t("qr.codeNote")}</p>
+          <p className="qr-code mono" lang="en">{request.qr.short_code}</p>
+          <p className="muted">{t("qr.left", { time: clock(left, lang) })}</p>
+        </>
+      )}
+      <p role="status" className={open ? "muted" : "notice"}>
+        {status === "declined" ? t("qr.declined") : !open ? t("qr.expired") : t("qr.waiting")}
+      </p>
+      <ErrorNote error={error} />
+      <div className="actions"><button type="button" onClick={onCancel}>{t("req.cancel")}</button></div>
+    </div>
+  );
+}
 
 function OpenRow({ c }: { c: DoctorConsent }) {
   const { t, lang } = useI18n();
@@ -33,7 +86,8 @@ export function Patients() {
   const navigate = useNavigate();
   const [healthId, setHealthId] = useState("");
   const [categories, setCategories] = useState<string[]>(["timeline"]);
-  const [pending, setPending] = useState<DoctorConsent | null>(null);
+  const [method, setMethod] = useState<"otp" | "qr">("otp");
+  const [pending, setPending] = useState<DoctorConsent | DoctorQrConsent | null>(null);
   const [code, setCode] = useState("");
   const [badId, setBadId] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -57,15 +111,20 @@ export function Patients() {
     const id = toAsciiDigits(healthId.trim().toUpperCase());
     setBadId(!HEALTH_ID.test(id));
     if (!HEALTH_ID.test(id)) return;
-    run(async () => setPending(await api.request<DoctorConsent>("POST", "/consents/requests", { body: { health_id: id, categories } })));
+    // the BUILT body for a code; `method: "qr"` is the GAP addition (F6)
+    const body = method === "qr" ? { health_id: id, categories, method } : { health_id: id, categories };
+    run(async () => setPending(await api.request<DoctorConsent>("POST", "/consents/requests", { body })));
+  };
+  const cancel = () => { setPending(null); setCode(""); setError(null); };
+  const opened = (c: DoctorConsent) => {
+    remember(c);
+    navigate(`/doctor/patients/${c.patient_id}`);
   };
 
   const confirm = (e: FormEvent) => {
     e.preventDefault();
     run(async () => {
-      const active = await api.request<DoctorConsent>("POST", `/consents/requests/${pending!.id}/confirm`, { body: { code: toAsciiDigits(code.trim()) } });
-      remember(active);
-      navigate(`/doctor/patients/${active.patient_id}`);
+      opened(await api.request<DoctorConsent>("POST", `/consents/requests/${pending!.id}/confirm`, { body: { code: toAsciiDigits(code.trim()) } }));
     });
   };
 
@@ -92,14 +151,24 @@ export function Patients() {
                 </label>
               ))}
             </fieldset>
+            <fieldset>
+              <legend>{t("req.method")}</legend>
+              {(["otp", "qr"] as const).map((m) => (
+                <label key={m} className="check">
+                  <input type="radio" name="consent-method" value={m} checked={method === m} onChange={() => setMethod(m)} />
+                  {t(`req.method.${m}`)}
+                </label>
+              ))}
+            </fieldset>
             <ErrorNote error={error} />
             {!verified && me.data && <p className="muted" id="not-verified">{t("req.notVerified")}</p>}
             <button type="submit" className="btn-primary" disabled={busy || !verified || categories.length === 0}
                     aria-describedby={!verified ? "not-verified" : undefined}>
               <Send size={18} aria-hidden="true" />{t("req.send")}
             </button>
-            <p className="muted">{t("req.qr")}</p>
           </form>
+        ) : "qr" in pending ? (
+          <QrPending request={pending} onActive={opened} onCancel={cancel} />
         ) : (
           <form onSubmit={confirm} className="card" noValidate>
             <h3>{t("req.codeTitle")}</h3>
@@ -111,7 +180,7 @@ export function Patients() {
             <ErrorNote error={error} />
             <div className="actions">
               <button type="submit" className="btn-primary" disabled={busy || !code.trim()}><KeyRound size={18} aria-hidden="true" />{t("req.confirm")}</button>
-              <button type="button" onClick={() => { setPending(null); setCode(""); setError(null); }}>{t("req.cancel")}</button>
+              <button type="button" onClick={cancel}>{t("req.cancel")}</button>
             </div>
           </form>
         )}
