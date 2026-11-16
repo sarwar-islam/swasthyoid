@@ -2191,3 +2191,25 @@ refusal audited); the role matrix now creates its clinical reviewer through `POS
 passed, 1 failed, 19 skipped. The failure, `test_extraction_recovery.py::test_heartbeat_keeps_a_long_job_and_nobody_else_can_take_it`,
 is a timing test (a 1.5 s lease renewed every 0.3 s) that also fails 2 of 3 runs on the B1 commit without B2 on this machine;
 B2 changes no extraction code. It passed in the B0 and B1 full runs. Web: 176 passed (no web change).
+
+## B3 the patient's C3 inbox (owner approval 2026-11-16)
+
+- **Every notice shows in the app**, whatever happened to push or SMS delivery: `core.notification.inbox()` no longer lists
+  only failed deliveries (the in-app copy is always there; a delivery failure still adds its audit entry). `notifications`
+  gains `read_at`; `mark_read` sets it once, for the recipient only.
+- **Kinds** (`core.notification.INBOX_KINDS`): `consent_request`, `consent_granted`, `caregiver_request`, `caregiver_granted`,
+  `emergency_access` (written by M10 in B7). Owner decision: the two granted kinds join the inbox (frontend: `types.ts`,
+  Bangla and English text, the mock, a test). Other templates never reach the inbox.
+- **New notice:** a doctor's consent request (OTP or QR) queues `CONSENT_REQUEST_PLACEHOLDER` for the patient in the same
+  transaction as the consent (the QR notice deferred from B2).
+- **Routes** (patient only; staff 403, audited): `GET /notifications` (newest 100) and `POST /notifications/{id}/read`
+  (someone else's, unknown or not an inbox notice: 404). A row holds only the template and the consent id; the actor's name
+  and the categories are read from the consent when listed, so no notice stores a name, code or token.
+- **History:** a notice about a request that was later approved, declined, revoked or expired stays, with no "still open"
+  marker (owner decision); the Consent page shows what is waiting. No setting switches notices off (FRD 4.3).
+
+**Verification.** Backend: 5 new tests in `tests/test_api_b3.py`, 1 in `test_c3_store.py`, two updated (the C3 inbox rule,
+and the M1 consent test now expects the request notice before the grant). Local PostgreSQL 16: 1482 passed, 1 failed (the
+known heartbeat timing flake, see B2), 19 skipped. Web: 177 passed (1 new: granted notices in Bangla and English with axe);
+type check clean; `BANGLA_COPY_REVIEW.md` regenerated (657 strings). Browser pane, M10 build, 375 px: the inbox with a
+caregiver-granted notice, Bangla and English, light and dark: no axe violation, no horizontal overflow.
