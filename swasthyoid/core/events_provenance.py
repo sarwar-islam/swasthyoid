@@ -40,6 +40,23 @@ def append(conn, *, patient_id, event_type, event_date, date_precision, actor_id
         ).fetchone()
 
 
+TIMELINE_STATUSES = ("document_verified", "patient_reported")  # `pending` never reaches a timeline (FRD 4.4)
+
+
+def timeline(conn, patient_id, *, date_from=None, date_to=None, event_type=None):
+    """One patient's timeline (M4): verified and patient-reported events, superseded ones included so correction history
+    stays visible (each carries `supersedes`). Stable order: date, then recording time, then id. Raw store read: callers
+    serving a non-patient must pass RBAC -> C1 -> C2 first."""
+    return conn.cursor(row_factory=dict_row).execute(
+        """SELECT * FROM events
+           WHERE patient_id = %s AND verification_status = ANY(%s)
+             AND (%s::date IS NULL OR event_date >= %s::date) AND (%s::date IS NULL OR event_date <= %s::date)
+             AND (%s::text IS NULL OR event_type = %s)
+           ORDER BY event_date, recorded_at, id""",
+        [patient_id, list(TIMELINE_STATUSES), date_from, date_from, date_to, date_to, event_type, event_type],
+    ).fetchall()
+
+
 def current_events(conn, patient_id):
     """One patient's events that have not been superseded, oldest first.
 

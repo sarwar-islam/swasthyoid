@@ -279,8 +279,8 @@ def test_the_parser_never_returns_a_value_that_was_not_on_the_page():
 
 def test_diagnosis_text_is_never_referenced_by_any_code_that_could_create_an_event():
     """The owner's rule (D7 Q4): diagnosis_text is shown with the document only and is never promoted to a verified
-    diagnosis event without M3 confirmation. M3 and M4 do not exist yet, so no module outside the extraction code
-    may even name the field."""
+    diagnosis event without M3 confirmation. M3 (verification/review.py, B4a) maps fields by an explicit list that leaves
+    it out, so no module outside the extraction code may even name the field."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     allowed = {"capture/extraction.py", "capture/parsers.py"}

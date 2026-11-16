@@ -23,6 +23,7 @@ from swasthyoid.api.deps import (Actor, ApiError, actor, authorize_patient_acces
                                  patient_read, require)
 from swasthyoid.capture import documents, extraction, extraction_crypto, imaging
 from swasthyoid.capture.guidance import guidance_for
+from swasthyoid.verification import review
 
 router = APIRouter()
 
@@ -195,6 +196,60 @@ def start_manual_entry(document_id: UUID, request: Request, conn=Depends(get_con
         return {"document_id": document_id, "status": "needs_review", "extraction": _latest(conn, document_id)}
 
     return idempotent(conn, request, a, f"manual-entry:{document_id}", work)
+
+
+# ---- M3 check, confirm, reject (B4a): the patient for their own documents; a verifier in an assisted session arrives in B4b
+
+def _m3(work_fn, conn, document_id):
+    try:
+        return work_fn()
+    except review.Conflict as e:
+        raise ApiError(409, e.args[0], _CONFLICTS[e.args[0]])
+    except review.Invalid as e:
+        raise ApiError(422, e.args[0], "Check this field.", field=e.args[1])
+    except LookupError:
+        raise ApiError(404, "not_found", "No document with this id.")
+    except (extraction_crypto.Undecryptable, extraction.SchemaVersionError):
+        raise ApiError(500, "extraction_unreadable", "The stored extraction could not be read.")
+
+
+@router.put("/documents/{document_id}/review")
+async def save_review(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    fields = body.get("fields") if isinstance(body, dict) else None
+
+    def work():  # database calls off the event loop, as for uploads
+        _own_document(conn, a, document_id)
+        saved = _m3(lambda: review.save(conn, document_id, fields, actor=a), conn, document_id)
+        return {"document_id": document_id, "status": "needs_review", "fields": saved}
+
+    return await run_in_threadpool(work)
+
+
+@router.post("/documents/{document_id}/confirm")
+def confirm_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+    """One transaction: the document_verified events, the correction record, status verified. A repeat is 409."""
+    _own_document(conn, a, document_id)
+
+    def work():
+        _m3(lambda: review.confirm(conn, document_id, actor=a, context=client_info(request)), conn, document_id)
+        return _view(documents.get(conn, document_id))
+
+    return idempotent(conn, request, a, f"confirm:{document_id}", work)
+
+
+@router.post("/documents/{document_id}/reject")
+def reject_document(document_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+    _own_document(conn, a, document_id)
+
+    def work():
+        _m3(lambda: review.reject(conn, document_id, actor=a, context=client_info(request)), conn, document_id)
+        return _view(documents.get(conn, document_id))
+
+    return idempotent(conn, request, a, f"reject:{document_id}", work)
 
 
 @router.post("/documents/{document_id}/retry-extraction")

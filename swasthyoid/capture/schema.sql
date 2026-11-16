@@ -189,3 +189,43 @@ CREATE TRIGGER extractions_no_change BEFORE UPDATE OR DELETE ON extractions
 DROP TRIGGER IF EXISTS extractions_no_truncate ON extractions;
 CREATE TRIGGER extractions_no_truncate BEFORE TRUNCATE ON extractions
     FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
+-- M3 verification (B4a; owner decisions 2026-11-16). Each saved check is a new append-only version; its values are sealed
+-- like extractions.fields (EXTRACTION_KEY). Confirming writes one verifications row per document (the primary key makes a
+-- second confirm impossible) with the per-field correction counts and the sealed before/after of every correction.
+CREATE TABLE IF NOT EXISTS document_reviews (
+    id            uuid PRIMARY KEY,
+    document_id   uuid NOT NULL REFERENCES documents (id),
+    version       int NOT NULL CHECK (version >= 1),
+    fields        jsonb NOT NULL,          -- sealed {"v", "enc"}
+    reviewed_by   uuid NOT NULL,
+    reviewer_role text NOT NULL CHECK (reviewer_role <> ''),
+    created_at    timestamptz NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE (document_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS verifications (
+    document_id        uuid PRIMARY KEY REFERENCES documents (id),
+    review_id          uuid NOT NULL REFERENCES document_reviews (id),
+    extraction_version int,                -- the extraction the corrections are counted against (null: none)
+    verified_by        uuid NOT NULL,
+    verifier_role      text NOT NULL CHECK (verifier_role <> ''),
+    fields_total       int NOT NULL CHECK (fields_total >= 0),
+    fields_corrected   int NOT NULL CHECK (fields_corrected >= 0 AND fields_corrected <= fields_total),
+    corrections        jsonb NOT NULL,     -- sealed [{path, before, after}]
+    event_ids          uuid[] NOT NULL,
+    verified_at        timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+DROP TRIGGER IF EXISTS document_reviews_no_change ON document_reviews;
+CREATE TRIGGER document_reviews_no_change BEFORE UPDATE OR DELETE ON document_reviews
+    FOR EACH ROW EXECUTE FUNCTION append_only();
+DROP TRIGGER IF EXISTS document_reviews_no_truncate ON document_reviews;
+CREATE TRIGGER document_reviews_no_truncate BEFORE TRUNCATE ON document_reviews
+    FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+DROP TRIGGER IF EXISTS verifications_no_change ON verifications;
+CREATE TRIGGER verifications_no_change BEFORE UPDATE OR DELETE ON verifications
+    FOR EACH ROW EXECUTE FUNCTION append_only();
+DROP TRIGGER IF EXISTS verifications_no_truncate ON verifications;
+CREATE TRIGGER verifications_no_truncate BEFORE TRUNCATE ON verifications
+    FOR EACH STATEMENT EXECUTE FUNCTION append_only();
