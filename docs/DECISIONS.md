@@ -1961,3 +1961,48 @@ consent, a verifier's session or a caregiver's scope, each audited. Own-data rou
 English), no network; type check and build clean. Browser pane at 375 px and 1280 px: verifier sign-in, the code step, the queue,
 the check; caregiver list, frame, upload and request; no horizontal scroll, visible keyboard focus, only localhost requests. Found
 and fixed there: the narrow staff layout grew to 419 px at 375 px because of the file input (the grid column now shrinks).
+
+## F5 clinical reviewer and admin console (owner approval 2026-11-16; not committed yet)
+
+One console (`/console`, its own sign-in) for two staff roles, each with its own menu and pages: `clinical_reviewer` (the backend's
+role name in `identity/schema.sql`; the request said "reviewer") and `admin`. Console accounts are never self-registered: an
+unknown number gets "only an admin can create console accounts". Neither role reaches any patient route (every patient route names
+only patient, doctor, verifier or caregiver), shown by API-level tests for both roles.
+
+**Clinical reviewer.** The one rule registry (FRD M6) for `ddi, allergy, duplicate, drug_disease, class_lookback, vital_threshold,
+red_flag, emergency_message`: filter by type, draft a rule or a new version (type, optional severity, the definition as a JSON
+object, explanations in Bangla and English), approve (confirmed; it supersedes the rule's approved version, so one version runs) or
+reject with a reason. One open draft per rule. The UI holds no clinical rule: the mock seeds only `SYNTH-*` placeholders marked
+REVIEWER-PENDING, and any explanation that is not an approved, non-placeholder version is shown as REVIEWER-PENDING. Break-glass
+post-hoc review (only with `VITE_FEATURE_EMERGENCY_ACCESS=1`): who, why, where, when and which card fields were shown, never the
+patient or the values; justified, or unjustified with a required note, which turns the doctor's emergency capability off (FRD M10).
+
+**Admin.** Credential approvals: pending BMDC numbers approved (confirmed) or rejected with a reason (the credential is removed so
+the doctor can submit again); verified doctors suspended with a reason, which suspends every active consent of theirs (consent state
+`suspended`, FRD section 2) and their emergency capability. Drug catalog import: an upload trigger under a licence warning (FRD
+question 1); no catalog data ships, and the mock reads nothing from the file. Audit log: the server's chain status (intact or the
+first broken entry), filters by action prefix, result and role (applied on the server), and rows of metadata only. Worker metrics:
+the BUILT `GET /internal/metrics`, with a warning when `lease_expired` > 0 (the D13 condition; the alerts themselves stay the
+server's).
+
+**Contracts (mocked in `web/src/api/mock.ts`, typed in `web/src/api/types.ts`):**
+- BUILT: `POST /credentials/{id}/approve`, `GET /internal/metrics`.
+- FRD route, shape GAP: `POST /rules`, `POST /rules/{id}/approve`, `GET /audit`, `POST /catalog/import`,
+  `GET /admin/emergency/reviews`, `POST /admin/emergency/reviews/{id}/review`.
+- GAP, not in the FRD: `GET /rules?type=`, `POST /rules/{id}/reject`, `GET /credentials?status=`, `POST /credentials/{id}/reject`,
+  `POST /admin/users/{id}/suspend`.
+- GAP, for the owner: the audit view's privacy contract. The mock returns no name, phone, IP, device, user agent or full id, hides
+  free-text reasons (`free_text_hidden`, since a break-glass reason may hold clinical detail) and shows people and records as short
+  references. The mock derives them by truncating the id; the backend should use a keyed hash so they cannot be joined back.
+
+**Open, for the owner:**
+- Must a different reviewer approve a draft than the one who wrote it (four-eyes)? Not enforced; the FRD does not say.
+- The unjustified-review note is required in the mock (it suspends a doctor); confirm.
+- The submitted credential document cannot be viewed by the admin yet (no route).
+- Break-glass reviews are queued at once in the mock; the server queues them when the session closes.
+
+**Verification.** 159 web tests (41 new: API-level role and data rules, and the console screens with axe in Bangla and English), no
+network; type check and build clean. Browser pane at 375 px and 1280 px, Bangla and English: admin and reviewer sign-in, every
+console page, approve, suspend, unjustified review; only localhost requests. Found and fixed there: the audit table's screen-reader
+text escaped its scroll box and widened the page to 893 px at 375 px (the box is now positioned); Bangla times showed a Latin
+"AM" (now 24-hour); break-glass times showed dates only.
