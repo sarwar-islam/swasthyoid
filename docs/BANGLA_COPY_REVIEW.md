@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (759 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (784 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (759 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (29) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (34) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (23) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -104,6 +104,11 @@ Generated from `web/src/i18n/strings.ts` (759 strings). Do not edit the strings 
 | `land.staff.console` | রিভিউয়ার ও অ্যাডমিন | Reviewer and admin |  |
 | `land.policy` | গোপনীয়তা নীতি ও ব্যবহারের শর্ত আইনি পর্যালোচনার পর যোগ হবে। | The privacy policy and terms of use will be added after legal review. |  |
 | `land.dev` | সব পোর্টাল (ডেভেলপমেন্ট) | All portals (development) |  |
+| `land.nav` | পাতার অংশ | Page sections |  |
+| `land.forPatients` | রোগীদের জন্য | For patients |  |
+| `land.privacy` | গোপনীয়তা | Privacy |  |
+| `land.create` | রোগী অ্যাকাউন্ট খুলুন | Create patient account |  |
+| `land.doctors.apply` | ডাক্তার হিসেবে আবেদন করুন | Apply for doctor access |  |
 
 ## more
 
@@ -257,6 +262,11 @@ Generated from `web/src/i18n/strings.ts` (759 strings). Do not edit the strings 
 | `login.sex.M` | পুরুষ | Male |  |
 | `login.sex.O` | অন্যান্য | Other |  |
 | `login.register` | তথ্য দিয়ে নতুন কোড পাঠান | Send a new code with these details |  |
+| `login.sentTo` | কোড পাঠানো হয়েছে এই নম্বরে: | Code sent to: |  |
+| `login.expiresIn` | কোডের মেয়াদ আছে আর {time} | The code works for {time} more |  |
+| `login.codeExpired` | কোডের মেয়াদ শেষ। নতুন কোড পাঠান। | The code has expired. Send a new one. |  |
+| `login.resend` | আবার কোড পাঠান | Send the code again |  |
+| `login.resent` | নতুন কোড পাঠানো হয়েছে। আগের কোড আর কাজ করবে না। | A new code was sent. The earlier code no longer works. |  |
 
 ## home
 
@@ -409,6 +419,12 @@ Generated from `web/src/i18n/strings.ts` (759 strings). Do not edit the strings 
 | `tl.lab_result` | ল্যাবের ফল | Lab result |  |
 | `tl.allergy` | অ্যালার্জি | Allergy |  |
 | `tl.follow_up` | ফলো-আপ | Follow-up |  |
+| `tl.type` | ধরন অনুযায়ী দেখান | Show by type |  |
+| `tl.noMatch` | এই বাছাইয়ে কিছু মেলেনি। | Nothing matches this filter. |  |
+| `tl.clearFilters` | সব দেখান | Show everything |  |
+| `tl.sourceUnavailable` | মূল নথি পাওয়া যাচ্ছে না | Source document not available |  |
+| `tl.eventId` | ইভেন্ট | Event |  |
+| `tl.docId` | নথি | Document |  |
 
 ## prov
 
@@ -472,6 +488,25 @@ Generated from `web/src/i18n/strings.ts` (759 strings). Do not edit the strings 
 | `history.allow` | অনুমতি পেয়েছেন | Allowed |  |
 | `history.deny` | আটকানো হয়েছে | Blocked |  |
 | `history.someone` | অজানা ব্যবহারকারী | Unknown user |  |
+
+## me
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `me.title` | আমার প্রোফাইল | My profile |  |
+| `me.desc` | হেলথ আইডি ও আপনার তথ্য | Health ID and your details |  |
+| `me.healthId` | হেলথ আইডি | Health ID |  |
+| `me.language` | ভাষা | Language |  |
+| `me.since` | অ্যাকাউন্ট খোলার তারিখ | Account opened |  |
+| `me.readOnly` | এই তথ্য এখান থেকে বদলানো যায় না। | These details cannot be changed here. |  |
+
+## records
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `records.title` | মেডিকেল রেকর্ড | Medical records |  |
+| `records.desc` | আপনার তোলা সব নথি ও তাদের অবস্থা | Every document you uploaded and where it stands |  |
+| `records.explain` | শুধু যাচাই হওয়া নথি টাইমলাইনে যায়। প্রতিটি নথির পাশে তার অবস্থা লেখা আছে। | Only verified documents reach the timeline. Each document shows its status. |  |
 
 ## reviewer
 

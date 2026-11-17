@@ -2839,3 +2839,41 @@ in Bangla, doctor upload at 375 px, admin view at 1280 px in English; 0 axe viol
 scroll. Live (`swasthyoid_dev` through the Vite proxy): sign-in body held only `access_token`, `document.cookie` empty,
 reload restored the session (one refresh, 200), logout 204, and the old cookie was then refused (401). Copy list: 759
 strings.
+
+## UX-1 portal screens and timeline (2026-11-17)
+
+**Timeline (M4).** Grouped by month, newest first, on a vertical rail: a filled green marker for document-verified entries
+and a dashed purple one for patient-reported entries, always with the words of the provenance badge (never colour alone).
+The date sits beside the rail from 768 px and above the card on phones. Chips filter by event type next to the provenance
+filter; "nothing matches" offers to show everything, and the empty text only says there is nothing here yet (it never
+implies the patient is healthy). Each card shows the category, the record's own words as the title (the first field of its
+type from `summary/build.py` FIELDS; no title when the type has none), the event and source-document ids, and "source
+document not available" for a verified entry without one. A load error offers "Try again". No amber on the timeline: no
+approved rule marks an entry as a warning yet.
+
+**Colours.** `--reported` is now purple (light #6b21a8 on #f3e8ff, 7.4:1; dark #d8b4fe on #2a1740, 9.2:1). Warnings keep
+amber through new `--warn` tokens (document needs-review chip, moderate alerts, vitals result, doctor status banner).
+
+**Sign-in code.** After sending, the screen shows the number masked to its last four digits, the code's time left (the
+server's 5-minute `CODE_TTL`; the server alone decides), "expired, send a new one" at zero (sign-in disabled), and "Send
+the code again" (the server still limits 5 requests in 15 minutes). Wrong and expired codes keep the one message, so
+nothing reveals whether a number is registered. No resend cooldown was invented: the server has none.
+
+**Landing.** Section links (how it works, for patients, for doctors, privacy) from 768 px, "Create patient account" as the
+first action, and "Apply for doctor access" on the doctor card (both go to the existing sign-in, which registers).
+
+**Profile and records.** `GET /me` for a patient adds `dob`, `sex`, `created_at` and `phone_tail` (last four digits only;
+the number never leaves the server whole). New read-only "My profile" and "Medical records" (filter by document type,
+status on every row, why only verified documents reach the timeline), linked from More.
+
+**Shared.** `Loading` can draw skeleton blocks (words kept for screen readers; no animation with reduced motion);
+`ErrorNote` takes an optional retry.
+
+**Still waiting for the owner.** Logout confirmation, the patient health summary (needs an API contract), Atkinson
+Hyperlegible vs Inter (fonts unchanged).
+
+**Verification.** Web: 237 passed (12 new in `ux1.test.tsx`: timeline groups, type filter, no-match and retry; code screen
+mask, time left, resend and expiry; landing links; profile; records; Bangla and English with axe). Backend: `test_api_b2`,
+`test_api_w2`, route reconciliation 36 passed (the `/me` test checks the new fields and that the full number is absent).
+Browser pane (mock): timeline at 375, 768 and 1280 px in the dark theme; profile, records and timeline at 375 px with no
+horizontal scroll. Copy list: 784 strings.
