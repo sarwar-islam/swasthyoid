@@ -2620,3 +2620,21 @@ skipped (clinical, REVIEWER-PENDING). Full backend run, local PostgreSQL 16: **1
 pane (mock): summary, search and alerts at 375 px and 1280 px in Bangla and English, 0 axe violations, no horizontal
 scroll; it found reviewer copy turning `SYNTH-DRUG-003` into Bangla digits, fixed in `components/ui.tsx`. Copy list:
 709 strings.
+
+**Live check (after the P3 commits).** `scripts/dev_api.ps1` on `swasthyoid_dev` with the `VITE_API_MODE=live` build,
+seeded patient SID-3950599369, signed in as the seeded doctor:
+- Summary with a timeline-only consent: six sections from the seeded prescription and lab; the safety tab not offered.
+  It showed the follow-up as `2026-12-02 · 2026-12-02` (the follow-up date is also the event date): **fixed**, a line
+  now says a date once (`summary/build.py`, mock `citedLine`, one new assertion).
+- Search with timeline, documents and safety: `synth-drug` found the two seeded medicines, timeline links only. The search
+  page never shows a source-document link even when the server sends one (not built in the UI; noted, not changed).
+- Outbox end to end: the patient confirmed the seed's waiting prescription over HTTP (SYNTH-DRUG-001 and an unlisted
+  drug); the confirm committed with a `queued` job. The worker with no `DRUG_CATALOG_PATH` wrote a visible **blocked**
+  (`catalog_unavailable`) result and the document stayed verified. `--requeue`, then `--once` with a two-row synthetic
+  catalog (scratch file, not committed): **completed**, 0 alerts (no rules are seeded), the unlisted drug reported
+  `not_in_catalog`, the blocked row kept. The doctor's alerts tab showed that result, the unrecognised drug and the four
+  checks not run.
+- Summary and alerts in Bangla at 375 px, everything in English at 1024 px: 0 axe violations, no horizontal scroll; drug
+  names and doses keep their English digits. Not checked live: search in Bangla at 375 px (checked on the mock).
+- Side effects in `swasthyoid_dev`: one more verified prescription, two safety-check rows, three doctor consents.
+  Input in the hidden browser pane was unreliable at the phone size; forms were filled at desktop size.
