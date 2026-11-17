@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (681 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (683 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -117,6 +117,7 @@ Generated from `web/src/i18n/strings.ts` (681 strings). Do not edit the strings 
 | `err.network_unavailable` | সার্ভারে পৌঁছানো যাচ্ছে না। ইন্টারনেট সংযোগ দেখুন। | The server can't be reached. Check your internet connection. |  |
 | `err.not_built` | এই অংশটি এখনো সার্ভারে চালু হয়নি। তাই এখানে কোনো তথ্য দেখানো হচ্ছে না। | This part isn't on the server yet, so nothing is shown here. |  |
 | `err.not_revocable` | এই সম্মতি এখন সক্রিয় নয়। | This consent isn't active now. |  |
+| `err.not_active` | এই অনুমতি এখন আর চালু নেই। রোগীর কাছে আবার অনুমতি চান। | This permission is no longer active. Ask the patient again. |  |
 | `err.not_pending` | এই অনুরোধ আর খোলা নেই। | This request is no longer open. |  |
 | `err.not_allowed_state` | নথিটি এখন এই অবস্থায় নেই। | The document isn't in that state now. |  |
 | `err.retry_limit_reached` | এই নথি পড়ার সব চেষ্টা শেষ। হাতে লিখে দিন। | Every reading attempt for this document is used. Enter it by hand. |  |
@@ -174,6 +175,7 @@ Generated from `web/src/i18n/strings.ts` (681 strings). Do not edit the strings 
 |---|---|---|---|
 | `login.title` | লগইন | Sign in |  |
 | `login.intro` | আপনার মোবাইলে একটি এককালীন কোড পাঠানো হবে। | A one-time code will be sent to your mobile. |  |
+| `login.expired` | আপনার সেশন শেষ হয়ে গেছে। আবার লগইন করুন। | Your session has ended. Please sign in again. |  |
 | `login.phone` | মোবাইল নম্বর | Mobile number |  |
 | `login.phoneHint` | যেমন ০১৭০০০০০০০১ | For example 01700000001 |  |
 | `login.send` | কোড পাঠান | Send code |  |
@@ -401,7 +403,7 @@ Generated from `web/src/i18n/strings.ts` (681 strings). Do not edit the strings 
 |---|---|---|---|
 | `history.title` | কে কখন আপনার তথ্য দেখেছেন | Who saw your information, and when |  |
 | `history.empty` | এখনো কেউ দেখেননি। | Nobody has looked yet. |  |
-| `history.allow` | দেখেছেন | Viewed |  |
+| `history.allow` | অনুমতি পেয়েছেন | Allowed |  |
 | `history.deny` | আটকানো হয়েছে | Blocked |  |
 | `history.someone` | অজানা ব্যবহারকারী | Unknown user |  |
 
@@ -664,7 +666,7 @@ Generated from `web/src/i18n/strings.ts` (681 strings). Do not edit the strings 
 | Key | Bangla | English (source meaning) | Review |
 |---|---|---|---|
 | `bg.title` | জরুরি প্রবেশ (break-glass) | Emergency access (break-glass) |  |
-| `bg.intro` | শুধু অচেতন বা অক্ষম রোগীর জরুরি অবস্থায়। কারণ ও প্রতিষ্ঠান বাধ্যতামূলক। প্রবেশ অডিট হয়, রোগী ও জরুরি যোগাযোগকে জানানো হয়, আর পরে পর্যালোচনা হয়। | Only for an unconscious or incapable patient in an emergency. A reason and a facility are required. Access is audited, the patient and their emergency contact are told, and every session is reviewed later. |  |
+| `bg.intro` | শুধু অচেতন বা অক্ষম রোগীর জরুরি অবস্থায়। কারণ ও প্রতিষ্ঠান বাধ্যতামূলক। প্রবেশ অডিট হয়, রোগীকে অ্যাপে জানানো হয়, আর পরে পর্যালোচনা হয়। জরুরি যোগাযোগের মানুষকে জানানো এখনো চালু হয়নি। | Only for an unconscious or incapable patient in an emergency. A reason and a facility are required. Access is audited, the patient is told in the app, and every session is reviewed later. Telling the emergency contact is not built yet. |  |
 | `bg.reason` | কারণ | Reason |  |
 | `bg.facility` | প্রতিষ্ঠান | Facility |  |
 | `bg.open` | জরুরি কার্ড খুলুন | Open the emergency card |  |
@@ -673,7 +675,7 @@ Generated from `web/src/i18n/strings.ts` (681 strings). Do not edit the strings 
 | `bg.expires` | সেশন শেষ হতে বাকি {time} | Session ends in {time} |  |
 | `bg.expired` | সেশন শেষ। কার্ড আর দেখানো হচ্ছে না। | The session has ended. The card is no longer shown. |  |
 | `bg.noProfile` | রোগীর জরুরি প্রোফাইল চালু নেই। দেখানোর মতো কিছু নেই। | The patient's emergency profile is off. There's nothing to show. |  |
-| `bg.end` | সেশন শেষ করুন | End session |  |
+| `bg.end` | কার্ড বন্ধ করুন | Close the card |  |
 
 ## dview
 

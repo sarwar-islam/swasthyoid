@@ -2486,3 +2486,54 @@ emergency profile offering allergies, not medicines. Updated, not loosened: the 
 rules) and the threshold versions (from 1 to 0). Type check clean. Backend: route reconciliation 3 passed. One new string
 (`err.not_built`), added to `BANGLA_COPY_REVIEW.md`.
 
+## B8c Live end-to-end check of the six portals, and the fixes it found (owner approval 2026-11-17)
+
+**How it ran.** `scripts/dev_api.ps1` (port 8000, `swasthyoid_dev`, M10 off) with the `VITE_API_MODE=live` web build
+(5175); sign-in codes read from the API log (`DEV_LOG_CODES=1`). Every screen was checked with axe-core 4 injected from
+`web/node_modules` (all rules, colour contrast included) and for horizontal scroll, at 375 px in Bangla and at 1280 px in
+English. M10 only on the isolated build (`dev_api.ps1 -Emergency`, port 8010, `swasthyoid_dev_m10`, web 5176). All data
+synthetic.
+
+| Portal | What was done live | Result |
+|---|---|---|
+| Patient | wrong then right code; home, timeline, capture, document, consent, inbox, more, vitals (save), reminders, triage, first aid, emergency card, caregiving | 0 axe violations, no horizontal scroll; vitals, reminders say "not on the server yet" (no fake save); triage shows that note and still the emergency card; emergency profile unreachable with M10 off |
+| Doctor | unknown Health ID refused; consent by patient code; summary, timeline, search, alerts, thresholds, document photo; a consent without timeline refused by the server | summary and search "not on the server yet"; thresholds version 0 with "no approved rules"; break-glass page unreachable with M10 off |
+| Verifier | assisted session by patient code; queue; document review; empty confirm refused; session ended, then refused (`not_active`) | as expected |
+| Caregiver | request, patient approves in their app (inbox notice shown), view timeline only; documents scope refused; patient revokes, next read refused | as expected after the `not_active` text fix |
+| Clinical reviewer | rule registry (empty), draft form, bad JSON refused; admin pages redirect | as expected |
+| Admin | credentials, staff (non-Bangladesh phone refused), catalog, audit (chain intact, 174 entries), metrics | as expected |
+| M10 (isolated) | break-glass refused with capability off; missing reason refused; patient profile with an invalid contact refused; admin capability route (bad body 422, enable 200); break-glass with allergies and contact; patient notice names doctor and facility only; open session not in the review queue | as expected after the fixes below |
+
+**Negative authorization against the real server**, every role plus anonymous and a bad token, over 14 routes (patient
+records, safety alerts, thresholds, staff, credentials, audit, metrics, rules, break-glass reviews and access,
+notifications, consents): each role reached only its own routes; others got 401 `unauthenticated`, 403
+`role_not_allowed`, `consent_required` or `emergency_not_enabled`. Side effect: the admin row created one synthetic
+verifier account ("x", +8801900000199) in `swasthyoid_dev`.
+
+**Fixes (code):**
+- **Session expiry.** A 401 on a signed-in request now signs the user out (`session.tsx`); the portal's sign-in page says
+  "Your session has ended" (`login.expired`). Before, every screen said "Sign in again." with no way forward. A wrong
+  sign-in code (401 without a token) is not treated as expiry. Checked live with a rejected token.
+- **Network failure.** A proxy in front of a stopped API answers a bare 502/503/504; the client now calls that
+  `network_unavailable` ("The server can't be reached"), not "Something went wrong". The server's coded 503s keep their
+  code. Checked live with the API stopped; no screen showed success.
+- **`not_active` had no text** (a revoked or expired permission): now "This permission is no longer active. Ask the
+  patient again."
+- **Access history.** Every allowed entry said "Viewed", including a caregiver's request and a verifier's edit; it now
+  says "Allowed". The patient's own actions (uploads, approvals) were listed as "Unknown user"; they are left out of "who
+  saw your information".
+- **Break-glass.** The page promised the emergency contact is told; that notice is not built (B7 decision 3), so the text
+  now says so. The "End session" button only hid the card while the server session ran on (no early-end route); it is
+  now "Close the card". An earlier refusal no longer stays on screen next to a new validation message.
+
+**Not fixed, for a decision:** values shown "as written" (drug names) have their digits turned into Bangla digits in the
+Bangla UI (for example `SYNTH-DRUG-০০১`); whether "as written" text should keep its own digits needs the owner's call.
+**Not exercised live:** reviewing a break-glass session after it closes (2-hour default; covered by backend tests);
+screenshots (the pane could not render while hidden; checks were made from the DOM).
+
+**Verification.** Web: 197 passed (6 new: session expiry in Bangla and English with axe, a doctor's expiry, a wrong code
+is not expiry, bare 502/503/504, break-glass card and stale error; the access-history test now also checks the patient's
+own entries are left out). Type check clean. Backend: a full run found the route reconciliation failing only in a full
+run (`tests/authz_matrix` adds `/api/v1/_probe` and `/_cg` test routes to the shared app); it now ignores `/api/v1/_`
+paths (commit `eb7a69d`). Local PostgreSQL 16 after the fix: **1570 passed, 19 skipped**, 0 failed. Copy list: 683 strings, every key and text matching
+`strings.ts` (2 new, 4 changed).
