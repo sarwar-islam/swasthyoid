@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 
 from swasthyoid.capture import documents, extraction, extraction_crypto
 from swasthyoid.core import audit, events_provenance
+from swasthyoid.safety import checks
 
 # The date every event of a document takes. Required at confirm (owner decision: never invent a date from the upload).
 DATE_FIELD = {"prescription": "prescription_date", "lab_report": "report_date", "discharge_summary": "discharge_date"}
@@ -179,6 +180,8 @@ def confirm(conn, document_id, *, actor, context=None):
             "fields_corrected, corrections, event_ids) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             [document_id, review["id"], extracted and extracted["version"], actor.id, actor.role, total, len(changed),
              Jsonb(extraction_crypto.seal_fields(changed)), ids])
+        if doc["doc_type"] == "prescription":  # FRD M6 trigger; the outbox row commits with the events (P3, D7)
+            checks.enqueue(conn, document_id=document_id, patient_id=doc["patient_id"])
         documents.set_status(conn, document_id, "verified")
         conn.execute("UPDATE documents SET verified_by = %s WHERE id = %s", [actor.id, document_id])
         audit.append(conn, action="document.confirm", result="allow", actor_id=actor.id, actor_role=actor.role,

@@ -128,12 +128,17 @@ describe("M5 summary, timeline and search, filtered by consent", () => {
     asDoctor("/doctor", "en");
     await openPatient();
     expect(await screen.findByText(/Template summary: built straight from verified events, no AI/)).toBeTruthy();
-    for (const s of ["Active medications", "Allergies", "Documented diagnoses", "Recent labs and trend", "Recent visits", "Pending follow-ups"]) {
+    for (const s of ["Medications recorded", "Allergies", "Diagnoses", "Lab results, by test and date", "Visits", "Pending follow-ups"]) {
       expect(screen.getByRole("heading", { name: s })).toBeTruthy();
     }
-    const meds = screen.getByRole("heading", { name: "Active medications" }).closest("section")!;
-    expect(within(meds).getByRole("link", { name: "Source event 1" }).getAttribute("href")).toBe(`/doctor/patients/${MOCK_PATIENT_ID}/timeline#event-e-med`);
-    expect(screen.getByText(/SYNTH-TEST-A: 5.4 mg\/dL \(2026-09-15\) → 5.9 mg\/dL \(2026-11-01\)/)).toBeTruthy();
+    const meds = screen.getByRole("heading", { name: "Medications recorded" }).closest("section")!;
+    expect(within(meds).getAllByRole("link", { name: "Source event 1" })[0].getAttribute("href")).toBe(`/doctor/patients/${MOCK_PATIENT_ID}/timeline#event-e-med`);
+    expect(meds.textContent).not.toMatch(/active/i); // D3: recorded, never "active"
+    const dx = screen.getByRole("heading", { name: "Diagnoses" }).closest("section")!;
+    expect(within(dx).getByText("Diagnoses aren't kept as data here. See the source documents.")).toBeTruthy(); // D2
+    const labs = screen.getByRole("heading", { name: "Lab results, by test and date" }).closest("section")!;
+    expect([...labs.querySelectorAll("li")].map((li) => li.querySelector("bdi")!.textContent)).toEqual([
+      "SYNTH-TEST-A · 5.4 · mg/dL · 2026-09-15", "SYNTH-TEST-A · 5.9 · mg/dL · 2026-11-01"]); // date order, no trend computed
     const reported = screen.getByRole("heading", { name: "Reported by patient, not verified" }).closest("section")!;
     expect(within(reported).getByText(/130\/85 mmHg/)).toBeTruthy();
     expect(meds.textContent).not.toMatch(/mmHg/); // vitals never mix into verified sections
@@ -143,8 +148,8 @@ describe("M5 summary, timeline and search, filtered by consent", () => {
   it("a citation opens the timeline at that event", async () => {
     asDoctor("/doctor", "en");
     await openPatient();
-    const meds = (await screen.findByRole("heading", { name: "Active medications" })).closest("section")!;
-    fireEvent.click(within(meds).getByRole("link", { name: "Source event 1" }));
+    const meds = (await screen.findByRole("heading", { name: "Medications recorded" })).closest("section")!;
+    fireEvent.click(within(meds).getAllByRole("link", { name: "Source event 1" })[0]);
     await waitFor(() => expect(document.activeElement?.id).toBe("event-e-med"));
   });
 
@@ -174,8 +179,44 @@ describe("M5 summary, timeline and search, filtered by consent", () => {
     type(await screen.findByLabelText("Search the record") && "Search the record", "synth-test");
     click("Search");
     const links = await screen.findAllByRole("link", { name: "View the event on the timeline" });
-    expect(links.map((a) => a.getAttribute("href"))).toEqual([
-      `/doctor/patients/${MOCK_PATIENT_ID}/timeline#event-e-lab-1`, `/doctor/patients/${MOCK_PATIENT_ID}/timeline#event-e-lab-2`]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([ // newest first, as the server
+      `/doctor/patients/${MOCK_PATIENT_ID}/timeline#event-e-lab-2`, `/doctor/patients/${MOCK_PATIENT_ID}/timeline#event-e-lab-1`]);
+  });
+
+  it("in Bangla, values as written keep their own digits; the UI's own numbers are Bangla (owner decision 2026-11-17)", async () => {
+    asDoctor("/doctor", "en");
+    await openPatient();
+    fireEvent.click(screen.getByRole("button", { name: "Change language: বাংলা" }));
+    const meds = (await screen.findByRole("heading", { name: "নথিভুক্ত ওষুধ" })).closest("section")!;
+    expect(within(meds).getByText("SYNTH-DRUG-UNLISTED 250 mg · 2026-11-08")).toBeTruthy();
+    expect(meds.textContent).not.toMatch(/[০-৯]{3}/); // no as-written value turned into Bangla digits
+    expect(within(meds).getAllByRole("link", { name: "উৎস ঘটনা ১" }).length).toBeGreaterThan(0); // citation numbers are the UI's
+    fireEvent.click(within(screen.getByRole("navigation", { name: "রেকর্ডের অংশ" })).getByRole("link", { name: "খুঁজুন" }));
+    type(await screen.findByLabelText("রেকর্ডে খুঁজুন") && "রেকর্ডে খুঁজুন", "২৫০");
+    fireEvent.click(screen.getByRole("button", { name: "খুঁজুন" }));
+    expect(await screen.findByText("SYNTH-DRUG-UNLISTED 250 mg")).toBeTruthy(); // a Bangla-digit query finds "250"
+  });
+});
+
+describe("M6 checks of verified prescriptions (P3)", () => {
+  it("lists each check next to the alerts: its result, what was not recognised, and what cannot run", async () => {
+    asDoctor("/doctor", "en");
+    await openPatient(["Timeline", "Safety information"]);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Record sections" })).getByRole("link", { name: "Safety alerts" }));
+    const checks = (await screen.findByRole("heading", { name: "Safety checks of verified prescriptions" })).closest("section")!;
+    expect(await within(checks).findByText("Checked: 2 alerts")).toBeTruthy();
+    expect(within(checks).getByText("Not recognised, so not checked:")).toBeTruthy();
+    expect(within(checks).getByText("SYNTH-DRUG-UNLISTED 250 mg")).toBeTruthy();
+    expect(within(checks).getByText(/drug and condition \(diagnoses aren't recorded\), allergy by drug class/)).toBeTruthy();
+  });
+
+  it("without the timeline category the unrecognised name is hidden", async () => {
+    asDoctor("/doctor", "en");
+    await openPatient(["Safety information"]);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Record sections" })).getByRole("link", { name: "Safety alerts" }));
+    const checks = (await screen.findByRole("heading", { name: "Safety checks of verified prescriptions" })).closest("section")!;
+    expect(await within(checks).findByText(/name hidden: the permission doesn't cover the timeline/)).toBeTruthy();
+    expect(checks.textContent).not.toMatch("SYNTH-DRUG-UNLISTED");
   });
 });
 

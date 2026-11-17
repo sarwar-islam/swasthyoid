@@ -1,6 +1,6 @@
 """M6 safety alerts (B6; FRD M6, section 7, invariant 6; owner decisions 2026-11-17).
 
-Listing and handling only: no M6 engine runs yet, so nothing here creates an alert. An alert shows the explanation of the
+Listing and handling only: alerts are created by the M6 check runner (safety/checks.py, P3). An alert shows the explanation of the
 rule version that fired, even after that version is superseded. Only the treating doctor, under a consent covering
 `safety`, sees or handles alerts (the route checks that); patients never see them. safety/schema.sql guards the table.
 """

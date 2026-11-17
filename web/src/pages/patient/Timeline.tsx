@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import type { Provenance, TimelineEvent } from "../../api/types";
 import { ErrorNote, Loading, ProvenanceBadge } from "../../components/ui";
-import { formatDate, formatNumber, localDigits, useI18n } from "../../i18n/i18n";
+import { formatDate, formatNumber, useI18n } from "../../i18n/i18n";
 import { bn, type Key } from "../../i18n/strings";
 import { useLoad, useSession } from "../../session";
 
@@ -21,7 +21,8 @@ function EventCard({ event, older, docBase }: { event: TimelineEvent; older: Tim
       </div>
       <dl>
         {Object.entries(event.payload).map(([k, v]) => (
-          <div key={k} style={{ display: "contents" }}><dt>{field(k)}</dt><dd>{localDigits(v, lang)}</dd></div>
+          // values as written keep their own digits (owner decision 2026-11-17)
+          <div key={k} style={{ display: "contents" }}><dt>{field(k)}</dt><dd><bdi>{v}</bdi></dd></div>
         ))}
       </dl>
       <div className="row">
@@ -34,7 +35,7 @@ function EventCard({ event, older, docBase }: { event: TimelineEvent; older: Tim
           <ul className="list">
             {older.map((o) => (
               <li key={o.event_id} className="muted">
-                {formatDate(o.recorded_at, lang)}: {Object.values(o.payload).map((v) => localDigits(v, lang)).join(", ")}
+                {formatDate(o.recorded_at, lang)}: <bdi>{Object.values(o.payload).join(", ")}</bdi>
               </li>
             ))}
           </ul>

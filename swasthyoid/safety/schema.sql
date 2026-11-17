@@ -50,7 +50,7 @@ CREATE TRIGGER rules_guard BEFORE UPDATE OR DELETE ON rules FOR EACH ROW EXECUTE
 DROP TRIGGER IF EXISTS rules_no_truncate ON rules;
 CREATE TRIGGER rules_no_truncate BEFORE TRUNCATE ON rules FOR EACH STATEMENT EXECUTE FUNCTION append_only();
 
--- M6 safety alerts (B6; FRD M6, invariant 6). Nothing writes alerts yet: no M6 engine runs. An alert names the rule VERSION
+-- M6 safety alerts (B6; FRD M6, invariant 6). Written by the M6 engine's check worker (P3). An alert names the rule VERSION
 -- that fired (shown with that version's explanation even after it is superseded) and keeps its evidence. Only the
 -- handling fields change, and only open -> acknowledged | overridden; an override always carries a reason. Never deleted.
 CREATE TABLE IF NOT EXISTS safety_alerts (
@@ -98,6 +98,54 @@ CREATE TRIGGER safety_alerts_guard BEFORE INSERT OR UPDATE OR DELETE ON safety_a
     FOR EACH ROW EXECUTE FUNCTION safety_alerts_guard();
 DROP TRIGGER IF EXISTS safety_alerts_no_truncate ON safety_alerts;
 CREATE TRIGGER safety_alerts_no_truncate BEFORE TRUNCATE ON safety_alerts FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
+-- M6 check outbox (P3; owner decision D7 and correction 1, 2026-11-17). M3 confirm of a prescription writes one row in the
+-- SAME transaction as the verified events, so a verification can never exist without its pending check. A worker runs the
+-- check later (safety/checks.py); a failed check never undoes the verification. A queue row changes state, but is never
+-- deleted: queued -> done (a completed or blocked result) or failed (infrastructure errors past the attempt limit);
+-- requeue (operator) sends done or failed back to queued.
+CREATE TABLE IF NOT EXISTS safety_check_jobs (
+    document_id     uuid PRIMARY KEY REFERENCES documents (id),
+    patient_id      uuid NOT NULL REFERENCES patients (id),
+    status          text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'done', 'failed')),
+    attempts        int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    next_attempt_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    created_at      timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at      timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS safety_check_jobs_due ON safety_check_jobs (next_attempt_at) WHERE status = 'queued';
+DROP TRIGGER IF EXISTS safety_check_jobs_no_delete ON safety_check_jobs;
+CREATE TRIGGER safety_check_jobs_no_delete BEFORE DELETE ON safety_check_jobs FOR EACH ROW EXECUTE FUNCTION append_only();
+DROP TRIGGER IF EXISTS safety_check_jobs_no_truncate ON safety_check_jobs;
+CREATE TRIGGER safety_check_jobs_no_truncate BEFORE TRUNCATE ON safety_check_jobs
+    FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
+-- M6 check results (P3; D6), append-only, separate from clinical alerts. One row per attempt:
+--   completed  the rules ran (alerts, if any, are in safety_alerts and listed here); at most one per document
+--   blocked    the check could not run safely: rule_load_error or catalog_unavailable (fail closed)
+--   error      an infrastructure failure of that attempt (infrastructure_error); retried, then the job is failed
+-- unrecognised and not_run hold event ids and fixed codes only, never a drug name.
+CREATE TABLE IF NOT EXISTS safety_checks (
+    id               uuid PRIMARY KEY,
+    document_id      uuid NOT NULL REFERENCES documents (id),
+    patient_id       uuid NOT NULL REFERENCES patients (id),
+    attempt          int NOT NULL CHECK (attempt >= 1),
+    outcome          text NOT NULL CHECK (outcome IN ('completed', 'blocked', 'error')),
+    reason           text CHECK (reason IS NULL OR reason ~ '^[a-z_]+$'),
+    alert_ids        uuid[] NOT NULL DEFAULT '{}',
+    rule_version_ids uuid[] NOT NULL DEFAULT '{}',
+    unrecognised     jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(unrecognised) = 'array'),
+    not_run          jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(not_run) = 'array'),
+    catalog          jsonb,
+    created_at       timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT safety_checks_reason CHECK ((outcome = 'completed') = (reason IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS safety_checks_one_completed ON safety_checks (document_id) WHERE outcome = 'completed';
+CREATE INDEX IF NOT EXISTS safety_checks_patient ON safety_checks (patient_id, created_at DESC);
+DROP TRIGGER IF EXISTS safety_checks_no_change ON safety_checks;
+CREATE TRIGGER safety_checks_no_change BEFORE UPDATE OR DELETE ON safety_checks FOR EACH ROW EXECUTE FUNCTION append_only();
+DROP TRIGGER IF EXISTS safety_checks_no_truncate ON safety_checks;
+CREATE TRIGGER safety_checks_no_truncate BEFORE TRUNCATE ON safety_checks FOR EACH STATEMENT EXECUTE FUNCTION append_only();
 
 -- M13 per-patient threshold overrides (B6). One row per version, append-only; the newest version holds the whole set of
 -- overrides (key = an approved vital_threshold rule_id, value a positive number). Version numbers start at 1; with no row

@@ -2,7 +2,7 @@ import type { ApiRequest, ApiResponse, Method, Transport } from "./client";
 import type {
   AccessEntry, AuditEntry, Cited, Consent, ConsentQr, CredentialReview, StaffAccount, DocType, DocumentView, DoctorConsent, EmergencyProfile,
   EmergencyReview, EmergencySession, ExtractedField, ExtractionResponse, FieldRow, Me, NotificationKind, OtpVerifyBody, PatientNotification,
-  QrConsentRequest, Reminder, ReminderLogAction, ReviewBody, ReviewedText, Rule, RuleType, SafetyAlert, SearchHit, Severity, StaffMe,
+  QrConsentRequest, Reminder, ReminderLogAction, ReviewBody, ReviewedText, Rule, RuleType, SafetyAlert, SafetyCheck, SearchHit, Severity, StaffMe,
   StaffVerifyBody, Summary, ThresholdField, TimelineEvent, TriageState, VitalEntry, VitalEvaluation, VitalReading, VitalThresholds, VitalType, VitalUnit,
   WorkerMetrics,
 } from "./types";
@@ -133,6 +133,8 @@ function createState() {
   const timeline: TimelineEvent[] = [
     ev("e-rx", "prescription", "2026-11-08", "document_verified", { prescriber_name: "Dr. Synthetic Prescriber" }, { source_document_id: "d-verified" }),
     ev("e-med", "medication", "2026-11-08", "document_verified", { name_as_written: "SYNTH-DRUG-003" }, { source_document_id: "d-verified" }),
+    // not in any catalog: the M6 check lists it as unrecognised (P3), never passes it silently
+    ev("e-med-2", "medication", "2026-11-08", "document_verified", { name_as_written: "SYNTH-DRUG-UNLISTED 250 mg" }, { source_document_id: "d-verified" }),
     ev("e-allergy", "allergy", "2026-10-02", "document_verified", { allergy_text: "SYNTH-ALLERGEN-01" }, { source_document_id: "d-verified" }),
     ev("e-lab-1", "lab_result", "2026-09-15", "document_verified", { test_name: "SYNTH-TEST-A", result: "5.4", unit: "mg/dL" }),
     ev("e-lab-2", "lab_result", "2026-11-01", "document_verified", { test_name: "SYNTH-TEST-A", result: "5.9", unit: "mg/dL" }),
@@ -246,7 +248,8 @@ function seedRules(iso: (offsetHours: number) => string): Rule[] {
   const rule = (ruleId: string, version: number, ruleType: RuleType, severity: Severity | null, status: Rule["status"], hoursAgo: number,
                 extra: Record<string, unknown> = {}): Rule => ({
     id: `${ruleId}-v${version}`, rule_id: ruleId, version, rule_type: ruleType, severity, status,
-    definition: { placeholder: "REVIEWER-PENDING", synthetic: true, ...extra },
+    // the engine types use the strict P3 shape (D5); their names are made up
+    definition: ["ddi", "allergy", "duplicate"].includes(ruleType) ? extra : { placeholder: "REVIEWER-PENDING", synthetic: true, ...extra },
     explanation: { en: `[REVIEWER-PENDING] Approved explanation for ${ruleId} goes here.`,
                    bn: `[রিভিউয়ার-অনুমোদন বাকি] ${ruleId}-এর অনুমোদিত ব্যাখ্যা এখানে বসবে।` },
     // B5 four-eyes: the seeds are written by a second synthetic reviewer, so the signed-in reviewer may approve them
@@ -254,9 +257,10 @@ function seedRules(iso: (offsetHours: number) => string): Rule[] {
     reviewed_by_name: status === "draft" ? null : "সিনথেটিক রিভিউয়ার", reviewed_at: status === "draft" ? null : iso(-hoursAgo + 1),
     reason: null });
   return [
-    rule("SYNTH-DDI-0001", 1, "ddi", "major", "approved", 200, { drugs: ["SYNTH-DRUG-001", "SYNTH-DRUG-003"] }),
-    rule("SYNTH-DDI-0001", 2, "ddi", "major", "draft", 20, { drugs: ["SYNTH-DRUG-001", "SYNTH-DRUG-003"] }),
-    rule("SYNTH-ALG-0001", 1, "allergy", "moderate", "approved", 190, { allergen: "SYNTH-ALLERGEN-01", drug: "SYNTH-DRUG-003" }),
+    rule("SYNTH-DDI-0001", 1, "ddi", "major", "approved", 200, { schema: 1, ingredients: ["synthgen-alpha", "synthgen-beta"] }),
+    rule("SYNTH-DDI-0001", 2, "ddi", "major", "draft", 20, { schema: 1, ingredients: ["synthgen-alpha", "synthgen-beta"] }),
+    rule("SYNTH-ALG-0001", 1, "allergy", "moderate", "approved", 190,
+         { schema: 1, allergen_terms: ["SYNTH-ALLERGEN-01"], ingredients: ["synthgen-beta"] }),
     rule("SYNTH-VT-0001", 1, "vital_threshold", null, "draft", 10, { vital_type: "bp" }),
     // approved SYNTHETIC threshold rules, so the doctor's thresholds screen has fields; no value and no limit (REVIEWER-PENDING)
     rule("SYNTH-VT-0101", 1, "vital_threshold", null, "approved", 180, { vital_type: "bp", unit: "mmHg" }),
@@ -316,28 +320,57 @@ function pendingText(en: string, bn: string): ReviewedText {
   return { status: "REVIEWER-PENDING", en: `[REVIEWER-PENDING] ${en}`, bn: `[রিভিউয়ার-অনুমোদন বাকি] ${bn}` };
 }
 
-/** The template summary: built from the permitted events only, every sentence citing them (invariant 3). Synthetic text. */
+// The payload fields each summary section states, in the server's order (summary/build.py FIELDS).
+const SUMMARY_FIELDS: Partial<Record<TimelineEvent["event_type"], string[]>> = {
+  medication: ["name_as_written", "strength", "form", "dose_instruction", "duration"], allergy: ["allergy_text"],
+  lab_result: ["test_name", "result", "unit", "reference_range"], visit: ["facility_name", "admission_date", "discharge_date"],
+  follow_up: ["follow_up_date"],
+};
+const currentOf = (events: TimelineEvent[]) => events.filter((e) => !events.some((x) => x.supersedes === e.event_id));
+
+/** One cited line, as the server: the event's values as written, then its date, each value a fact (P3 correction 2). */
+function citedLine(e: TimelineEvent, fields = SUMMARY_FIELDS[e.event_type] ?? Object.keys(e.payload).sort()): Cited {
+  const facts = fields.filter((f) => typeof e.payload[f] === "string" && e.payload[f].trim())
+    .map((f) => ({ event_id: e.event_id, field: f, value: e.payload[f].trim() }));
+  facts.push({ event_id: e.event_id, field: "date", value: e.date });
+  return { text: facts.map((f) => f.value).join(" · "), citations: [e.event_id], facts };
+}
+
+/** The template summary, as the server's (P3): current verified events only, newest first; "medications recorded", never
+ * "active" (D3); diagnoses not recorded (D2); one lab line per result grouped by test name in date order; follow-ups from today. */
 function templateSummary(events: TimelineEvent[]): Summary {
-  const current = events.filter((e) => !events.some((x) => x.supersedes === e.event_id));
-  const line = (e: TimelineEvent): Cited => ({ text: `${Object.values(e.payload).join(" ")} · ${e.date}`, citations: [e.event_id] });
-  const verified = current.filter((e) => e.verification_status === "document_verified");
-  const labs = verified.filter((e) => e.event_type === "lab_result").sort((a, b) => a.date.localeCompare(b.date));
-  const byTest = new Map<string, TimelineEvent[]>();
-  labs.forEach((e) => byTest.set(e.payload.test_name, [...(byTest.get(e.payload.test_name) ?? []), e]));
-  const of = (type: TimelineEvent["event_type"]) => verified.filter((e) => e.event_type === type).map(line);
+  const current = currentOf(events);
+  const newest = (list: TimelineEvent[]) => [...list].sort((a, b) => b.date.localeCompare(a.date));
+  const verified = newest(current.filter((e) => e.verification_status === "document_verified"));
+  const of = (type: TimelineEvent["event_type"]) => verified.filter((e) => e.event_type === type);
+  const today = new Date().toISOString().slice(0, 10);
+  const labs = [...of("lab_result")].sort((a, b) => (a.payload.test_name ?? "").toLowerCase().localeCompare((b.payload.test_name ?? "").toLowerCase())
+    || a.date.localeCompare(b.date));
+  const section = (id: Summary["sections"][number]["id"], list: TimelineEvent[]) =>
+    ({ id, note: null, sentences: list.map((e) => citedLine(e)), truncated: 0 });
   return {
-    mode: "template", generated_at: new Date().toISOString(),
+    mode: "template", generated_at: new Date().toISOString(), model_id: null, fallback_reason: null,
     sections: [
-      { id: "active_medications", sentences: of("medication") },
-      { id: "allergies", sentences: of("allergy") },
-      { id: "diagnoses", sentences: of("diagnosis") },
-      { id: "labs", sentences: [...byTest.entries()].map(([name, list]) => ({
-        text: `${name}: ${list.map((e) => `${e.payload.result} ${e.payload.unit} (${e.date})`).join(" → ")}`, citations: list.map((e) => e.event_id) })) },
-      { id: "visits", sentences: [...of("visit"), ...of("prescription")] },
-      { id: "follow_ups", sentences: of("follow_up") },
+      section("medications_recorded", of("medication")),
+      section("allergies", of("allergy")),
+      { id: "diagnoses", note: "not_recorded", sentences: [], truncated: 0 },
+      section("labs", labs),
+      section("visits", of("visit")),
+      section("follow_ups", of("follow_up").filter((e) => e.date >= today)),
     ],
-    patient_reported: current.filter((e) => e.verification_status === "patient_reported").map(line),
+    patient_reported: newest(current.filter((e) => e.verification_status === "patient_reported")).map((e) => citedLine(e)),
   };
+}
+
+/** Strict schema-1 shapes of the rule types the M6 engine runs (P3, D5), as the server's safety/definitions.py. */
+function engineShapeOk(type: RuleType, severity: Severity | null | undefined, def: Record<string, unknown>): boolean {
+  const keys: Partial<Record<RuleType, string[]>> = { ddi: ["ingredients"], allergy: ["allergen_terms", "ingredients"], duplicate: ["ingredients"] };
+  const want = keys[type];
+  if (!want) return true;
+  const norm = (v: unknown) => (typeof v === "string" ? v.normalize("NFC").toLowerCase().split(/\s+/).filter(Boolean).join(" ") : "");
+  const names = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every((x) => norm(x)) && new Set(v.map(norm)).size === v.length;
+  return severity != null && def.schema === 1 && Object.keys(def).sort().join() === ["schema", ...want].sort().join()
+    && want.every((k) => names(def[k])) && (type !== "ddi" || (def.ingredients as unknown[]).length === 2);
 }
 
 function syntheticPage(): Blob {
@@ -494,6 +527,13 @@ export function mockTransport(): Transport {
     const reason = !c ? "consent_required" : !c.allowed_categories.includes(category) ? "category_not_allowed" : null;
     record(doctor, action, reason ? "deny" : "allow", reason, c?.id ?? null, patientId);
     return reason ? error(403, reason, reason === "consent_required" ? "No active consent." : "This consent does not cover that.") : null;
+  };
+  /** Whether the consent consentFor judged ALSO covers `category`; no audit entry (the read itself was audited). */
+  const covers = (r: ApiRequest, patientId: string, category: "timeline" | "documents" | "safety") => {
+    const doctor = doctorOf(r);
+    const c = doctor && s.consents.find((x) => x.grantee_id === doctor.id && s.patientOf[x.id] === patientId && x.status === "active"
+      && x.expires_at !== null && Date.parse(x.expires_at) > Date.now());
+    return !!c && c.allowed_categories.includes(category);
   };
   const doctorView = (c: Consent): DoctorConsent => ({ id: c.id, purpose: "TIMELINE", allowed_categories: c.allowed_categories as DoctorConsent["allowed_categories"],
     status: c.status, activated_at: c.activated_at, expires_at: c.expires_at, created_at: c.created_at, patient_id: s.patientOf[c.id],
@@ -684,15 +724,37 @@ export function mockTransport(): Transport {
       return ok(thresholdsOf(p.id));
     }],
     ["GET", "/patients/{id}/summary", (r, p) => consentFor(r, p.id, "timeline", "summary.read") ?? ok(templateSummary(s.timeline))],
+    // P3, as the server: every word must appear in the event's values (keys never), current events only; a document link only
+    // under a consent that also covers `documents`
     ["GET", "/patients/{id}/search", (r, p) => {
       const denied = consentFor(r, p.id, "timeline", "search");
       if (denied) return denied;
-      const q = decodeURIComponent((r.path.split("?q=")[1] ?? "").split("&")[0]).trim().toLowerCase();
-      const hits: SearchHit[] = q ? s.timeline.filter((e) => JSON.stringify(e.payload).toLowerCase().includes(q)).map((e) => ({
-        event_id: e.event_id, event_type: e.event_type, date: e.date, source_document_id: e.source_document_id, snippet: Object.values(e.payload).join(" ") })) : [];
+      const raw = decodeURIComponent((r.path.split("?q=")[1] ?? "").split("&")[0].replace(/\+/g, " "));
+      if (!raw.trim()) return error(422, "query_required", "Type a word to search for.");
+      if (raw.length > 200) return error(422, "query_too_long", "At most 200 characters.");
+      const words = toAsciiDigits(raw).toLowerCase().split(/\s+/).filter(Boolean);
+      const docs = covers(r, p.id, "documents");
+      const hits: SearchHit[] = currentOf(s.timeline)
+        .filter((e) => { const text = toAsciiDigits(Object.values(e.payload).join(" ")).toLowerCase(); return words.every((w) => text.includes(w)); })
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((e) => ({ event_id: e.event_id, event_type: e.event_type, date: e.date, source_document_id: docs ? e.source_document_id : null,
+                       snippet: citedLine(e).facts.filter((f) => f.field !== "date").map((f) => f.value).join(" · "), match: "keyword" }));
       return ok(hits);
     }],
     ["GET", "/patients/{id}/safety-alerts", (r, p) => consentFor(r, p.id, "safety", "safety.read") ?? ok(s.alerts)],
+    // P3 (D6): each verified prescription's M6 check. SYNTHETIC: one completed check with the seeded alerts and one unrecognised
+    // medication, so the screen can be tried; names only under a consent that also covers `timeline`
+    ["GET", "/patients/{id}/safety-checks", (r, p) => {
+      const denied = consentFor(r, p.id, "safety", "safety_checks.read");
+      if (denied) return denied;
+      const named = covers(r, p.id, "timeline");
+      const checks: SafetyCheck[] = [{ document_id: "d-verified", status: "completed", reason: null, attempts: 1, queued_at: s.alerts[0]?.created_at ?? new Date().toISOString(),
+        checked_at: s.alerts[0]?.created_at ?? null, alert_count: s.alerts.length,
+        unrecognised: [{ event_id: "e-med-2", reason: "not_in_catalog", scope: "prescription", name_as_written: named ? "SYNTH-DRUG-UNLISTED 250 mg" : null }],
+        not_run: [{ check: "drug_disease", reason: "diagnoses_not_recorded" }, { check: "allergy_class", reason: "class_data_unavailable" },
+                  { check: "duplicate_class", reason: "class_data_unavailable" }, { check: "class_lookback", reason: "class_data_unavailable" }] }];
+      return ok(checks);
+    }],
     ["POST", "/safety/alerts/{id}/ack", (r, p) => {
       const denied = consentFor(r, s.me.id, "safety", "safety.ack");
       if (denied) return denied;
@@ -971,6 +1033,9 @@ export function mockTransport(): Transport {
       const vt = def as { vital_type?: unknown; unit?: unknown };
       if (b.rule_type === "vital_threshold" && !(units[String(vt.vital_type)] ?? []).includes(String(vt.unit))) {
         return error(422, "invalid_vital_threshold", "A vital threshold needs vital_type bp or glucose and a matching unit.");
+      }
+      if (!engineShapeOk(b.rule_type!, b.severity, def as Record<string, unknown>)) {
+        return error(422, "invalid_rule_definition", "This rule type needs its schema-1 definition and a severity.");
       }
       const versions = b.rule_id ? s.rules.filter((x) => x.rule_id === b.rule_id) : [];
       if (b.rule_id && !versions.length) return error(404, "not_found", "No rule with this id.");

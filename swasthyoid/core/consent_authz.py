@@ -243,6 +243,17 @@ def check_access(conn, *, user, patient_id, purpose, categories, action, **clien
     return decision
 
 
+def covers(conn, *, user, patient_id, purpose, category):
+    """Whether the caller's consent, already checked and audited by check_access, ALSO covers `category` (P3: source
+    document links need `documents`). Writes no audit entry: it only narrows what an allowed read returns. Fails closed."""
+    try:
+        consent = find(conn, grantee_id=user.id, patient_id=patient_id, purpose=purpose)
+        return authorize_access(AccessRequest(purpose, frozenset({category})), user, SimpleNamespace(id=patient_id),
+                                consent, _now(conn)).allowed
+    except Exception:
+        return False
+
+
 # ---- Emergency policy (purpose EMERGENCY; FRD 4.1 and M10, B7, owner decisions 2026-11-16/17)
 
 def check_emergency(conn, *, user, patient_id, reason, facility, enabled, action, **client):

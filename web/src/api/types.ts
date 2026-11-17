@@ -297,35 +297,60 @@ export interface DoctorConsent {
   health_id: string; // APPROVED, not built
 }
 
-/** One sentence of a summary, with the events it cites (invariant 3). */
+/** One sentence of a summary, with the events it cites (invariant 3) and each value it states (`facts`, P3 correction 2).
+ * The text is values as written: shown with their own digits (owner decision 2026-11-17). */
 export interface Cited {
   text: string;
   citations: string[];
+  facts: Array<{ event_id: string; field: string; value: string }>;
 }
 
-/** GET /patients/{id}/summary. FRD (M5), not built. `mode: template` when no LLM adapter is configured or validation failed. */
+export type SummarySectionId = "medications_recorded" | "allergies" | "diagnoses" | "labs" | "visits" | "follow_ups";
+
+/** GET /patients/{id}/summary. FRD (M5), BUILT in P3 (api/summary.py): a doctor under a consent covering `timeline`.
+ * `mode: template` when no LLM adapter is configured or its text failed the validator (`fallback_reason`, a code). Diagnoses
+ * are never recorded (D2): that section has `note: "not_recorded"`. Medications are "recorded", never "active" (D3). */
 export interface Summary {
   mode: "llm" | "template";
   generated_at: string;
-  sections: Array<{ id: "active_medications" | "allergies" | "diagnoses" | "labs" | "visits" | "follow_ups"; sentences: Cited[] }>;
+  model_id: string | null;
+  fallback_reason: string | null;
+  sections: Array<{ id: SummarySectionId; note: "not_recorded" | null; sentences: Cited[]; truncated: number }>;
   patient_reported: Cited[]; // home vitals: a separate section, "reported by patient, not verified"
 }
 
-/** GET /patients/{id}/search?q= : event ids with source links, never generated answers. FRD (M5), not built. */
+/** GET /patients/{id}/search?q= : events, never generated answers. FRD (M5), BUILT in P3: a doctor under a consent covering
+ * `timeline`; `source_document_id` is null unless the consent also covers `documents` (correction 3). 422 `query_required`,
+ * `query_too_long`. */
 export interface SearchHit {
   event_id: string;
   event_type: EventType;
   date: string;
   source_document_id: string | null;
   snippet: string;
+  match: "keyword" | "semantic";
+}
+
+/** GET /patients/{id}/safety-checks: each verified prescription's M6 check (P3, D6; a proposal, not in FRD section 7 yet).
+ * A doctor under a consent covering `safety`; names as written only when it also covers `timeline`. Patients never see it. */
+export interface SafetyCheck {
+  document_id: string;
+  status: "queued" | "retrying" | "completed" | "blocked" | "failed";
+  reason: string | null; // rule_load_error | catalog_unavailable | infrastructure_error
+  attempts: number;
+  queued_at: string;
+  checked_at: string | null;
+  alert_count: number;
+  unrecognised: Array<{ event_id: string; reason: "not_in_catalog" | "ambiguous"; scope: "prescription" | "recorded"; name_as_written: string | null }>;
+  not_run: Array<{ check: string; reason: string }>;
 }
 
 export type Severity = "contraindicated" | "major" | "moderate" | "minor";
 
 /** An M6 alert on a newly verified prescription. Ack: POST /safety/alerts/{id}/ack { action, reason } (FRD). Listing alerts:
  * `GET /patients/{id}/safety-alerts`, APPROVED contract (owner decision 2026-11-16). BUILT in B6 (api/safety.py): a doctor
- * under a consent covering `safety` only; `explanation` is the text of the rule version that fired. No M6 engine writes
- * alerts yet, so the server's list is empty. */
+ * under a consent covering `safety` only; `explanation` is the text of the rule version that fired. Written by the M6 check runner
+ * (P3) from approved rules only; the server has none until the clinical reviewer approves one. */
 export interface SafetyAlert {
   id: string;
   rule_id: string;

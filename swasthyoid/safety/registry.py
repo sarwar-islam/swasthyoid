@@ -1,7 +1,7 @@
 """M6 rule registry (B5; FRD M6, owner decisions 2026-11-16): versions, approval with four-eyes, rejection.
 
 The registry stores what the clinical reviewer writes; it holds no clinical rule of its own and seeds none. Only an
-`approved` version may ever run (no engine runs in B5). The database guard in safety/schema.sql keeps every version's
+`approved` version ever runs (the M6 engine, P3). Engine rule types must fit the strict shapes in definitions.py (D5). The database guard in safety/schema.sql keeps every version's
 content unchanged and allows only draft -> approved | rejected and approved -> superseded.
 """
 import secrets
@@ -12,6 +12,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from swasthyoid.core import audit
+from swasthyoid.safety import definitions
 
 RULE_TYPES = ("ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "red_flag",
               "emergency_message")
@@ -41,6 +42,11 @@ def _check(body):
         raise Invalid("invalid_rule")
     if rule_type == "vital_threshold" and definition.get("unit") not in VITAL_UNITS.get(definition.get("vital_type"), ()):
         raise Invalid("invalid_vital_threshold")
+    if rule_type in definitions.ENGINE_TYPES:  # P3 (D5): the strict shapes the M6 engine reads
+        try:
+            definitions.parse(rule_type, severity, definition)
+        except definitions.Invalid:
+            raise Invalid("invalid_rule_definition") from None
     return rule_type, severity, definition, explanation["en"].strip(), explanation["bn"].strip()
 
 

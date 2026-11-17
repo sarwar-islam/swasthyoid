@@ -2,9 +2,9 @@ import { AlertOctagon, Clock, Search as SearchIcon, ShieldCheck, UserRound } fro
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router";
 import { ApiError, type Client } from "../../api/client";
-import type { DoctorConsent, DocumentView, SafetyAlert, SearchHit, Summary as SummaryData, VitalThresholds } from "../../api/types";
+import type { DoctorConsent, DocumentView, SafetyAlert, SafetyCheck, SearchHit, Summary as SummaryData, VitalThresholds } from "../../api/types";
 import { ErrorNote, Loading, Reviewed, Section } from "../../components/ui";
-import { formatDate, formatDateTime, formatNumber, localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
+import { formatDate, formatDateTime, formatNumber, toAsciiDigits, useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
 import { TimelineView } from "../patient/Timeline";
 import { useLoad, useSession } from "../../session";
@@ -82,12 +82,17 @@ export function SummaryPage() {
   return (
     <>
       <p className={`mode-badge ${s.mode}`}>{t(s.mode === "template" ? "sum.template" : "sum.llm")} · {t("sum.generated", { date: formatDate(s.generated_at, lang) })}</p>
+      {s.fallback_reason && <p className="notice">{t("sum.fallback")}</p>}
+      <p className="muted">{t("sum.asWritten")}</p>
       <div className="summary-grid">
         {s.sections.map((section) => (
           <Section key={section.id} id={`sum-${section.id}`} title={t(`sum.s.${section.id}` as Key)}>
-            {section.sentences.length === 0 ? <p className="muted">{t("sum.none")}</p> : (
-              <ul className="cited">{section.sentences.map((x, i) => <li key={i}>{localDigits(x.text, lang)} <Cite ids={x.citations} base={base} /></li>)}</ul>
+            {section.note === "not_recorded" ? <p className="muted">{t("sum.notRecorded")}</p>
+              : section.sentences.length === 0 ? <p className="muted">{t("sum.none")}</p> : (
+              // values as written keep their own digits (owner decision 2026-11-17)
+              <ul className="cited">{section.sentences.map((x, i) => <li key={i}><bdi>{x.text}</bdi> <Cite ids={x.citations} base={base} /></li>)}</ul>
             )}
+            {section.truncated > 0 && <p className="muted">{t("sum.truncated", { n: formatNumber(section.truncated, lang) })}</p>}
           </Section>
         ))}
       </div>
@@ -95,7 +100,7 @@ export function SummaryPage() {
         <h2 id="sum-reported"><UserRound size={20} aria-hidden="true" />{t("sum.reported")}</h2>
         <p className="muted">{t("sum.reportedNote")}</p>
         {s.patient_reported.length === 0 ? <p className="muted">{t("sum.none")}</p> : (
-          <ul className="cited">{s.patient_reported.map((x, i) => <li key={i}>{localDigits(x.text, lang)} <Cite ids={x.citations} base={base} /></li>)}</ul>
+          <ul className="cited">{s.patient_reported.map((x, i) => <li key={i}><bdi>{x.text}</bdi> <Cite ids={x.citations} base={base} /></li>)}</ul>
         )}
       </section>
     </>
@@ -140,7 +145,7 @@ export function SearchPage() {
           {hits.map((h) => (
             <li key={h.event_id} className="card">
               <p><strong>{t(`tl.${h.event_type}` as Key)}</strong> · {formatDate(h.date, lang)}</p>
-              <p>{localDigits(h.snippet, lang)}</p>
+              <p><bdi>{h.snippet}</bdi></p>
               <Link to={`${base}/timeline#event-${h.event_id}`}>{t("srch.event")}</Link>
             </li>
           ))}
@@ -228,9 +233,55 @@ export function AlertsList({ patientId, base, canOpenDocs }: { patientId: string
   );
 }
 
+/** P3 (D6): each verified prescription's M6 check, next to the alerts. A block or a technical failure is said plainly and never
+ * looks like a clean result; unrecognised medications are listed because they were not checked. */
+export function ChecksList({ patientId }: { patientId: string }) {
+  const { t, lang } = useI18n();
+  const { api } = useSession();
+  const checks = useLoad(() => api.request<SafetyCheck[]>("GET", `/patients/${patientId}/safety-checks`), [patientId]);
+  if (checks.loading && !checks.data) return <Loading />;
+  if (!checks.data) return <ErrorNote error={checks.error} />;
+  return (
+    <section className="card section" aria-labelledby="chk-title">
+      <h2 id="chk-title">{t("chk.title")}</h2>
+      {checks.data.length === 0 ? <p className="muted">{t("chk.none")}</p> : (
+        <ul className="list">
+          {checks.data.map((c) => (
+            <li key={c.document_id} className={`check-item check-${c.status}`}>
+              <p className={c.status === "completed" ? "" : "notice"}>
+                <strong>{t(`chk.status.${c.status}` as Key, { n: formatNumber(c.alert_count, lang) })}</strong>
+                {c.reason && <> · {t(`chk.reason.${c.reason}` as Key)}</>}
+                {c.checked_at && <span className="muted"> · {formatDateTime(c.checked_at, lang)}</span>}
+              </p>
+              {c.unrecognised.length > 0 && (
+                <>
+                  <p>{t("chk.unrecognised")}</p>
+                  <ul>
+                    {c.unrecognised.map((u) => (
+                      <li key={u.event_id}>{u.name_as_written ? <bdi>{u.name_as_written}</bdi> : t("chk.unnamed")} · {t(`chk.why.${u.reason}` as Key)}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {c.not_run.length > 0 && (
+                <p className="muted">{t("chk.notRun", { list: c.not_run.map((n) => t(`chk.check.${n.check}` as Key)).join(", ") })}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function AlertsPage() {
   const { consent, base } = useCtx();
-  return <AlertsList patientId={consent.patient_id} base={base} canOpenDocs={allows(consent, "documents")} />;
+  return (
+    <>
+      <AlertsList patientId={consent.patient_id} base={base} canOpenDocs={allows(consent, "documents")} />
+      <ChecksList patientId={consent.patient_id} />
+    </>
+  );
 }
 
 /** M13 per-patient threshold overrides (GAP, F6), only under a consent covering `safety`. The server lists the fields a doctor may

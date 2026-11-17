@@ -119,7 +119,7 @@ export function Caregiving() {
           </form>
         ) : (
           <form onSubmit={confirm} className="card" noValidate>
-            <p className="notice" role="status">{t("care.sent", { id: localDigits(asked, lang) })}</p>
+            <p className="notice" role="status">{t("care.sent", { id: asked })}</p>{/* an ID keeps its own digits (owner decision 2026-11-17) */}
             {apiMode === "mock" && <p className="notice">{t("common.mockMode", { code: localDigits(MOCK_CODE, lang) })}</p>}
             <div className="field">
               <label htmlFor="care-code">{t("req.code")}</label>

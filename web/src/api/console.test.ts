@@ -32,7 +32,9 @@ async function failure(call: Promise<unknown>): Promise<[number, string]> {
   throw new Error("expected the API to refuse");
 }
 
-const draft = (extra: object = {}) => ({ rule_type: "allergy", severity: "moderate", definition: { placeholder: "REVIEWER-PENDING" },
+// P3 (D5): the strict schema-1 allergy shape; the names are made up
+const draft = (extra: object = {}) => ({ rule_type: "allergy", severity: "moderate",
+  definition: { schema: 1, allergen_terms: ["SYNTH-ALLERGEN-01"], ingredients: ["synthgen-alpha"] },
   explanation: { en: "[REVIEWER-PENDING] text", bn: "[রিভিউয়ার-অনুমোদন বাকি] লেখা" }, ...extra });
 const csv = (name = "synthetic.csv", body = "generic\nSYNTH-DRUG-001\n") => {
   const form = new FormData();
@@ -80,8 +82,16 @@ describe("clinical reviewer: the rule registry", () => {
 
   it("refuses a malformed rule", async () => {
     for (const bad of [{ rule_type: "dosing" }, { severity: "fatal" }, { definition: [] }, { definition: {} },
-      { explanation: { en: "only English", bn: " " } }, { rule_id: "SYNTH-ALG-0001", rule_type: "ddi" }]) {
+      { explanation: { en: "only English", bn: " " } },
+      { rule_id: "SYNTH-ALG-0001", rule_type: "ddi", definition: { schema: 1, ingredients: ["synthgen-alpha", "synthgen-beta"] } }]) {
       expect(await failure(reviewer().request("POST", "/rules", { body: draft(bad) }))).toEqual([422, "invalid_rule"]);
+    }
+    // P3 (D5), as the server: an engine rule must fit its strict shape and carry a severity
+    for (const bad of [{ definition: { placeholder: "REVIEWER-PENDING" } }, { definition: { schema: 2, allergen_terms: ["a"], ingredients: ["b"] } },
+      { definition: { schema: 1, allergen_terms: ["a"], ingredients: ["b"], note: "x" } }, { severity: null },
+      { rule_type: "ddi", definition: { schema: 1, ingredients: ["synthgen-alpha"] } },
+      { rule_type: "duplicate", definition: { schema: 1, ingredients: ["a", "A "] } }]) {
+      expect(await failure(reviewer().request("POST", "/rules", { body: draft(bad) }))).toEqual([422, "invalid_rule_definition"]);
     }
     expect(await failure(reviewer().request("POST", "/rules", { body: draft({ rule_id: "NO-SUCH-RULE" }) }))).toEqual([404, "not_found"]);
   });

@@ -13,8 +13,6 @@ REPORT = ROOT / "docs" / "ROUTES.md"
 # Why each mock route has no server route yet. Every one belongs to a later FRD phase (not B8), and in live mode the web
 # shows the bilingual "not on the server yet" state for it (B8b), never a made-up answer.
 UNBUILT = {
-    ("GET", "/patients/{}/summary"): "M5 summary (FRD P3). Template summary with citations; needs the M5 backend.",
-    ("GET", "/patients/{}/search"): "M5 search (FRD P3). Keyword search over the permitted events; needs the M5 backend.",
     ("POST", "/triage/sessions"): "M7 triage (FRD P8). Red-flag rules are REVIEWER-PENDING (FRD Q7).",
     ("POST", "/triage/sessions/{}/answer"): "M7 triage (FRD P8), next answer in a session; same as above.",
     ("GET", "/reminders"): "M8 reminders (FRD P8). Proposals from verified prescriptions; not built.",

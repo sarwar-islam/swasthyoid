@@ -3,7 +3,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { ApiError } from "../api/client";
 import type { DocStatus, Provenance, ReviewedText } from "../api/types";
 import { EMERGENCY_MESSAGE } from "../content/reviewerPending";
-import { localDigits, useI18n } from "../i18n/i18n";
+import { useI18n } from "../i18n/i18n";
 import { bn, type Key } from "../i18n/strings";
 
 /** Text for an error: the matching `err.<code>` string, or the generic one. Never a raw server message. */
@@ -82,7 +82,8 @@ export function Reviewed({ text, as: Tag = "p" }: { text: ReviewedText; as?: "p"
   const { lang, t } = useI18n();
   return (
     <Tag className={text.status === "approved" ? undefined : "reviewer-pending"} title={text.status === "approved" ? undefined : t("reviewer.pending")}>
-      {lang === "bn" ? localDigits(text.bn, lang) : text.en}
+      {/* reviewer-authored copy is shown as written: drug names and IDs keep their English digits */}
+      {lang === "bn" ? text.bn : text.en}
     </Tag>
   );
 }

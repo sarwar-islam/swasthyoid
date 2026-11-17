@@ -12,7 +12,8 @@ from swasthyoid.tests.test_api_b2 import cast  # noqa: F401
 from swasthyoid.tests.test_api_m1 import V1, api, login, people  # noqa: F401
 
 REVIEWER2 = "+8801900000015"
-DDI = {"rule_type": "ddi", "severity": "major", "definition": {"placeholder": "SYNTH", "drugs": ["SYNTH-DRUG-001"]},
+# P3 (D5): the strict schema-1 shape; the names are made up
+DDI = {"rule_type": "ddi", "severity": "major", "definition": {"schema": 1, "ingredients": ["synthgen-alpha", "synthgen-beta"]},
        "explanation": {"en": "SYNTH explanation", "bn": "সিনথেটিক ব্যাখ্যা"}}
 
 
@@ -71,7 +72,9 @@ def test_versions_four_eyes_and_one_approved_version(api, b5):
 
     v2 = draft(api, b5.reviewer2, {**DDI, "rule_id": v1["rule_id"], "severity": "moderate"}).json()
     assert v2["version"] == 2
-    assert draft(api, b5.reviewer, {**DDI, "rule_id": v1["rule_id"], "rule_type": "allergy"}).json()["code"] == "invalid_rule"
+    allergy = {"schema": 1, "allergen_terms": ["SYNTH-ALLERGEN"], "ingredients": ["synthgen-alpha"]}
+    assert draft(api, b5.reviewer, {**DDI, "rule_id": v1["rule_id"], "rule_type": "allergy",
+                                    "definition": allergy}).json()["code"] == "invalid_rule"  # a version keeps its type
     assert api.http.post(f"{V1}/rules/{v2['id']}/approve", headers=b5.reviewer).json()["status"] == "approved"
     versions = {r["version"]: r["status"] for r in api.http.get(f"{V1}/rules?type=ddi", headers=b5.reviewer).json()}
     assert versions == {1: "superseded", 2: "approved"}  # exactly one version runs
