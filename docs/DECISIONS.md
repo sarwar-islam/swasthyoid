@@ -2324,3 +2324,43 @@ server-side filters, a tampered entry reported as the first broken one, and the 
 seven refusals, admin only). Local PostgreSQL 16: 1537 passed, 0 failed, 19 skipped. Web: 181 passed (four-eyes refusal in
 Bangla and English with axe; the catalog screen's source field and report with axe; updated mock API tests); type check
 clean. The schema, with the new `safety/schema.sql`, applies over the B4b schema.
+
+## B6 safety alerts and per-patient vital thresholds (owner approval 2026-11-17)
+
+**Owner decisions.** (1) A threshold field's `default_value` is always null until the clinical reviewer names a default key
+in the rule definition (REVIEWER-PENDING; no key name is assumed). (2) An alert shows the explanation of the rule version
+that fired, even after that version is superseded. (3) The web app says "No approved threshold rules yet" when the server
+lists no field.
+
+- **Who (`api/safety.py`):** a verified doctor under a TIMELINE consent covering `safety`, RBAC -> C1 -> C2 before any read
+  or change. Unlike `patient_read`, the patient's own access does not pass: patients never see raw M6 alerts (invariant 6),
+  and the thresholds screen is the doctor's. Patients (caregivers included), verifiers, clinical reviewers and admins get
+  403 `role_not_allowed`, audited.
+- **Alerts (`safety_alerts`, `safety/alerts.py`):** the rule version that fired, severity, source document, evidence event
+  ids, status `open | acknowledged | overridden`, who handled it, when, and the reason. A database guard allows an insert
+  only as `open` from an `approved` rule version, then only the handling fields to change, only open -> acknowledged |
+  overridden; an override needs a reason (CHECK); no delete or truncate. `GET /patients/{id}/safety-alerts` (newest first)
+  and `POST /safety/alerts/{id}/ack { action: acknowledge | override, reason }`: 422 `invalid_action`, 422
+  `reason_required`, 409 `not_open`, 404 for an unknown alert. The audit entry (`safety.alert.acknowledge|override`) says
+  `reason_given`, never the text. **Nothing creates alerts yet** (no M6 engine; `POST /safety/check` is unbuilt).
+- **Thresholds (`patient_thresholds`, `safety/thresholds.py`):** one field per approved `vital_threshold` rule (key =
+  `rule_id`, `vital_type` and `unit` from the definition, label = the rule's explanation), none yet, so `fields` is empty.
+  Every change is a new append-only version holding the whole set of overrides; a patient with no change is at version 0.
+  `PUT { version, overrides }` merges (null clears one): 409 `version_conflict` for a stale version (also on a concurrent
+  save), 422 `invalid_threshold` for an unknown key, a value that is not a positive number or null, or a malformed body.
+  No range check (REVIEWER-PENDING). Audited `vital_thresholds.update`. Nothing evaluates readings yet (M13 backend unbuilt).
+- **Frontend:** the thresholds screen shows the note (Bangla and English) and no save button when there is no field;
+  `types.ts` marks both contracts BUILT. `BANGLA_COPY_REVIEW.md` updated (680 strings).
+- **Mismatches with the mock, for B8:** the mock starts a patient's thresholds at version 1 (server 0), always lists three
+  synthetic fields, and seeds two alerts with REVIEWER-PENDING explanations (the server marks the explanation of an approved
+  rule version `approved`).
+
+**Verification.** 17 new backend tests (`tests/test_api_b6.py`): every other role refused on all four routes, the patient
+included; no consent and a consent without `safety` refused; the read audited; acknowledge, override with and without a
+reason, a handled alert, an unknown one, the explanation of a superseded version; the database guard (content, reopening,
+override without a reason, delete, truncate, an alert from a draft rule); fields only from approved rules with null
+defaults; versions, conflicts, seven invalid bodies, clearing, the audit count, append-only versions. Local PostgreSQL 16:
+1552 passed, 0 failed, 19 skipped in 16 min 41 s. Web: 183 passed (2 new: the empty thresholds screen in Bangla and English with axe); type check clean.
+Browser pane, mock build: the thresholds screen at desktop and 375 px (no horizontal overflow, no console error); the
+empty note itself shows only against the server and is covered by the tests. The schema applies over the B5 schema
+(569b4d8 schema with a row, then the new schema twice).
