@@ -94,3 +94,25 @@ describe("UX-3 landing and sign-in", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 });
+
+describe("W1 landing refinement", () => {
+  for (const [lang, demo, features] of [
+    ["bn", "নমুনা (ডেমো) · বানানো তথ্য", ["এক টাইমলাইন", "মেডিকেল রেকর্ড", "স্বাস্থ্য সারাংশ", "অনুমতি আপনার হাতে", "বাসায় মাপা রিডিং", "কে দেখেছে"]],
+    ["en", "Preview (demo) · made-up data", ["One timeline", "Medical records", "Health summary", "Consent in your hands", "Home readings", "Access history"]],
+  ] as const) {
+    it(`hero preview is labelled a demo; three steps; six features; both audiences (${lang})`, async () => {
+      const { container } = renderApp("/", { lang });
+      expect(screen.getByRole("figure", { name: demo })).toBeTruthy();
+      const how = screen.getByRole("region", { name: lang === "en" ? "How it works" : "কীভাবে কাজ করে" });
+      expect(within(how).getAllByRole("heading", { level: 3 })).toHaveLength(3);
+      const feats = document.getElementById("features")!;
+      expect(within(feats).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(features);
+      expect(document.getElementById("patients")).toBeTruthy();
+      expect(document.getElementById("doctors")).toBeTruthy();
+      const footer = screen.getByRole("navigation", { name: lang === "en" ? "Page links" : "পাতার লিংক" });
+      expect(within(footer).getAllByRole("link").map((a) => a.getAttribute("href")))
+        .toEqual(["#how", "#patients", "#doctors", "#yours", "/patient/login"]);
+      expect(await axeViolations(container)).toEqual([]);
+    });
+  }
+});

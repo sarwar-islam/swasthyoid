@@ -80,7 +80,7 @@ describe("UX-1 landing, profile and records", () => {
     it(`landing has section links and the doctor application (${lang})`, async () => {
       const { container } = renderApp("/", { lang });
       const nav = screen.getByRole("navigation", { name: lang === "en" ? "Page sections" : "পাতার অংশ" });
-      expect(within(nav).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(["#how", "#can", "#doctors", "#yours"]);
+      expect(within(nav).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(["#how", "#patients", "#doctors", "#yours"]);
       expect(screen.getByRole("link", { name: lang === "en" ? "Apply for doctor access" : "ডাক্তার হিসেবে আবেদন করুন" })
         .getAttribute("href")).toBe("/doctor/login");
       expect(await axeViolations(container)).toEqual([]);
