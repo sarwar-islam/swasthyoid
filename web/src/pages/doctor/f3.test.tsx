@@ -233,6 +233,28 @@ describe("M10 break-glass", () => {
     expect(await screen.findByText("The patient's emergency profile is off. There's nothing to show.")).toBeTruthy();
     expect(screen.getByText(/Session ends in 0[12]:\d\d:\d\d/)).toBeTruthy();
     expect(seen.find((r) => r.path === "/emergency/access")!.body).toEqual({ health_id: MOCK_HEALTH_ID, reason: "Synthetic emergency reason", facility: "Synthetic Clinic" });
+    // B8c: the server cannot end a session early, so the button only closes the card and says so; the intro promises no
+    // notice to the emergency contact (not built)
+    expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
+    click("Close the card");
+    expect(await screen.findByLabelText("Reason")).toBeTruthy();
+    expect(screen.getByText(/Telling the emergency contact is not built yet\./)).toBeTruthy();
+  });
+
+  it("an earlier refusal does not stay on screen next to a new message (B8c)", async () => {
+    vi.stubEnv("VITE_FEATURE_EMERGENCY_ACCESS", "1");
+    const inner = mockTransport();
+    const refusing: Transport = async (r) => (r.path === "/emergency/access"
+      ? { status: 403, body: { code: "emergency_not_enabled", message: "x", details: {} } } : inner(r));
+    asDoctor("/doctor/emergency", "en", refusing);
+    type(await screen.findByLabelText("Patient's Health ID") && "Patient's Health ID", MOCK_HEALTH_ID);
+    type("Reason", "Synthetic emergency reason");
+    type("Facility", "Synthetic Clinic");
+    click("Open the emergency card");
+    expect(await screen.findAllByRole("alert")).toHaveLength(1);
+    type("Reason", " ");
+    click("Open the emergency card");
+    await waitFor(() => expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["Write both a reason and a facility."]));
   });
 });
 

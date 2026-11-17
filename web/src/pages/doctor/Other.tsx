@@ -89,6 +89,7 @@ function Card({ session, onEnd }: { session: EmergencySession; onEnd: () => void
           <div key={k} style={{ display: "contents" }}><dt>{t(k)}</dt><dd>{v || "—"}</dd></div>
         ))}</dl>
       )}
+      {/* only hides the card: the server has no route to end a break-glass session early; it closes at expires_at (B7) */}
       <button type="button" onClick={onEnd}>{t("bg.end")}</button>
     </section>
   );
@@ -107,11 +108,9 @@ export function BreakGlass() {
   const [error, setError] = useState<unknown>(null);
   const open = async (e: FormEvent) => {
     e.preventDefault();
-    if (!reason.trim() || !facility.trim()) {
-      setMissing(true);
-      return;
-    }
-    setError(null);
+    setError(null); // never leave an earlier answer next to a new one
+    setMissing(!reason.trim() || !facility.trim());
+    if (!reason.trim() || !facility.trim()) return;
     try {
       setSession(await api.request<EmergencySession>("POST", "/emergency/access",
         { body: { health_id: toAsciiDigits(healthId.trim().toUpperCase()), reason: reason.trim(), facility: facility.trim() } }));

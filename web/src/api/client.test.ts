@@ -49,6 +49,14 @@ describe("client", () => {
     expect(coded.code).toBe("patient_not_found"); // the server's own 404s keep their code
   });
 
+  it("calls a bare 502, 503 or 504 (a proxy in front of a stopped API) network_unavailable; a coded 503 keeps its code", async () => {
+    for (const status of [502, 503, 504]) {
+      const failure = await failed(createClient(recording(status, null).transport).request("POST", "/auth/otp/request"));
+      expect([failure.status, failure.code]).toEqual([status, "network_unavailable"]);
+    }
+    const coded = await failed(createClient(recording(503, { code: "not_configured", message: "x" }).transport).request("GET", "/x"));
+    expect(coded.code).toBe("not_configured");
+  });
 });
 
 describe("mock transport", () => {

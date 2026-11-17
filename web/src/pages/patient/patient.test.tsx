@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { MOCK_CODE, MOCK_PHONE, mockTransport } from "../../api/mock";
+import { MOCK_CODE, MOCK_PATIENT_ID, MOCK_PHONE, mockTransport } from "../../api/mock";
 import type { ApiRequest, Transport } from "../../api/client";
 import { axeViolations, renderApp } from "../../test-utils";
 
@@ -208,11 +208,19 @@ describe("M1/C1 Consent Center", () => {
     expect(screen.getByText(/this decision is still open/)).toBeTruthy();
   });
 
-  it("access history shows allowed and blocked reads", async () => {
-    renderApp("/patient/consent", { lang: "en", signedIn: true });
+  it("access history shows allowed and blocked access by others, never the patient's own actions", async () => {
+    const inner = mockTransport();
+    const own = { at: new Date().toISOString(), actor_id: MOCK_PATIENT_ID, actor_role: "patient", action: "document.confirm", purpose: null,
+                  result: "allow", reason: null, consent_id: null, actor_name: null }; // B8c: the live server lists these too
+    const transport: Transport = async (r) => {
+      const res = await inner(r);
+      return r.path === "/me/access-history" ? { ...res, body: [own, ...(res.body as object[])] } : res;
+    };
+    renderApp("/patient/consent", { lang: "en", signedIn: true, transport });
     const history = within((await screen.findByText("Who saw your information, and when")).closest("section")!);
-    expect(await history.findByText("Viewed")).toBeTruthy();
+    expect((await history.findAllByText("Allowed")).length).toBeGreaterThan(0); // allowed, not "viewed": a request or an edit is not a view
     expect(history.getByText("Blocked")).toBeTruthy();
+    expect(history.queryByText("Unknown user")).toBeNull();
   });
 });
 

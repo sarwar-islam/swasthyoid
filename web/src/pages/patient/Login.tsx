@@ -19,7 +19,7 @@ type Step = "phone" | "code" | "profile";
 export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | "verifier" | "console" }) {
   const staff = portal !== "patient";
   const { t, lang } = useI18n();
-  const { api, deviceId, signIn } = useSession();
+  const { api, deviceId, signIn, expired } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [step, setStep] = useState<Step>("phone");
@@ -96,6 +96,7 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
       </header>
       <main id="main" className="content" style={{ maxWidth: "32rem" }}>
         <h1>{t("login.title")}</h1>
+        {expired && <p className="notice" role="status">{t("login.expired")}</p>}
         <p>{t("login.intro")}</p>
         {apiMode === "mock" && <p className="notice">{t("common.mockMode", { code: localDigits(MOCK_CODE, lang) })}<br />
           <span lang="en" className="mono">{{ patient: MOCK_PHONE, doctor: MOCK_DOCTOR_PHONE, verifier: MOCK_VERIFIER_PHONE,

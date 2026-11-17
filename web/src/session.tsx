@@ -26,6 +26,7 @@ interface Session {
   deviceId: string;
   signIn: (tokens: TokenPair) => void;
   signOut: () => void;
+  expired: boolean; // the server refused the token (it expired after 15 minutes, or the account was suspended)
 }
 
 const SessionContext = createContext<Session | null>(null);
@@ -35,17 +36,30 @@ export function SessionProvider({ transport, initialToken = null, children }:
   { transport: Transport; initialToken?: string | null; children: ReactNode }) {
   const tokenRef = useRef<string | null>(initialToken);
   const [token, setToken] = useState<string | null>(initialToken);
+  const [expired, setExpired] = useState(false);
   const deviceId = useMemo(() => crypto.randomUUID(), []); // one per tab session
-  const api = useMemo(() => createClient(transport, () => tokenRef.current), [transport]);
+  // a 401 on a signed-in request means the token is no longer accepted: sign out, so RequireRole sends the user to sign in
+  // again (the web does not refresh tokens; docs/ROUTES.md)
+  const api = useMemo(() => createClient(async (request) => {
+    const response = await transport(request);
+    if (response.status === 401 && request.headers.Authorization) {
+      tokenRef.current = null;
+      setToken(null);
+      setExpired(true);
+    }
+    return response;
+  }, () => tokenRef.current), [transport]);
   const signIn = useCallback((tokens: TokenPair) => {
     tokenRef.current = tokens.access_token;
     setToken(tokens.access_token);
+    setExpired(false);
   }, []);
   const signOut = useCallback(() => {
     tokenRef.current = null;
     setToken(null);
   }, []);
-  const value = useMemo(() => ({ api, claims: readClaims(token), deviceId, signIn, signOut }), [api, token, deviceId, signIn, signOut]);
+  const value = useMemo(() => ({ api, claims: readClaims(token), deviceId, signIn, signOut, expired }),
+    [api, token, deviceId, signIn, signOut, expired]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

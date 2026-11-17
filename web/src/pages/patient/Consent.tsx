@@ -99,9 +99,10 @@ function QrCodeEntry() {
  * cloud-AI opt-in (not available: FRD question 5 is open) and the access history from the audit log. */
 export function ConsentCenter() {
   const { t, lang } = useI18n();
-  const { api } = useSession();
+  const { api, claims } = useSession();
   const consents = useLoad(() => api.request<Consent[]>("GET", "/consents"), []);
-  const history = useLoad(() => api.request<AccessEntry[]>("GET", "/me/access-history"), []);
+  // "who saw your information" is about other people: the patient's own actions (uploads, approvals) are left out
+  const history = useLoad(async () => (await api.request<AccessEntry[]>("GET", "/me/access-history")).filter((h) => h.actor_id !== claims?.sub), []);
   const [revoking, setRevoking] = useState<Consent | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [done, setDone] = useState<string | null>(null);
