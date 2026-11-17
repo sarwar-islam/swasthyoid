@@ -4,6 +4,7 @@ import pytest
 from swasthyoid.tests.test_api_m1 import (  # noqa: F401  (fixtures)
     ADMIN, PATIENT, PROFILE, V1, api, audit_reasons, login, people,
 )
+from swasthyoid.tests.test_api_b2 import cast  # noqa: F401  (fixture)
 from swasthyoid import pii
 from swasthyoid.identity import accounts
 
@@ -231,3 +232,50 @@ def test_a_client_can_no_longer_name_a_storage_key(api, people):  # noqa: F811
                       json={"type": "BMDC", "number": "SYNTH-BMDC-0002", "doc_key": "patients/someone/1.jpg"})
     assert r.status_code in (201, 409)
     assert api.conn.execute("SELECT count(*) FROM credentials WHERE doc_key IS NOT NULL").fetchone()[0] == 0
+
+
+# ---- W2 export (owner decisions c and d, 2026-11-17)
+
+def test_the_patient_downloads_their_own_data_with_home_vitals_kept_apart(api, cast):  # noqa: F811
+    from datetime import date, datetime, timezone
+    from uuid import uuid4
+
+    from swasthyoid.core import events_provenance
+    from swasthyoid.tests.test_api_b6 import consent
+    from swasthyoid.tests.test_api_p6 import bp
+    doc = uuid4()
+    api.conn.execute("INSERT INTO documents (id, patient_id, doc_type, status, uploaded_by) VALUES (%s, %s, 'prescription', "
+                     "'verified', %s)", [doc, cast.patient_id, cast.patient_id])
+    allergy = events_provenance.append(
+        api.conn, patient_id=cast.patient_id, event_type="allergy", event_date=date(2026, 11, 1), date_precision="day",
+        actor_id=cast.patient_id, actor_role="patient", source_type="document", verification_status="document_verified",
+        payload={"allergy_text": "SYNTH-ALLERGEN-001"}, source_document_id=doc, verified_by=cast.patient_id,
+        verified_at=datetime.now(timezone.utc))
+    reading = api.http.post(f"{V1}/vitals", headers=cast.patient, json=bp()).json()["reading"]
+    consent(api, cast)
+    assert api.http.get(f"{V1}/patients/{cast.patient_id}/timeline", headers=cast.doctor).status_code == 200
+
+    r = api.http.get(f"{V1}/me/export", headers=cast.patient)
+    assert r.status_code == 200, r.text
+    assert r.headers["cache-control"] == "no-store" and "attachment" in r.headers["content-disposition"]
+    data = r.json()
+    assert data["profile"]["health_id"] == cast.health_id
+    assert [e["event_id"] for e in data["events"]] == [str(allergy["id"])]  # the home reading is not mixed in
+    assert [v["id"] for v in data["patient_reported"]["vitals"]] == [reading["id"]]
+    assert data["patient_reported"]["vitals"][0]["verification_status"] == "patient_reported"
+    assert [c["status"] for c in data["consents"]] == ["active"]
+    assert any(h["actor_role"] == "doctor" for h in data["access_history"])  # who read the record is in it
+    assert data["not_included"] == ["document_images"]
+    assert '"images"' not in r.text and "safety_alert" not in r.text  # no images, no raw M6 alerts
+    logged = api.conn.execute("SELECT actor_id, patient_id FROM audit_logs WHERE action = 'patient.export'").fetchall()
+    assert logged == [(cast.patient_id, cast.patient_id)]
+
+
+def test_only_a_patient_exports_and_only_their_own_data(api, cast):  # noqa: F811
+    for headers in (cast.doctor, cast.admin, cast.verifier):
+        assert api.http.get(f"{V1}/me/export", headers=headers).status_code == 403
+    assert api.http.get(f"{V1}/me/export").status_code == 401
+    stranger = login(api, "+8801700000009", profile={**PROFILE, "name": "Synthetic Patient 9"})
+    mine = api.http.get(f"{V1}/me/export", headers=stranger).json()
+    assert mine["profile"]["name"] == "Synthetic Patient 9"
+    assert mine["events"] == [] and mine["consents"] == [] and mine["patient_reported"] == {"vitals": []}

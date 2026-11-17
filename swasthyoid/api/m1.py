@@ -11,17 +11,20 @@ from uuid import UUID, uuid4
 import psycopg
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from swasthyoid import pii
+from swasthyoid.api import timeline
 from swasthyoid.api.deps import (
     Actor, ApiError, actor, client_info, get_code_sender, get_conn, idempotent, person_labels, require,
 )
 from swasthyoid.capture import documents, imaging, storage
-from swasthyoid.core import audit, consent_authz, notification
+from swasthyoid.core import audit, consent_authz, events_provenance, notification
 from swasthyoid.identity import accounts, otp, sessions
+from swasthyoid.vitals import readings
 
 router = APIRouter()
 
@@ -487,3 +490,28 @@ def access_history(conn=Depends(get_conn), a: Actor = Depends(require("patient")
         "SELECT DISTINCT grantee_id FROM consents WHERE patient_id = %s AND purpose = 'CAREGIVER'", [a.id])]
     names.update({k: v["name"] for k, v in person_labels(conn, known).items()})
     return [{**r, "actor_name": names.get(r["actor_id"])} for r in rows]
+
+
+# ---- W2: the patient's own data as one file (owner decisions c and d, 2026-11-17)
+
+@router.get("/me/export")
+def export(request: Request, conn=Depends(get_conn), a: Actor = Depends(require("patient"))):
+    """Everything this patient may already see, in one JSON file: profile, timeline events, consents and access history.
+    Home vitals are a separate `patient_reported` section, not mixed with verified events (c). Document images are left
+    out for now (d); deletion waits for the legal rules (S4). Audited before anything is read, so it fails closed."""
+    audit.append(conn, action="patient.export", result="allow", actor_id=a.id, actor_role=a.role, patient_id=a.id,
+                 device_id=a.device_id, **client_info(request))
+    vitals = readings.listing(conn, a.id, limit=None)
+    home = {v["event_id"] for v in vitals}
+    data = {
+        "format": "swasthyoid-export",
+        "exported_at": conn.execute("SELECT clock_timestamp()").fetchone()[0],
+        "profile": me(conn, a),
+        "events": [timeline.event_view(r) for r in events_provenance.timeline(conn, a.id) if r["id"] not in home],
+        "patient_reported": {"vitals": vitals},
+        "consents": list_consents(conn, a),
+        "access_history": access_history(conn, a),
+        "not_included": ["document_images"],
+    }
+    return JSONResponse(jsonable_encoder(data), headers={
+        "Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="swasthyoid-export.json"'})

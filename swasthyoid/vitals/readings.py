@@ -237,10 +237,11 @@ def save(conn, patient_id, body, *, actor, of=None):
         raise Conflict("already_corrected") from None
 
 
-def listing(conn, patient_id):
-    """The patient's own readings, corrected ones included (each says what it supersedes), newest first."""
+def listing(conn, patient_id, limit=LIST_LIMIT):
+    """The patient's own readings, corrected ones included (each says what it supersedes), newest first. limit=None: all
+    of them (the W2 export)."""
     rows = conn.cursor(row_factory=dict_row).execute(
         "SELECT r.*, e.payload, e.version, e.supersedes, e.recorded_at, e.verification_status FROM vital_readings r "
         "JOIN events e ON e.id = r.event_id WHERE r.patient_id = %s ORDER BY e.recorded_at DESC, r.id LIMIT %s",
-        [patient_id, LIST_LIMIT]).fetchall()
+        [patient_id, limit]).fetchall()
     return [reading_view(r) for r in rows]

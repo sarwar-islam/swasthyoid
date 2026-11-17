@@ -21,7 +21,10 @@ def timeline(patient_id: UUID, date_from: date | None = Query(None, alias="from"
              type: EventType | None = None, conn=Depends(get_conn),
              a: Actor = Depends(patient_read("TIMELINE", "timeline", caregiver="view_timeline"))):
     rows = events_provenance.timeline(conn, patient_id, date_from=date_from, date_to=date_to, event_type=type)
-    return [{"event_id": r["id"], "event_type": r["event_type"], "date": r["event_date"], "date_precision": r["date_precision"],
-             "verification_status": r["verification_status"], "source_document_id": r["source_document_id"],
-             "recorded_at": r["recorded_at"], "version": r["version"], "supersedes": r["supersedes"], "payload": r["payload"]}
-            for r in rows]
+    return [event_view(r) for r in rows]
+
+
+def event_view(r):
+    return {"event_id": r["id"], "event_type": r["event_type"], "date": r["event_date"], "date_precision": r["date_precision"],
+            "verification_status": r["verification_status"], "source_document_id": r["source_document_id"],
+            "recorded_at": r["recorded_at"], "version": r["version"], "supersedes": r["supersedes"], "payload": r["payload"]}

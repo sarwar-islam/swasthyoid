@@ -1,5 +1,7 @@
 import { AlarmClock, Bell, BriefcaseMedical, HeartHandshake, HeartPulse, IdCard, LifeBuoy, Siren, type LucideIcon } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router";
+import { ErrorNote } from "../../components/ui";
 import { flags } from "../../flags";
 import { useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
@@ -19,7 +21,24 @@ const TILES: Array<{ to: string; title: Key; desc: Key; icon: LucideIcon; flag?:
 /** F2: the patient's health tools (M13, M8, M7, M10 when its flag is on); F4: caregiver mode. */
 export function More() {
   const { t } = useI18n();
-  const { signOutEverywhere } = useSession();
+  const { api, signOutEverywhere } = useSession();
+  const [exported, setExported] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  // W2: the server builds the file; the browser saves it (nothing is kept in browser storage)
+  const download = async () => {
+    setError(null);
+    setExported(false);
+    try {
+      const data = await api.request<unknown>("GET", "/me/export");
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const link = Object.assign(document.createElement("a"), { href: url, download: "swasthyoid-export.json" });
+      link.click();
+      URL.revokeObjectURL(url);
+      setExported(true);
+    } catch (e) {
+      setError(e);
+    }
+  };
   return (
     <>
       <h1>{t("more.title")}</h1>
@@ -32,6 +51,10 @@ export function More() {
       </ul>
       <section className="card section" aria-labelledby="account-title">
         <h2 id="account-title">{t("more.account")}</h2>
+        <p className="muted">{t("more.export.desc")}</p>
+        <button type="button" onClick={download}>{t("more.export")}</button>
+        {exported && <p className="ok-note" role="status">{t("more.export.done")}</p>}
+        <ErrorNote error={error} />
         <p className="muted">{t("more.signOutAll.desc")}</p>
         <button type="button" onClick={signOutEverywhere}>{t("more.signOutAll")}</button>
       </section>

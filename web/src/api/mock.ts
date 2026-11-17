@@ -1068,6 +1068,15 @@ export function mockTransport(): Transport {
     // verifiers never read timelines (FRD section 2)
     ["GET", "/patients/{id}/timeline", (r, p) =>
       gate(r, p.id, { doctor: "timeline", care: "view_timeline" }, "timeline.read") ?? ok(s.records[p.id]?.timeline ?? [])],
+    // W2, as the server: the patient's own data; home vitals apart from verified events, no document images
+    ["GET", "/me/export", (r) => {
+      if (!authed(r)) return who(r) ? roleDenied() : unauthenticated;
+      const home = new Set(s.vitals.map((v) => v.event_id));
+      return ok({ format: "swasthyoid-export", exported_at: new Date().toISOString(), profile: s.me,
+                  events: (s.records[MOCK_PATIENT_ID]?.timeline ?? []).filter((e) => !home.has(e.event_id)),
+                  patient_reported: { vitals: s.vitals }, consents: s.consents.filter((c) => s.patientOf[c.id] === MOCK_PATIENT_ID),
+                  access_history: s.history, not_included: ["document_images"] });
+    }],
     // V5: patients only; anyone else signed in is refused by role, as the server
     ["GET", "/vitals", (r) => (authed(r) ? ok([...s.vitals].sort((a, b) => b.recorded_at.localeCompare(a.recorded_at)))
       : who(r) ? roleDenied() : unauthenticated)],
