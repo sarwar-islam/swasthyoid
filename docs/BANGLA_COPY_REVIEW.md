@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (812 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (836 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (812 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (36) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (9) · [`cmd`](#cmd) (8) · [`login`](#login) (25) · [`logout`](#logout) (4) · [`hs`](#hs) (11) · [`err`](#err) (62) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (46) · [`cap`](#cap) (8) · [`aud`](#aud) (6) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (9) · [`cmd`](#cmd) (8) · [`login`](#login) (25) · [`logout`](#logout) (4) · [`hs`](#hs) (11) · [`err`](#err) (62) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -104,6 +104,16 @@ Generated from `web/src/i18n/strings.ts` (812 strings). Do not edit the strings 
 | `land.staff.console` | রিভিউয়ার ও অ্যাডমিন | Reviewer and admin |  |
 | `land.policy` | গোপনীয়তা নীতি ও ব্যবহারের শর্ত আইনি পর্যালোচনার পর যোগ হবে। | The privacy policy and terms of use will be added after legal review. |  |
 | `land.dev` | সব পোর্টাল (ডেভেলপমেন্ট) | All portals (development) |  |
+| `land.step1.t` | ছবি তুলুন | Take a photo |  |
+| `land.step2.t` | একজন মানুষ যাচাই করেন | A person checks it |  |
+| `land.step3.t` | আপনি অনুমতি দেন | You allow access |  |
+| `land.trust.lead` | আপনার রেকর্ড কে দেখবে, তা আপনি ঠিক করেন। সিস্টেম সেই নিয়মেই চলে। | You decide who sees your record. The system follows that rule. |  |
+| `land.trust.verify` | আপলোড করা নথি একজন মানুষ যাচাই করার পরেই যাচাই করা টাইমলাইনে যায়। | Uploaded documents reach your verified timeline only after a person checks them. |  |
+| `land.trust.audit` | প্রতিবার দেখা আপনার অনুমতি মেনে হয়, আর তার রেকর্ড রাখা হয়। | Every view follows your permission and is recorded. |  |
+| `land.preview` | নমুনা (ডেমো) · বানানো তথ্য | Preview (demo) · made-up data |  |
+| `land.preview.doctor` | ডা. সিনথেটিক চিকিৎসক | Dr. Synthetic Physician |  |
+| `land.preview.allowed` | আপনার অনুমতিতে দেখছেন | Viewing with your permission |  |
+| `land.footerNav` | পাতার লিংক | Page links |  |
 | `land.nav` | পাতার অংশ | Page sections |  |
 | `land.forPatients` | রোগীদের জন্য | For patients |  |
 | `land.privacy` | গোপনীয়তা | Privacy |  |
@@ -111,6 +121,30 @@ Generated from `web/src/i18n/strings.ts` (812 strings). Do not edit the strings 
 | `land.doctors.apply` | ডাক্তার হিসেবে আবেদন করুন | Apply for doctor access |  |
 | `land.menu` | মেনু | Menu |  |
 | `land.toTop` | উপরে যান | Back to top |  |
+
+## cap
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `cap.timeline.t` | এক টাইমলাইন | One timeline |  |
+| `cap.records.t` | মেডিকেল রেকর্ড | Medical records |  |
+| `cap.records` | প্রতিটি নথি আর তার যাচাইয়ের অবস্থা এক তালিকায়। | Every document and its review status in one list. |  |
+| `cap.summary.t` | স্বাস্থ্য সারাংশ | Health summary |  |
+| `cap.summary` | যাচাই করা ওষুধ, ল্যাবের ফল আর ফলো-আপ এক নজরে। | Verified medicines, lab results and follow-ups at a glance. |  |
+| `cap.consent.t` | অনুমতি আপনার হাতে | Consent in your hands |  |
+| `cap.vitals.t` | বাসায় মাপা রিডিং | Home readings |  |
+| `cap.history.t` | কে দেখেছে | Access history |  |
+
+## aud
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `aud.p1` | প্রেসক্রিপশন আর রিপোর্ট এক জায়গায় গুছিয়ে রাখুন। | Keep prescriptions and reports organised in one place. |  |
+| `aud.p2` | যাচাই করা রেকর্ড দেখুন, উৎসসহ। | Review your verified records, with their sources. |  |
+| `aud.p3` | কে আপনার স্বাস্থ্য তথ্য দেখবে, আপনি ঠিক করুন। | Decide who can see your health information. |  |
+| `aud.d1` | শুধু রোগীর অনুমতিতে তাঁর তথ্য দেখুন। | See a patient's information only with their permission. |  |
+| `aud.d2` | যাচাই করা রেকর্ড আর সারাংশ দেখুন, প্রতিটি বাক্যের উৎসসহ। | Review verified records and summaries, each sentence with its source. |  |
+| `aud.d3` | অ্যাক্সেসের আগে আপনার BMDC নিবন্ধন যাচাই করা হয়। | Your BMDC registration is checked before you get access. |  |
 
 ## more
 

@@ -2949,3 +2949,27 @@ languages with axe; sign-in field error). Type check clean. Browser pane (mock),
 AA): 15 patient pages × light/dark at 375 px, 4 doctor, 2 verifier, 2 reviewer and 5 admin pages × light/dark at 375 px,
 landing and 7 patient + 2 doctor pages × light/dark at 1280 px (pane-width during part of the run), 4 patient and 2 admin
 pages × light/dark at 768 px: 0 violations, no horizontal scroll. Copy list: 812 strings.
+
+## W1 landing refinement (2026-11-18)
+
+The landing page keeps its light teal direction and is rebuilt on the shared tokens (no landing-only colours, radii or
+shadows; the old scattered `.land-nav` rules were removed and replaced by one block).
+
+- **Header:** brand, four section links (one row from 1024 px, a menu button below that, icon-only under 480 px with its
+  name kept for screen readers), language, theme, Sign in. Sticky from 768 px; on phones it scrolls away (two rows).
+- **Emergency:** a quiet strip (red words on a soft red surface, 44 px tall) replaces the full red bar on the landing page
+  only; the patient app keeps its bar. Same `tel:999` link and wording.
+- **Hero:** two columns from 900 px. The right column is a preview built from the app's own badges and chips with made-up
+  content (`SYNTH-DRUG-003`, `SYNTH-TEST-A`, `SYNTH-READING-1`, "Dr. Synthetic Physician"), captioned "Preview (demo) ·
+  made-up data". The prototype notice is a calm surface under the buttons, wording unchanged.
+- **Sections:** how it works (three numbered steps with short headings, same workflow), six features (only built ones:
+  timeline, records, health summary, consent, home readings, access history), privacy and trust (lead plus checklist; no
+  security or certification claims), patients and doctors side by side (doctors: only with the patient's permission),
+  footer (brand, page links, Sign in, staff sign-in, the existing policy note; no copyright, address or contacts).
+- **Global fixes found here:** link-buttons are never underlined; button colours switch instantly (a colour transition left
+  dark text on the old light fill for a moment after a theme change, 3.5:1).
+
+**Verification.** Web 258 passed (2 new: preview labelled a demo, three steps, six features, both audiences, footer links,
+Bangla and English with axe). Build passes (JS 633 kB, CSS 44 kB). No lint is configured in the project. Browser pane,
+axe-core WCAG 2.1 AA with contrast, light and dark: 375, 430, 768, 1280 and 1440 px, 0 violations, no horizontal scroll,
+no header overlap, no clipped text, every link and button at least 44 px tall.
