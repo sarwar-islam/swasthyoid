@@ -185,6 +185,19 @@ def suspend_user(conn, user_id, *, admin_id, reason=None):
         sessions.revoke_all(conn, user_id)
 
 
+def set_emergency(conn, user_id, *, admin_id, enabled):
+    """Switch a verified doctor's emergency capability (M10, B7; owner decision 1, 2026-11-17). Also how a doctor is
+    restored after an unjustified review. Raises ValueError for anyone but a verified doctor."""
+    with conn.transaction():
+        row = conn.execute("UPDATE users SET emergency_enabled = %s, updated_at = clock_timestamp() "
+                           "WHERE id = %s AND role = 'doctor' AND status = 'verified' RETURNING id",
+                           [enabled, user_id]).fetchone()
+        if row is None:
+            raise ValueError("not a verified doctor")
+        audit.append(conn, action=f"user.emergency.{'enable' if enabled else 'disable'}", result="allow",
+                     actor_id=admin_id, actor_role="admin", resource_type="user", resource_id=user_id)
+
+
 def restore_user(conn, user_id, *, admin_id):
     """suspended -> verified. Suspended grants work again; the user must log in again."""
     with conn.transaction():

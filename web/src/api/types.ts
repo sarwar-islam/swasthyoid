@@ -237,6 +237,9 @@ export interface Reminder {
 }
 
 // ---- M10 emergency profile (FRD: PUT /me/emergency-profile. GAP: GET /me/emergency-profile, needed to show the current profile)
+// BUILT in B7 (api/emergency.py), only with the server flag EMERGENCY_ACCESS_ENABLED=1 (else 403 emergency_not_enabled).
+// The server keeps contacts' phones as Bangladesh mobile numbers (+880...); `available` holds only verified allergies, as
+// written: blood group, active medications and conditions stay empty (REVIEWER-PENDING, owner decision 2026-11-17).
 
 export type EmergencyField = "blood_group" | "allergies" | "active_medications" | "conditions" | "emergency_contacts";
 
@@ -335,7 +338,9 @@ export interface SafetyAlert {
   reason: string | null;
 }
 
-/** POST /emergency/access { health_id, reason, facility }. FRD (M10), not built; only with VITE_FEATURE_EMERGENCY_ACCESS=1. */
+/** POST /emergency/access { health_id, reason, facility }. FRD (M10); only with VITE_FEATURE_EMERGENCY_ACCESS=1. BUILT in B7
+ * behind the server flag: 403 emergency_not_enabled (flag off, or the doctor's capability off), 422 reason_required, 404
+ * patient_not_found; the session lasts EMERGENCY_SESSION_MINUTES (default 120). */
 export interface EmergencySession {
   session_id: string;
   expires_at: string;
@@ -425,7 +430,9 @@ export interface RuleDraftBody {
 
 /** A closed break-glass session waiting for post-hoc review (FRD M10; only with VITE_FEATURE_EMERGENCY_ACCESS=1).
  * GET /admin/emergency/reviews and POST /admin/emergency/reviews/{id}/review { decision, note }: FRD routes, shapes GAP. The
- * reviewer sees who opened it, why, where, when and which card FIELDS were shown, never the patient or the values. */
+ * reviewer sees who opened it, why, where, when and which card FIELDS were shown, never the patient or the values.
+ * BUILT in B7 behind the server flag: a session is listed only once its time box has ended; 409 not_pending, 422
+ * invalid_decision, 422 reason_required ("unjustified" without a note), 404 for an unknown or still open session. */
 export interface EmergencyReview {
   id: string;
   doctor_id: string;

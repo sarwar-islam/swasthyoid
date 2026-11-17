@@ -82,8 +82,8 @@ def _authorize(req, user, patient, consent, now):
     if req.purpose not in PURPOSES:
         return deny("unknown_purpose")
     if req.purpose == "EMERGENCY":
-        # PLACEHOLDER: emergency policy is M10 (phase P9, conditional on clinical
-        # reviewer and lawyer approval). Until then every emergency request is denied.
+        # Emergency access never rides on a consent: it goes through check_emergency below (M10, B7), and only while
+        # the server flag is on. A consent-based request for it is always denied.
         return deny("emergency_not_enabled")
     if consent is None:
         return deny("consent_required")
@@ -239,6 +239,40 @@ def check_access(conn, *, user, patient_id, purpose, categories, action, **clien
         conn, action=action, result="allow" if decision.allowed else "deny", reason=decision.reason,
         actor_id=user.id, actor_role=user.role, patient_id=patient_id, consent_id=consent and consent.id,
         purpose=purpose, **client,
+    )
+    return decision
+
+
+# ---- Emergency policy (purpose EMERGENCY; FRD 4.1 and M10, B7, owner decisions 2026-11-16/17)
+
+def check_emergency(conn, *, user, patient_id, reason, facility, enabled, action, **client):
+    """C1 emergency policy then C2 for one break-glass request: decide, write the audit entry FIRST, return the Decision.
+
+    Allowed only while the server flag is on (`enabled`), for a verified, active doctor whose emergency capability is
+    on, with a reason and a facility, for a known patient. The entry is written for allow and deny alike, before any
+    card is built; it says `reason_given`, never the reason. FRD question 14 (a write-ahead buffer when the audit store
+    is down) is open, so a failed audit write raises and no card is returned (fail closed).
+    """
+    try:
+        capable = conn.execute("SELECT emergency_enabled FROM users WHERE id = %s AND role = 'doctor'",
+                               [user.id]).fetchone()
+        if not enabled:
+            decision = deny("emergency_not_enabled")
+        elif not (user.is_verified is True and user.is_active is True):
+            decision = deny("user_not_verified")
+        elif not (capable and capable[0] is True):
+            decision = deny("emergency_not_enabled")
+        elif not (isinstance(reason, str) and reason.strip() and isinstance(facility, str) and facility.strip()):
+            decision = deny("reason_required")
+        elif patient_id is None:
+            decision = deny("patient_not_found")
+        else:
+            decision = Decision(True)
+    except Exception:
+        decision = deny("authorization_error")  # fail closed (FRD invariant 8)
+    audit.append(
+        conn, action=action, result="allow" if decision.allowed else "deny", reason=decision.reason or "reason_given",
+        actor_id=user.id, actor_role=user.role, patient_id=patient_id, purpose="EMERGENCY", **client,
     )
     return decision
 

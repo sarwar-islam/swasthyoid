@@ -20,14 +20,18 @@ def _views(conn, rows):
     ids = {r["payload"].get("consent_id") for r in rows} - {None}
     consents = {str(c[0]): c for c in conn.execute(
         "SELECT id, grantee_id, allowed_categories FROM consents WHERE id = ANY(%s::uuid[])", [list(ids)]).fetchall()}
-    grantees = {c[1] for c in consents.values()}
+    sessions = {r["payload"].get("session_id") for r in rows} - {None}  # emergency_access (M10, B7): the doctor's name
+    doctors = {str(s[0]): s[1] for s in conn.execute(
+        "SELECT id, doctor_id FROM emergency_sessions WHERE id = ANY(%s::uuid[])", [list(sessions)]).fetchall()}
+    grantees = {c[1] for c in consents.values()} | set(doctors.values())
     names = dict(conn.execute("SELECT id, name FROM users WHERE id = ANY(%s)", [list(grantees)]).fetchall())
     names.update({k: v["name"] for k, v in person_labels(conn, grantees - set(names)).items()})
     out = []
     for r in rows:
         c = consents.get(r["payload"].get("consent_id"))
+        actor = c[1] if c else doctors.get(r["payload"].get("session_id"))
         out.append({"id": r["id"], "kind": notification.INBOX_KINDS[r["template_id"]], "created_at": r["created_at"],
-                    "read_at": r["read_at"], "actor_name": names.get(c[1]) if c else None,
+                    "read_at": r["read_at"], "actor_name": names.get(actor),
                     "categories": c[2] if c else [], "facility": r["payload"].get("facility")})
     return out
 

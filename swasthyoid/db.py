@@ -4,7 +4,7 @@ from pathlib import Path
 import psycopg
 
 _ROOT = Path(__file__).parent
-SCHEMA_FILES = [_ROOT / d / "schema.sql" for d in ("core", "identity", "capture", "safety")]  # in dependency order
+SCHEMA_FILES = [_ROOT / d / "schema.sql" for d in ("core", "identity", "capture", "safety", "emergency")]  # in dependency order
 
 
 def connect(**kwargs):
