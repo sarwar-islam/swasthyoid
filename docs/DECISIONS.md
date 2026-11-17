@@ -2364,3 +2364,49 @@ defaults; versions, conflicts, seven invalid bodies, clearing, the audit count, 
 Browser pane, mock build: the thresholds screen at desktop and 375 px (no horizontal overflow, no console error); the
 empty note itself shows only against the server and is covered by the tests. The schema applies over the B5 schema
 (569b4d8 schema with a row, then the new schema twice).
+
+## B7 M10 emergency access behind a server flag (owner approval 2026-11-17)
+
+**Owner decisions.** (1) An admin switches a doctor's emergency capability: `POST /admin/users/{id}/emergency { enabled }`
+(GAP), which also restores a doctor after an unjustified review; no console screen yet (B8 list). (2) The card shows only
+verified allergy events, as written, and the contacts; blood group, active medications and conditions stay empty
+(REVIEWER-PENDING: no blood-group event exists, diagnoses never become events (D7 Q4), and "active" and "long-term" need
+the clinical reviewer's rules). (3) Only the patient is notified, in the app; the emergency contact's notice stays unbuilt
+until an SMS gateway is chosen (contacts are not accounts). (4) `EMERGENCY_SESSION_MINUTES` defaults to 120, the FRD's
+"default 2 hours, configurable".
+
+- **Server flag** (decision 9 of the plan): unless `EMERGENCY_ACCESS_ENABLED=1`, every M10 route is refused with 403
+  `emergency_not_enabled` and the refusal audited; a consent-based EMERGENCY request is always denied.
+- **C1 emergency policy (`core/consent_authz.py` `check_emergency`):** flag on, verified and active doctor, capability on,
+  reason and facility present, known patient; otherwise 403 `emergency_not_enabled`, 422 `reason_required`, 404
+  `patient_not_found`. The audit entry (`emergency.access`, purpose EMERGENCY) is written FIRST, for allow and deny, and
+  says `reason_given`, never the reason. FRD question 14 (a write-ahead buffer when the audit store is down) is open, so
+  a failed audit write fails the request and no card is returned.
+- **Profile (`emergency_profiles`, `emergency/profile.py`):** `GET`/`PUT /me/emergency-profile`, the patient only; off
+  until turned on; the patient picks the fields (422 `invalid_profile`); contacts need a name and a Bangladesh mobile
+  number (422 `invalid_contact`) and are stored sealed; audited `emergency.profile.update`.
+- **Sessions (`emergency_sessions`, `emergency/sessions.py`):** reason, facility, start, end and the names of the fields
+  shown, never their values. The card holds only the chosen fields (or null when the profile is off); the patient's
+  `emergency_access` notice is queued in the same transaction (the inbox names the doctor and the facility, never the
+  reason). A database guard keeps every row unchanged except one review step, review_pending -> justified | unjustified,
+  only after the session has closed; unjustified needs a note; no delete or truncate. The doctor cannot end a session
+  early (no route; the web has none).
+- **Review:** `GET /admin/emergency/reviews` lists closed sessions (read audited `emergency.review.read`); `POST
+  …/{id}/review { decision, note }`: 422 `invalid_decision`, 422 `reason_required`, 409 `not_pending`, 404 for an unknown
+  or still open session. "Unjustified" turns the doctor's `emergency_enabled` off in the same transaction; audited
+  `emergency.review.justified|unjustified` with `reason_given`. Verified clinical reviewers only.
+- **Frontend:** `types.ts` marks the M10 contracts BUILT; every code a screen can meet already has Bangla and English
+  text. `invalid_profile` has none: the profile screen sends only listed fields, so it falls back to the generic text.
+- **Mismatches with the mock, for B8:** the mock accepts any 6 to 15 digit contact phone (the server only Bangladesh
+  mobiles, returned as +880...); queues the review at once (the server once the session closes); can show blood group,
+  medications and conditions from its seed; turns off emergency capability on suspension (the server leaves it; a
+  suspended doctor cannot log in); has no admin capability route.
+
+**Verification.** 13 new backend tests (`tests/test_api_b7.py`): all six routes refused with the flag off (audited, no
+session, no notice); the profile (staff refused, five invalid bodies, contacts sealed, verified allergies only); break-glass
+refusals (capability, reason, facility, unknown patient, every other role) all audited; a session without and with a card,
+the 2-hour default, fields shown by name only, audit first with `reason_given` and no reason text, the patient's notice
+with doctor and facility; a bad session length (503); review only after closing, roles, three invalid bodies, unjustified
+suspending the capability, `not_pending`, restore by an admin; the admin route; the database guard. Local PostgreSQL 16:
+1565 passed, 0 failed, 19 skipped in 18 min 14 s. Web: 183 passed (no screen change); type check clean. The schema applies over the B6 schema (067b9f8 schema
+with a row, then the new schema twice).
