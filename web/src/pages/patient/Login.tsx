@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import { apiMode } from "../../api";
-import { MOCK_ADMIN_PHONE, MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE, MOCK_REVIEWER_PHONE, MOCK_VERIFIER_PHONE } from "../../api/mock";
+import { MOCK_ADMIN_PHONE, MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE, MOCK_REVIEWER_PHONE, MOCK_VERIFIER_PHONE } from "../../api/mockConstants";
 import type { PatientProfile, TokenPair } from "../../api/types";
 import { LanguageToggle, ThemeSelect } from "../../components/Controls";
 import { SkipLink } from "../../shells/Shells";

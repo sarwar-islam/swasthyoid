@@ -1,10 +1,10 @@
 import type { LucideIcon } from "lucide-react";
 import { Activity, BadgeCheck, Camera, Database, FileSearch, Gavel, HeartPulse, Home, Inbox, KeyRound, LayoutGrid,
   ListChecks, ScrollText, ShieldAlert, ShieldCheck, Siren, UserPlus, Users } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { CommandMenu, type Command } from "../components/CommandMenu";
-import { ConfirmDialog } from "../components/ui";
+import { ConfirmDialog, Loading } from "../components/ui";
 import { leaveReasons } from "../leave";
 import { LanguageToggle, ThemeSelect } from "../components/Controls";
 import { flags } from "../flags";
@@ -148,7 +148,7 @@ export function StaffShell({ portal }: { portal: keyof typeof STAFF_NAV }) {
             ))}
           </ul>
         </nav>
-        <main id="main" className="content" tabIndex={-1}><Outlet /></main>
+        <main id="main" className="content" tabIndex={-1}><Suspense fallback={<Loading lines={3} />}><Outlet /></Suspense></main>
       </div>
     </div>
   );

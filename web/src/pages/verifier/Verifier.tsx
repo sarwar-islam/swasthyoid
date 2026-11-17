@@ -2,7 +2,7 @@ import { AlertTriangle, Clock, ShieldCheck, UserRound } from "lucide-react";
 import { createContext, useContext, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Outlet } from "react-router";
 import { apiMode } from "../../api";
-import { MOCK_CODE } from "../../api/mock";
+import { MOCK_CODE } from "../../api/mockConstants";
 import type { AssistSession } from "../../api/types";
 import { ErrorNote } from "../../components/ui";
 import { localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";

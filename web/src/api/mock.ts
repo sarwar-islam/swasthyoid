@@ -14,12 +14,11 @@ import { toAsciiDigits } from "../i18n/i18n";
 // backend's shapes and error format (types.ts says which routes are BUILT, FRD or GAP). An unknown route answers 501
 // `not_built_in_mock`, never a made-up success. Each mockTransport() call starts from the same fresh synthetic state.
 
-export const MOCK_CODE = "123456"; // the one-time code the mock accepts (no SMS in the mock)
-export const MOCK_PHONE = "+8801700000001"; // already registered; any other phone must register with a profile
+import { MOCK_CODE, MOCK_PHONE, MOCK_DOCTOR_PHONE, MOCK_VERIFIER_PHONE, MOCK_REVIEWER_PHONE, MOCK_ADMIN_PHONE, MOCK_RED_FLAG } from "./mockConstants";
+export { MOCK_CODE, MOCK_PHONE, MOCK_DOCTOR_PHONE, MOCK_VERIFIER_PHONE, MOCK_REVIEWER_PHONE, MOCK_ADMIN_PHONE, MOCK_RED_FLAG };
 export const MOCK_PATIENT_ID = "11111111-1111-4111-8111-111111111111";
 export const MOCK_DOCTOR_ID = "22222222-2222-4222-8222-222222222222";
 const DOCTOR_ID = MOCK_DOCTOR_ID;
-export const MOCK_DOCTOR_PHONE = "+8801900000002"; // a verified, emergency-enabled synthetic doctor
 export const MOCK_PENDING_DOCTOR_PHONE = "+8801900000003"; // a synthetic doctor whose BMDC credential is still pending
 export const MOCK_HEALTH_ID = "SID-4827190356";
 const PENDING_DOCTOR_ID = "55555555-5555-4555-8555-555555555555";
@@ -27,11 +26,8 @@ export const MOCK_CAREGIVER_ID = "33333333-3333-4333-8333-333333333333"; // anot
 const CAREGIVER_ID = MOCK_CAREGIVER_ID;
 const OTHER_DOCTOR_ID = "44444444-4444-4444-8444-444444444444";
 export const MOCK_VERIFIER_ID = "77777777-7777-4777-8777-777777777777";
-export const MOCK_VERIFIER_PHONE = "+8801900000004"; // a verified synthetic verifier (CHW)
 export const MOCK_REVIEWER_ID = "88888888-8888-4888-8888-888888888888";
-export const MOCK_REVIEWER_PHONE = "+8801900000005"; // a synthetic clinical reviewer
 export const MOCK_ADMIN_ID = "99999999-9999-4999-8999-999999999999";
-export const MOCK_ADMIN_PHONE = "+8801900000006"; // a synthetic admin
 export const MOCK_SUBMITTED_DOCTOR_ID = "66666666-6666-4666-8666-666666666666"; // a doctor whose BMDC number waits for an admin
 export const MOCK_PENDING_VERIFIER_ID = "7a7a7a7a-7a7a-47a7-87a7-7a7a7a7a7a7a";
 export const MOCK_PENDING_VERIFIER_PHONE = "+8801900000007"; // a verifier who registered and waits for an admin
@@ -301,7 +297,6 @@ function mockHash(text: string): string {
 // UI never contains them; the real ones come from the reviewer-approved M6 registry (FRD M13, M7). All wording is a placeholder.
 const pending = (en: string, bn: string): ReviewedText =>
   ({ status: "REVIEWER-PENDING", en: `[REVIEWER-PENDING] ${en}`, bn: `[রিভিউয়ার-অনুমোদন বাকি] ${bn}` });
-export const MOCK_RED_FLAG = "SYNTH-RED-FLAG"; // the mock routes a message containing this to the emergency card
 
 const notEvaluated = (reason: string): VitalEvaluation => ({ level: "not_evaluated", rule_id: null, message: null, reason });
 

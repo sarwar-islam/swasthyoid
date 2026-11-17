@@ -8,6 +8,12 @@ import { I18nProvider, type Lang } from "./i18n/i18n";
 import { SessionProvider } from "./session";
 import { ThemeProvider } from "./theme";
 
+// UX-3a: portal pages load on demand in the app; tests load them up front so a slow first import never looks like a
+// missing element
+await Promise.all([import("./pages/doctor/doctor"), import("./pages/doctor/Other"), import("./pages/doctor/Patients"),
+  import("./pages/doctor/Workspace"), import("./pages/verifier/Verifier"), import("./pages/console/console"),
+  import("./pages/console/Admin"), import("./pages/console/Reviewer")]);
+
 const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, "");
 export const PATIENT_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_PATIENT_ID, role: "patient" })}.test`;
 export const DOCTOR_TOKEN = `${b64({ alg: "none" })}.${b64({ sub: MOCK_DOCTOR_ID, role: "doctor" })}.test`;

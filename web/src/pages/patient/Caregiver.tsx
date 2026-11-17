@@ -1,14 +1,15 @@
 import { ArrowLeft, CalendarClock, ShieldCheck, UserRound } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useOutletContext, useParams } from "react-router";
 import { apiMode } from "../../api";
-import { MOCK_CODE } from "../../api/mock";
+import { MOCK_CODE } from "../../api/mockConstants";
 import type { CaregiverAuthorization, CaregiverScope } from "../../api/types";
 import { ErrorNote, Loading, Section } from "../../components/ui";
 import { formatDate, localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
 import { useLoad, useSession } from "../../session";
-import { DoctorDocument } from "../doctor/Workspace";
+// the document view is shared with the doctor portal; loaded on demand so the patient app does not carry that portal
+const DoctorDocument = lazy(() => import("../doctor/Workspace").then((m) => ({ default: m.DoctorDocument })));
 import { Capture, DocList } from "./Capture";
 import { TimelineView } from "./Timeline";
 
@@ -201,5 +202,5 @@ export function CareDocument() {
   const { t } = useI18n();
   const auth = useAuth();
   if (!auth.scopes.includes("view_documents")) return <><h1>{t("care.title")}</h1><p className="notice">{t("care.noScope")}</p></>;
-  return <><h1>{t("care.documents")}</h1><DoctorDocument /></>;
+  return <><h1>{t("care.documents")}</h1><Suspense fallback={<Loading lines={2} />}><DoctorDocument /></Suspense></>;
 }

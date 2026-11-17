@@ -1,18 +1,13 @@
 import { HeartPulse } from "lucide-react";
+import { lazy, Suspense, type ComponentType } from "react";
 import type React from "react";
 import { Link, Navigate, Route, Routes } from "react-router";
 import { LanguageToggle, ThemeSelect } from "./components/Controls";
 import { flags } from "./flags";
 import { useI18n } from "./i18n/i18n";
 import type { Key } from "./i18n/strings";
-import { AuditPage, CatalogPage, CredentialsPage, MetricsPage, StaffPage } from "./pages/console/Admin";
-import { ConsoleIndex, OnlyRole } from "./pages/console/console";
+import { Loading } from "./components/ui";
 import { Landing } from "./pages/Landing";
-import { ReviewsPage, RulesPage } from "./pages/console/Reviewer";
-import { DoctorFrame } from "./pages/doctor/doctor";
-import { AllAlerts, BreakGlass, Credentials } from "./pages/doctor/Other";
-import { Patients } from "./pages/doctor/Patients";
-import { AlertsPage, DoctorDocument, DoctorTimeline, SearchPage, SummaryPage, ThresholdsPage, Workspace } from "./pages/doctor/Workspace";
 import { CareDocument, CaregiverFrame, CareIndex, CareRoute, CARE_TABS, Caregiving } from "./pages/patient/Caregiver";
 import { ConsentCenter, QrConsentPage } from "./pages/patient/Consent";
 import { Inbox } from "./pages/patient/Inbox";
@@ -28,9 +23,47 @@ import { Reminders } from "./pages/patient/Reminders";
 import { Timeline } from "./pages/patient/Timeline";
 import { EmergencyPage, FirstAid, Triage } from "./pages/patient/Triage";
 import { Vitals } from "./pages/patient/Vitals";
-import { AssistDocument, AssistQueue, AssistStart, VerifierFrame } from "./pages/verifier/Verifier";
 import { RequireRole } from "./session";
 import { PATIENT_NAV, PatientShell, StaffShell, type NavItem } from "./shells/Shells";
+
+// UX-3a: the doctor, verifier and console pages load only when someone opens that portal; the landing page, sign-in and the
+// patient app stay in the first file (most visitors are patients). `part(load, "Name")` is one named export of a module.
+function part<M extends Record<string, unknown>>(load: () => Promise<M>, name: keyof M & string) {
+  return lazy(() => load().then((m) => ({ default: m[name] as ComponentType<Record<string, unknown>> })));
+}
+const doctorMod = () => import("./pages/doctor/doctor");
+const doctorOther = () => import("./pages/doctor/Other");
+const doctorPatients = () => import("./pages/doctor/Patients");
+const doctorWs = () => import("./pages/doctor/Workspace");
+const verifierMod = () => import("./pages/verifier/Verifier");
+const consoleMod = () => import("./pages/console/console");
+const consoleAdmin = () => import("./pages/console/Admin");
+const consoleReviewer = () => import("./pages/console/Reviewer");
+const DoctorFrame = part(doctorMod, "DoctorFrame");
+const AllAlerts = part(doctorOther, "AllAlerts");
+const BreakGlass = part(doctorOther, "BreakGlass");
+const Credentials = part(doctorOther, "Credentials");
+const Patients = part(doctorPatients, "Patients");
+const Workspace = part(doctorWs, "Workspace");
+const SummaryPage = part(doctorWs, "SummaryPage");
+const DoctorTimeline = part(doctorWs, "DoctorTimeline");
+const SearchPage = part(doctorWs, "SearchPage");
+const AlertsPage = part(doctorWs, "AlertsPage");
+const ThresholdsPage = part(doctorWs, "ThresholdsPage");
+const DoctorDocument = part(doctorWs, "DoctorDocument");
+const VerifierFrame = part(verifierMod, "VerifierFrame");
+const AssistStart = part(verifierMod, "AssistStart");
+const AssistQueue = part(verifierMod, "AssistQueue");
+const AssistDocument = part(verifierMod, "AssistDocument");
+const ConsoleIndex = part(consoleMod, "ConsoleIndex");
+const OnlyRole = lazy(() => consoleMod().then((m) => ({ default: m.OnlyRole })));
+const RulesPage = part(consoleReviewer, "RulesPage");
+const ReviewsPage = part(consoleReviewer, "ReviewsPage");
+const CredentialsPage = part(consoleAdmin, "CredentialsPage");
+const StaffPage = part(consoleAdmin, "StaffPage");
+const CatalogPage = part(consoleAdmin, "CatalogPage");
+const AuditPage = part(consoleAdmin, "AuditPage");
+const MetricsPage = part(consoleAdmin, "MetricsPage");
 
 const PORTALS: Array<{ to: string; title: Key; desc: Key }> = [
   { to: "/patient", title: "portal.patient", desc: "portal.patient.desc" },
@@ -76,6 +109,7 @@ const admin = (page: React.ReactNode) => <OnlyRole role="admin">{page}</OnlyRole
 
 export function AppRoutes() {
   return (
+    <Suspense fallback={<Loading lines={3} />}>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/portals" element={<PortalChooser />} />
@@ -150,5 +184,6 @@ export function AppRoutes() {
         </Route>
       </Route>
     </Routes>
+    </Suspense>
   );
 }

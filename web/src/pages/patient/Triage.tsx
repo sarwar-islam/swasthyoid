@@ -2,7 +2,7 @@ import { BriefcaseMedical, RotateCcw } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { apiMode } from "../../api";
-import { MOCK_RED_FLAG } from "../../api/mock";
+import { MOCK_RED_FLAG } from "../../api/mockConstants";
 import type { TriageState } from "../../api/types";
 import { ApiError } from "../../api/client";
 import { EmergencyCard, ErrorNote, Reviewed } from "../../components/ui";
