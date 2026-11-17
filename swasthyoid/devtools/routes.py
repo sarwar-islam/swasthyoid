@@ -38,7 +38,9 @@ def _norm(path):
 
 def server_routes():
     from swasthyoid.api.main import app
-    return {(m.upper(), _norm(p.removeprefix("/api/v1"))) for p, ops in app.openapi()["paths"].items() for m in ops}
+    # tests/authz_matrix adds probe routes under /api/v1/_... to the shared app when imported: not product routes
+    return {(m.upper(), _norm(p.removeprefix("/api/v1"))) for p, ops in app.openapi()["paths"].items() for m in ops
+            if not p.startswith("/api/v1/_")}
 
 
 def mock_routes(src=None):
