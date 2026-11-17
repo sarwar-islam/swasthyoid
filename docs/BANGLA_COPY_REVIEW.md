@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (683 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (709 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (683 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (55) · [`login`](#login) (17) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (32) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (13) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (39) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (11) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (60) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (32) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (39) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (11) · [`th`](#th) (13)
 
 ## app
 
@@ -117,7 +117,6 @@ Generated from `web/src/i18n/strings.ts` (683 strings). Do not edit the strings 
 | `err.network_unavailable` | সার্ভারে পৌঁছানো যাচ্ছে না। ইন্টারনেট সংযোগ দেখুন। | The server can't be reached. Check your internet connection. |  |
 | `err.not_built` | এই অংশটি এখনো সার্ভারে চালু হয়নি। তাই এখানে কোনো তথ্য দেখানো হচ্ছে না। | This part isn't on the server yet, so nothing is shown here. |  |
 | `err.not_revocable` | এই সম্মতি এখন সক্রিয় নয়। | This consent isn't active now. |  |
-| `err.not_active` | এই অনুমতি এখন আর চালু নেই। রোগীর কাছে আবার অনুমতি চান। | This permission is no longer active. Ask the patient again. |  |
 | `err.not_pending` | এই অনুরোধ আর খোলা নেই। | This request is no longer open. |  |
 | `err.not_allowed_state` | নথিটি এখন এই অবস্থায় নেই। | The document isn't in that state now. |  |
 | `err.retry_limit_reached` | এই নথি পড়ার সব চেষ্টা শেষ। হাতে লিখে দিন। | Every reading attempt for this document is used. Enter it by hand. |  |
@@ -128,6 +127,7 @@ Generated from `web/src/i18n/strings.ts` (683 strings). Do not edit the strings 
 | `err.image_unsupported` | শুধু JPEG বা PNG ছবি দেওয়া যাবে। | Only JPEG or PNG images are accepted. |  |
 | `err.image_undecodable` | এই ফাইলটি পড়া যাচ্ছে না, হয়তো নষ্ট। | This file can't be read; it may be damaged. |  |
 | `err.image_too_large` | এই ছবিতে অনেক বেশি পিক্সেল। | This image has too many pixels. |  |
+| `err.not_active` | এই অনুমতি এখন আর চালু নেই। রোগীর কাছে আবার অনুমতি চান। | This permission is no longer active. Ask the patient again. |  |
 | `err.confirmation_required` | এই মানটি অস্বাভাবিক দেখাচ্ছে। নিশ্চিত করুন। | This value looks unusual. Confirm it. |  |
 | `err.invalid_reading` | মান ও একক আবার দেখুন। | Check the value and the unit. |  |
 | `err.invalid_contact` | প্রত্যেকের নাম ও সঠিক ফোন নম্বর দিন। | Give each person a name and a valid phone number. |  |
@@ -155,6 +155,9 @@ Generated from `web/src/i18n/strings.ts` (683 strings). Do not edit the strings 
 | `err.invalid_request` | তথ্যগুলো আবার দেখুন। | Check the details and try again. |  |
 | `err.console_no_signup` | এই নম্বরে কোনো কনসোল অ্যাকাউন্ট নেই। কনসোল অ্যাকাউন্ট শুধু অ্যাডমিন খুলতে পারেন। | There's no console account for this number. Only an admin can create console accounts. |  |
 | `err.invalid_rule` | ধরন, তীব্রতা, সংজ্ঞা আর দুই ভাষার ব্যাখ্যা আবার দেখুন। | Check the type, severity, definition and both explanations. |  |
+| `err.invalid_rule_definition` | এই ধরনের নিয়মে নির্ধারিত সংজ্ঞা (schema), দরকারি key আর তীব্রতা দিন। | For this rule type, use its schema definition with the required keys, and set a severity. |  |
+| `err.query_required` | খোঁজার জন্য অন্তত একটি শব্দ লিখুন। | Type at least one word to search for. |  |
+| `err.query_too_long` | খোঁজার লেখা ছোট করুন: সর্বোচ্চ ২০০ অক্ষর। | Shorten the search: at most 200 characters. |  |
 | `err.draft_exists` | এই নিয়মের একটি খসড়া আগে থেকেই পর্যালোচনার অপেক্ষায়। | This rule already has a draft waiting for review. |  |
 | `err.not_draft` | শুধু খসড়ার পর্যালোচনা করা যায়। | Only a draft can be reviewed. |  |
 | `err.invalid_decision` | ন্যায্য বা অন্যায্য বেছে নিন। | Choose justified or unjustified. |  |
@@ -608,16 +611,44 @@ Generated from `web/src/i18n/strings.ts` (683 strings). Do not edit the strings 
 | `sum.template` | টেমপ্লেট সারাংশ: AI ছাড়া, যাচাই করা ঘটনা থেকে সরাসরি তৈরি | Template summary: built straight from verified events, no AI |  |
 | `sum.llm` | AI লেখা সারাংশ: প্রতিটি বাক্য উৎস ঘটনার সাথে যাচাই করা | AI-written summary: every sentence checked against its source events |  |
 | `sum.generated` | তৈরি: {date} | Generated: {date} |  |
-| `sum.s.active_medications` | চলমান ওষুধ | Active medications |  |
+| `sum.s.medications_recorded` | নথিভুক্ত ওষুধ | Medications recorded |  |
 | `sum.s.allergies` | অ্যালার্জি | Allergies |  |
-| `sum.s.diagnoses` | নথিভুক্ত রোগনির্ণয় | Documented diagnoses |  |
-| `sum.s.labs` | সাম্প্রতিক ল্যাব ফল ও প্রবণতা | Recent labs and trend |  |
-| `sum.s.visits` | সাম্প্রতিক ভিজিট | Recent visits |  |
+| `sum.s.diagnoses` | রোগনির্ণয় | Diagnoses |  |
+| `sum.s.labs` | ল্যাব ফল, পরীক্ষা ও তারিখ অনুযায়ী | Lab results, by test and date |  |
+| `sum.s.visits` | ভিজিট | Visits |  |
 | `sum.s.follow_ups` | বাকি ফলো-আপ | Pending follow-ups |  |
 | `sum.none` | নথিতে নেই | Nothing recorded |  |
+| `sum.notRecorded` | রোগনির্ণয় এখানে তথ্য হিসেবে রাখা হয় না। মূল নথি দেখুন। | Diagnoses aren't kept as data here. See the source documents. |  |
+| `sum.asWritten` | ওষুধ, মাত্রা ও ফল নথিতে যেমন লেখা, ঠিক তেমনই দেখানো হয়েছে। | Medicines, doses and results are shown exactly as written in the documents. |  |
+| `sum.fallback` | AI সারাংশ যাচাইয়ে টেকেনি, তাই টেমপ্লেট সারাংশ দেখানো হচ্ছে। | An AI summary didn't pass the check, so the template summary is shown. |  |
+| `sum.truncated` | আরও {n}টি দেখানো হয়নি। টাইমলাইনে দেখুন। | {n} more not shown. See the timeline. |  |
 | `sum.reported` | রোগীর নিজের দেওয়া, যাচাই হয়নি | Reported by patient, not verified |  |
 | `sum.reportedNote` | এগুলো রোগী নিজে মেপে লিখেছেন। যাচাই করা তথ্য হিসেবে ব্যবহার করবেন না। | The patient measured and entered these. Don't treat them as verified data. |  |
 | `sum.cite` | উৎস ঘটনা {n} | Source event {n} |  |
+
+## chk
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `chk.title` | যাচাই করা প্রেসক্রিপশনের নিরাপত্তা পরীক্ষা | Safety checks of verified prescriptions |  |
+| `chk.none` | এখনো কোনো প্রেসক্রিপশন পরীক্ষা হয়নি। | No prescription has been checked yet. |  |
+| `chk.status.queued` | পরীক্ষার অপেক্ষায় | Waiting to be checked |  |
+| `chk.status.retrying` | কারিগরি কারণে পরীক্ষা হয়নি, আবার চেষ্টা চলছে | Not checked yet for a technical reason; trying again |  |
+| `chk.status.completed` | পরীক্ষা হয়েছে: {n}টি সতর্কতা | Checked: {n} alerts |  |
+| `chk.status.blocked` | পরীক্ষা হয়নি: নিরাপদে চালানো যায়নি | Not checked: the check couldn't run safely |  |
+| `chk.status.failed` | পরীক্ষা হয়নি: কারিগরি সমস্যা। অ্যাডমিনকে জানান। | Not checked: technical failure. Tell the administrator. |  |
+| `chk.reason.rule_load_error` | একটি অনুমোদিত নিয়ম পড়া যায়নি। | An approved rule couldn't be read. |  |
+| `chk.reason.catalog_unavailable` | কোনো ওষুধের তালিকা চালু নেই। | No drug catalog is set up. |  |
+| `chk.reason.infrastructure_error` | সিস্টেমের ত্রুটিতে পরীক্ষা থেমে গেছে। | A system error stopped the check. |  |
+| `chk.unrecognised` | চেনা যায়নি, তাই পরীক্ষা হয়নি: | Not recognised, so not checked: |  |
+| `chk.why.not_in_catalog` | তালিকায় নেই | not in the catalog |  |
+| `chk.why.ambiguous` | একাধিক ওষুধের সাথে মেলে | matches more than one medicine |  |
+| `chk.unnamed` | একটি ওষুধ (নাম লুকানো: অনুমতিতে টাইমলাইন নেই) | a medication (name hidden: the permission doesn't cover the timeline) |  |
+| `chk.notRun` | যে পরীক্ষাগুলো এখনো চালানো যায় না: {list} | Checks that can't run yet: {list} |  |
+| `chk.check.drug_disease` | ওষুধ ও রোগ (রোগনির্ণয় রাখা হয় না) | drug and condition (diagnoses aren't recorded) |  |
+| `chk.check.allergy_class` | ওষুধের শ্রেণি অনুযায়ী অ্যালার্জি | allergy by drug class |  |
+| `chk.check.duplicate_class` | একই শ্রেণির ওষুধ দুবার | the same drug class twice |  |
+| `chk.check.class_lookback` | একই শ্রেণির সাম্প্রতিক কোর্স | a recent course of the same class |  |
 
 ## srch
 

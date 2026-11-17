@@ -2537,3 +2537,86 @@ own entries are left out). Type check clean. Backend: a full run found the route
 run (`tests/authz_matrix` adds `/api/v1/_probe` and `/_cg` test routes to the shared app); it now ignores `/api/v1/_`
 paths (commit `eb7a69d`). Local PostgreSQL 16 after the fix: **1570 passed, 19 skipped**, 0 failed. Copy list: 683 strings, every key and text matching
 `strings.ts` (2 new, 4 changed).
+
+## P3 M5 summary and search, M6 safety checks, adapter contracts (owner approval 2026-11-17)
+
+Approved with decisions D1–D10 and five mandatory corrections. **Technical completion only: nothing here is clinically
+validated.** Every rule, explanation and golden case a clinician must approve is still REVIEWER-PENDING (FRD Q1, Q7, Q15).
+
+**Decisions as built.**
+- **D1 consent.** `GET /patients/{id}/summary` and `GET /patients/{id}/search?q=` are doctor-only and need the `timeline`
+  category; the read goes RBAC → C1 consent → C2 audit through `core.consent_authz.authorize_patient_access`, as every
+  other non-patient read. A search hit carries `source_document_id` only if the same consent also covers `documents`
+  (`core.consent_authz.covers`, a no-audit check that fails closed). The audit entry never holds the query text.
+- **D2/D3 wording.** The summary has six fixed sections: medications recorded (never "active"), allergies, diagnoses,
+  labs by test and date, visits, pending follow-ups. Diagnoses always say "not recorded as data; see the source
+  documents". Each section stops at 50 lines and says when it was cut.
+- **D4 class checks.** Drug–disease, class allergy, class duplicate and class look-back checks are reported as `not_run`
+  with a reason (`diagnoses_not_recorded`, `class_data_unavailable`); they never produce an alert or a silent pass.
+- **D5 strict rules.** Engine rule types (`ddi`, `allergy`, `duplicate`) need `schema: 1`, a severity and exactly their
+  keys (`safety/definitions.py`); anything else is refused at draft time (`invalid_rule_definition`). An approved rule
+  that no longer fits blocks the check (`rule_load_error`) instead of being skipped.
+- **D6 append-only.** `safety_checks` rows are never updated or deleted (trigger); at most one `completed` row per document.
+- **D7 never undo the confirm.** M3 confirm and the M6 check are separate transactions (correction 1, below).
+- **D8** no LLM output cache. **D9** an embedding interface and a test adapter only, no pgvector. **D10** search covers
+  only current verified events and patient-reported vitals; superseded, draft and other patients' events are filtered in
+  SQL before any ranking, keyword or semantic.
+
+**Corrections.**
+1. **Transactional outbox.** Confirming a prescription writes its events and a `safety_check_jobs` row in one transaction
+   (Tx1). The worker (`python -m swasthyoid.workers.safety [--once] [--requeue]`) claims due jobs with `FOR UPDATE SKIP
+   LOCKED` and runs each in a savepoint (Tx2). Clinical results (`completed`: alerts or none; `blocked`: no catalog or a
+   bad rule) are kept apart from infrastructure failures (`error` rows, `infrastructure_error`), which retry with
+   doubling back-off and mark the job `failed` after 5 attempts (audit `safety.check.failed`). A failure mid-write keeps
+   none of that attempt's alerts. Nothing is deleted and the verification is never rolled back. `--requeue` re-runs
+   failed jobs and blocked ones once the cause is fixed.
+2. **Fact-level provenance.** Every summary sentence carries `facts` (event id, field, value) and `citations`; the
+   validator rejects a sentence with no citation, a citation outside the permitted events, a fact the event does not
+   hold, a citation with no fact, a number or a drug/allergen name not backed by a fact, a changed section list and any
+   diagnosis statement. An LLM summary that fails is replaced by the template with `fallback_reason`
+   (`provider_error`, `invalid_output`, `validation_failed`, or the adapter refusal code).
+3. **Consent isolation, server side.** `timeline` for summary and search, `documents` for source links, `safety` for
+   alerts and the new check list; drug names as written in the check list appear only if `timeline` is also covered.
+   Patients never see M6 checks or raw alerts.
+4. **Golden cases.** 13 synthetic cases in `tests/golden/safety_synthetic.json` exercise the engine and say in the file
+   that they are not clinical validation. The clinical golden test is skipped as REVIEWER-PENDING (Q7).
+5. **Route inventory** (`docs/ROUTES.md`, regenerated). Before: server 62, mock 69, both 60, mock-only **9**,
+   server-only 2. After: server 65, mock 70, both 63, mock-only **7** (M7 triage ×3, M8 reminders ×2, M13 ×2),
+   server-only 2. The approval said "eight missing → five"; the counted numbers are 9 → 7.
+
+**Routes.** New: summary, search, and **`GET /patients/{id}/safety-checks`** (a proposal, not in the FRD route list:
+the doctor needs to see that a check was blocked or failed, or which drugs could not be checked). The FRD's
+`POST /safety/check` is replaced by the internal outbox worker; no client can start a check.
+
+**LLM and embedding adapters.** Contract version 1 (`summary/adapters.py`). Settings `SUMMARY_LLM_ADAPTER` and
+`SEARCH_EMBEDDING_ADAPTER`; unset means template summary and keyword search. Setting one outside test mode is refused
+(`no_approved_adapter`): no provider is approved. Test adapters can be registered only in test mode.
+
+**Web.** Summary shows the template label, "as written" note, "not recorded" and "cut" notes, citation links; search
+shows raw snippets with the 422 codes in both languages; the alerts tab lists checks with status, unrecognised drugs and
+the checks not run. Following the digits decision, values as written (drug names, codes, IDs, lab values, Health ID,
+summary and snippet text, and reviewer-authored copy) keep their own digits in the Bangla UI; B8c's open question is
+closed. The demo OTP notices still show Bangla digits (UI copy, not a value as written). Mock aligned: strict rule shapes,
+a new unlisted-drug event, the check list route.
+
+**Limitations.**
+- `GET /patients/{id}/timeline` still returns `source_document_id` without the `documents` category (B-phase route, left
+  as is; search follows the stricter rule).
+- A worker crash between claiming and finishing a job is not counted as an attempt (`shortcut:` in `safety/checks.py`);
+  the job is retried when the lock drops.
+- A `blocked` check stays blocked until `--requeue`; it is not retried on its own.
+- Which recorded medications a new prescription is compared with ("all medications recorded") is REVIEWER-PENDING.
+- The validator checks facts, numbers and names; it cannot catch an inference made in wording alone. No LLM is approved,
+  so only the template runs outside tests.
+
+**Clinical dependencies.** Q1 (drug catalog and interaction content), Q7 (golden cases and red flags), Q15 (alert and
+explanation copy): all REVIEWER-PENDING. P3 can be used for technical review only.
+
+**Process notes.** Two test files were edited with PowerShell `WriteAllText` instead of the Edit tool
+(`test_api_p3_m6.py` once, `test_route_reconciliation.py` for the new counts); LF endings kept.
+
+**Verification.** Backend P3: `test_api_p3_m5` 19 passed, `test_api_p3_m6` 25 passed, `test_safety_golden` 14 passed and 1
+skipped (clinical, REVIEWER-PENDING). Full backend run, local PostgreSQL 16: **1631 passed, 20 skipped** (B8c's 19 plus the clinical golden test), 0 failed. Web: 200 passed (3 new), type check clean. Browser
+pane (mock): summary, search and alerts at 375 px and 1280 px in Bangla and English, 0 axe violations, no horizontal
+scroll; it found reviewer copy turning `SYNTH-DRUG-003` into Bangla digits, fixed in `components/ui.tsx`. Copy list:
+709 strings.
