@@ -443,6 +443,16 @@ export function mockTransport(): Transport {
     return token;
   };
   const ended = new Set<string>(); // W2: tokens of sessions that logged out (the server revokes the device's refresh tokens)
+  // W2, as the server: the web (CSRF header) gets its refresh token as an HttpOnly cookie, one per kind of account; here the
+  // "cookie" is the account it renews, kept in this mock instance
+  const cookies: Partial<Record<"patient" | "staff", { sub: string; role: string }>> = {};
+  const web = (r: ApiRequest) => r.headers["X-SwasthyoID-CSRF"] === "1";
+  const signedIn = (r: ApiRequest, sub: string, role: string) => {
+    const access_token = issue(sub, role);
+    if (!web(r)) return ok({ access_token, refresh_token: "synthetic-refresh-token" });
+    cookies[role === "patient" ? "patient" : "staff"] = { sub, role };
+    return ok({ access_token });
+  };
   const bearer = (r: ApiRequest) => (r.headers.Authorization ?? "").replace(/^Bearer /, "");
   const who = (r: ApiRequest): { sub: string; role: string } | null => {
     try {
@@ -666,8 +676,10 @@ export function mockTransport(): Transport {
     ["GET", "/health", () => ok({ status: "ok" })],
     // W2, as the server: logout ends this session at once; logout-all also every session this mock issued to the account
     ["POST", "/auth/logout", (r) => {
-      if (!who(r)) return unauthenticated;
+      const w = who(r);
+      if (!w) return unauthenticated;
       ended.add(bearer(r));
+      delete cookies[w.role === "patient" ? "patient" : "staff"];
       return ok(null, 204);
     }],
     ["POST", "/auth/logout-all", (r) => {
@@ -675,7 +687,14 @@ export function mockTransport(): Transport {
       if (!w) return unauthenticated;
       ended.add(bearer(r));
       issued.forEach((sub, token) => sub === w.sub && ended.add(token));
+      delete cookies[w.role === "patient" ? "patient" : "staff"];
       return ok(null, 204);
+    }],
+    ["POST", "/auth/refresh", (r) => {
+      const body = r.body as { refresh_token?: string; account?: "patient" | "staff" } | undefined;
+      if (body?.refresh_token === undefined && !web(r)) return error(403, "csrf_required", "This request must come from the SwasthyoID web app.");
+      const held = body?.refresh_token === undefined ? cookies[body?.account ?? "patient"] : undefined;
+      return held ? signedIn(r, held.sub, held.role) : error(401, "invalid_session", "Log in again.");
     }],
     ["POST", "/auth/otp/request", (r) => {
       return bdMobile((r.body as { phone?: unknown } | undefined)?.phone) ? ok(null, 204) : error(422, "invalid_phone", "Enter a phone number.");
@@ -694,13 +713,13 @@ export function mockTransport(): Transport {
           s.staff[id] = { id, role: body.staff.role, name: body.staff.name, status: "pending", emergency_enabled: false, credential: null };
         }
         if (s.staff[id].status === "suspended") return error(403, "user_suspended", "This account is suspended.");
-        return ok({ access_token: issue(id, s.staff[id].role), refresh_token: "synthetic-refresh-token" });
+        return signedIn(r, id, s.staff[id].role);
       }
       if (!s.phones.has(phone)) {
         if (!body.profile) return error(409, "registration_required", "Request a new code and send your profile with it.");
         s.phones.add(phone); // shortcut: every mock registration signs in to the one synthetic patient
       }
-      return ok({ access_token: issue(MOCK_PATIENT_ID, "patient"), refresh_token: "synthetic-refresh-token" });
+      return signedIn(r, MOCK_PATIENT_ID, "patient");
     }],
     ["GET", "/me", (r) => {
       const w = who(r);

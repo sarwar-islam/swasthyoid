@@ -68,10 +68,14 @@ export interface RequestOptions {
   binary?: boolean;
 }
 
+/** Sent on every request: the server gives the web its refresh token only as a cookie, and renews from that cookie only when
+ * this header is present (a cross-site form cannot send it). */
+export const CSRF_HEADER = "X-SwasthyoID-CSRF";
+
 /** A typed client. Writes always carry an Idempotency-Key (FRD section 7); the token stays in memory, never in storage. */
 export function createClient(transport: Transport, getToken: () => string | null = () => null) {
   async function request<T>(method: Method, path: string, options: RequestOptions = {}): Promise<T> {
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = { Accept: "application/json", [CSRF_HEADER]: "1" };
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     if (method !== "GET") headers["Idempotency-Key"] = options.idempotencyKey ?? crypto.randomUUID();

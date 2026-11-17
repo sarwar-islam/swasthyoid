@@ -61,3 +61,108 @@ def test_a_refreshed_session_stays_live(api):
     second = api.http.post(f"{V1}/auth/refresh", json={"refresh_token": first["refresh_token"], "device_id": "phone"}).json()
     for tokens in (first, second):  # the old access token runs out on its own; the device's session is still live
         assert api.http.get(f"{V1}/me", headers=bearer(tokens)).status_code == 200
+
+
+# ---- W2 sessions (owner decisions a and S8, 2026-11-17): refresh cookie for the web, idle timeout
+
+WEB = {"X-SwasthyoID-CSRF": "1"}
+
+
+def web_login(api, phone, device_id, **extra):
+    assert api.http.post(f"{V1}/auth/otp/request", json={"phone": phone}).status_code == 204
+    return api.http.post(f"{V1}/auth/otp/verify", headers=WEB, json={
+        "phone": phone, "code": api.codes[pii.normalize_phone(phone)], "device_id": device_id, **extra})
+
+
+def set_cookie(response, account="patient"):
+    """The refresh cookie the response sets: (value, attributes). Read from the header, because the test client does not
+    send Secure cookies back over http."""
+    for line in response.headers.get_list("set-cookie"):
+        name, rest = line.split("=", 1)
+        if name == f"sw_refresh_{account}":
+            value, _, attrs = rest.partition(";")
+            return value.strip('"'), attrs.lower()
+    return None
+
+
+def cookie_refresh(api, value, device_id, account="patient", headers=WEB):
+    return api.http.post(f"{V1}/auth/refresh", json={"device_id": device_id, "account": account},
+                         headers={**headers, "Cookie": f"sw_refresh_{account}={value}"})
+
+
+def test_the_web_gets_its_refresh_token_only_as_an_httponly_cookie(api):
+    login(api, PATIENT, profile=PROFILE)
+    r = web_login(api, PATIENT, "tab")
+    assert r.status_code == 200 and set(r.json()) == {"access_token"}  # never readable by page scripts
+    value, attrs = set_cookie(r)
+    for part in ("httponly", "secure", "samesite=strict", "path=/api/v1/auth", "max-age=2592000"):
+        assert part in attrs
+    rotated = cookie_refresh(api, value, "tab")
+    assert rotated.status_code == 200 and set(rotated.json()) == {"access_token"}
+    assert api.http.get(f"{V1}/me", headers=bearer(rotated.json())).status_code == 200
+    assert set_cookie(rotated)[0] != value
+    stale = cookie_refresh(api, value, "tab")  # the old cookie is used up, and coming back ends the device's session
+    assert stale.status_code == 401 and "max-age=0" in set_cookie(stale)[1]
+    assert api.http.get(f"{V1}/me", headers=bearer(rotated.json())).status_code == 401
+
+
+def test_a_cookie_refresh_needs_the_web_header(api):
+    login(api, PATIENT, profile=PROFILE)
+    value, _ = set_cookie(web_login(api, PATIENT, "tab"))
+    r = cookie_refresh(api, value, "tab", headers={})
+    assert (r.status_code, r.json()["code"]) == (403, "csrf_required")
+    assert cookie_refresh(api, "", "tab").status_code == 401  # no cookie at all
+    assert cookie_refresh(api, value, "tab").status_code == 200  # the cookie was not used up by the refused call
+
+
+def test_logout_clears_the_cookie_and_its_token_is_dead(api):
+    login(api, PATIENT, profile=PROFILE)
+    r = web_login(api, PATIENT, "tab")
+    value, _ = set_cookie(r)
+    out = api.http.post(f"{V1}/auth/logout", headers=bearer(r.json()))
+    assert out.status_code == 204 and "max-age=0" in set_cookie(out)[1]
+    assert cookie_refresh(api, value, "tab").status_code == 401
+
+
+def test_a_patient_and_a_staff_tab_keep_separate_cookies(api):
+    accounts.seed_admin(api.conn, phone=ADMIN, name="Synthetic Admin")
+    login(api, PATIENT, profile=PROFILE)
+    patient, admin = web_login(api, PATIENT, "browser"), web_login(api, ADMIN, "browser", account="staff")
+    assert set_cookie(patient, "patient") and set_cookie(admin, "staff") and not set_cookie(admin, "patient")
+    for account, r, role in (("patient", patient, "patient"), ("staff", admin, "admin")):
+        fresh = cookie_refresh(api, set_cookie(r, account)[0], "browser", account=account)
+        assert api.http.get(f"{V1}/me", headers=bearer(fresh.json())).json().get("role", "patient") == role
+
+
+def idle_for(api, minutes):
+    api.conn.execute("UPDATE refresh_tokens SET last_seen_at = clock_timestamp() - make_interval(mins => %s) "
+                     "WHERE revoked_at IS NULL", [minutes])
+
+
+def test_a_patient_session_ends_after_30_idle_minutes(api):
+    login(api, PATIENT, profile=PROFILE)
+    tokens = device(api, PATIENT, "phone")
+    idle_for(api, 29)
+    assert api.http.get(f"{V1}/me", headers=bearer(tokens)).status_code == 200  # a request is activity
+    idle_for(api, 31)
+    r = api.http.get(f"{V1}/me", headers=bearer(tokens))
+    assert (r.status_code, r.json()["code"]) == (401, "unauthenticated")
+    assert "session_idle" in audit_reasons(api, "auth.token_rejected")
+    assert api.http.post(f"{V1}/auth/refresh", json={"refresh_token": tokens["refresh_token"], "device_id": "phone"}
+                         ).status_code == 401  # the session is over, not just the access token
+
+
+def test_staff_sessions_end_after_15_idle_minutes_and_refresh_is_no_activity(api):
+    accounts.seed_admin(api.conn, phone=ADMIN, name="Synthetic Admin")
+    assert api.http.post(f"{V1}/auth/otp/request", json={"phone": ADMIN}).status_code == 204
+    tokens = api.http.post(f"{V1}/auth/otp/verify", json={"phone": ADMIN, "account": "staff", "device_id": "desk",
+                                                          "code": api.codes[pii.normalize_phone(ADMIN)]}).json()
+    idle_for(api, 14)
+    tokens = api.http.post(f"{V1}/auth/refresh", json={"refresh_token": tokens["refresh_token"], "device_id": "desk"}).json()
+    assert api.conn.execute("SELECT last_seen_at < clock_timestamp() - interval '13 minutes' FROM refresh_tokens "
+                            "WHERE revoked_at IS NULL").fetchone()[0]  # the silent refresh did not count as activity
+    idle_for(api, 16)
+    r = api.http.post(f"{V1}/auth/refresh", json={"refresh_token": tokens["refresh_token"], "device_id": "desk"})
+    assert r.status_code == 401
+    assert "session_idle" in audit_reasons(api, "auth.refresh_failed")
+    assert api.http.get(f"{V1}/me", headers=bearer(tokens)).status_code == 401

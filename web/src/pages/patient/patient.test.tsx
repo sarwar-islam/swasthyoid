@@ -24,9 +24,9 @@ function spy() {
 }
 
 describe("M1 sign-in", () => {
-  it("a signed-out visitor is sent to the login page", () => {
-    renderApp("/patient/timeline");
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("লগইন");
+  it("a signed-out visitor is sent to the login page", async () => {
+    renderApp("/patient/timeline"); // after the refresh cookie (none here) was tried
+    expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("লগইন");
   });
 
   it("a registered patient signs in with a code typed in Bangla digits, and lands home with the Health ID", async () => {

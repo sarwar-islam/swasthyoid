@@ -16,6 +16,13 @@ from swasthyoid.core import audit
 
 ACCESS_TTL = timedelta(minutes=15)
 REFRESH_TTL = timedelta(days=30)
+# W2 owner decision (a), 2026-11-17: a session with no request for this long ends (audited "session_idle").
+IDLE_TIMEOUT = {"patient": timedelta(minutes=30)}
+STAFF_IDLE_TIMEOUT = timedelta(minutes=15)
+
+
+def idle_timeout(role):
+    return IDLE_TIMEOUT.get(role, STAFF_IDLE_TIMEOUT)
 
 
 class InvalidSession(Exception):
@@ -26,12 +33,12 @@ def _token_hash(token):
     return pii.secret_hash("refresh:" + token)
 
 
-def _new_tokens(conn, subject_id, role, device_id):
+def _new_tokens(conn, subject_id, role, device_id, last_seen_at=None):
     refresh_token = secrets.token_urlsafe(32)
-    conn.execute(
-        "INSERT INTO refresh_tokens (id, subject_id, role, device_id, token_hash, expires_at) "
-        "VALUES (%s, %s, %s, %s, %s, clock_timestamp() + %s)",
-        [uuid4(), subject_id, role, device_id, _token_hash(refresh_token), REFRESH_TTL],
+    conn.execute(  # a rotated token keeps its session's last activity: a silent refresh is not activity
+        "INSERT INTO refresh_tokens (id, subject_id, role, device_id, token_hash, expires_at, last_seen_at) "
+        "VALUES (%s, %s, %s, %s, %s, clock_timestamp() + %s, coalesce(%s, clock_timestamp()))",
+        [uuid4(), subject_id, role, device_id, _token_hash(refresh_token), REFRESH_TTL, last_seen_at],
     )
     now = datetime.now(timezone.utc)
     access_token = jwt.encode(
@@ -60,8 +67,10 @@ def refresh(conn, refresh_token, device_id):
     """Swap a refresh token for a new pair. Each token works once and only on its device."""
     with conn.transaction():
         row = conn.cursor(row_factory=dict_row).execute(
-            "SELECT *, expires_at <= clock_timestamp() AS expired FROM refresh_tokens WHERE token_hash = %s FOR UPDATE",
-            [_token_hash(str(refresh_token))],
+            "SELECT *, expires_at <= clock_timestamp() AS expired, "
+            "last_seen_at <= clock_timestamp() - CASE WHEN role = 'patient' THEN %s ELSE %s END AS idle "
+            "FROM refresh_tokens WHERE token_hash = %s FOR UPDATE",
+            [IDLE_TIMEOUT["patient"], STAFF_IDLE_TIMEOUT, _token_hash(str(refresh_token))],
         ).fetchone()
         tokens = reason = None
         if row is None:
@@ -77,9 +86,12 @@ def refresh(conn, refresh_token, device_id):
             )
         elif row["expired"]:
             reason = "expired"
+        elif row["idle"]:
+            reason = "session_idle"
+            revoke_device(conn, row["subject_id"], row["device_id"])
         else:
             conn.execute("UPDATE refresh_tokens SET revoked_at = clock_timestamp() WHERE id = %s", [row["id"]])
-            tokens = _new_tokens(conn, row["subject_id"], row["role"], device_id)
+            tokens = _new_tokens(conn, row["subject_id"], row["role"], device_id, row["last_seen_at"])
         if reason:
             audit.append(conn, action="auth.refresh_failed", result="deny", reason=reason,
                          actor_id=row and row["subject_id"], device_id=device_id)
@@ -88,12 +100,19 @@ def refresh(conn, refresh_token, device_id):
     return tokens
 
 
-def is_live(conn, subject_id, device_id):
-    """A device's session is live while it holds an unrevoked, unexpired refresh token. Logging out, a reused refresh
-    token and suspension revoke them, so the access token stops working at once instead of at ACCESS_TTL."""
-    return conn.execute(
-        "SELECT 1 FROM refresh_tokens WHERE subject_id = %s AND device_id = %s AND revoked_at IS NULL "
-        "AND expires_at > clock_timestamp() LIMIT 1", [subject_id, device_id]).fetchone() is not None
+def touch(conn, subject_id, role, device_id):
+    """"live" (and the request counts as activity), "idle" (no request within idle_timeout: the session is ended now) or
+    "ended". A device's session is live while it holds an unrevoked, unexpired refresh token that was active recently.
+    Logging out, a reused refresh token and suspension revoke them, so the access token stops at once, not at ACCESS_TTL."""
+    live = "subject_id = %s AND device_id = %s AND revoked_at IS NULL AND expires_at > clock_timestamp()"
+    # shortcut: one write per request; throttle it (only when last_seen_at is a minute old) if it shows up under load
+    if conn.execute(f"UPDATE refresh_tokens SET last_seen_at = clock_timestamp() WHERE {live} "
+                    "AND last_seen_at > clock_timestamp() - %s RETURNING 1",
+                    [subject_id, device_id, idle_timeout(role)]).fetchone():
+        return "live"
+    idle = conn.execute(f"UPDATE refresh_tokens SET revoked_at = clock_timestamp() WHERE {live} RETURNING 1",
+                        [subject_id, device_id]).fetchone()
+    return "idle" if idle else "ended"
 
 
 def revoke_device(conn, subject_id, device_id):

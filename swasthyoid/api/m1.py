@@ -9,6 +9,7 @@ from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
@@ -67,8 +68,42 @@ class VerifyBody(BaseModel):
 
 
 class RefreshBody(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None  # absent: the web's HttpOnly cookie for `account` is used instead
     device_id: str = Field(min_length=1)
+    account: Literal["patient", "staff"] = "patient"
+
+
+# W2 (owner decision S8, 2026-11-17): the web keeps its refresh token in an HttpOnly cookie that only /auth sees, one per
+# kind of account so a patient tab and a doctor tab in one browser do not swap sessions. A request that says it is the web
+# client (CSRF_HEADER, which a cross-site form cannot send) gets the cookie and no refresh token in the body; other
+# clients keep the body token.
+CSRF_HEADER = "x-swasthyoid-csrf"
+COOKIE_PATH = "/api/v1/auth"
+
+
+def _cookie(account):
+    return f"sw_refresh_{account}"
+
+
+def _account(role):
+    return "patient" if role == "patient" else "staff"
+
+
+def _web(request):
+    return request.headers.get(CSRF_HEADER) == "1"
+
+
+def _hand_over(request, response, tokens, account):
+    """The token pair as the client should get it: for the web, the refresh token goes into the cookie only."""
+    if not _web(request):
+        return tokens
+    response.set_cookie(_cookie(account), tokens["refresh_token"], max_age=int(sessions.REFRESH_TTL.total_seconds()),
+                        path=COOKIE_PATH, secure=True, httponly=True, samesite="strict")
+    return {"access_token": tokens["access_token"]}
+
+
+def _clear(response, account):
+    response.delete_cookie(_cookie(account), path=COOKIE_PATH, secure=True, httponly=True, samesite="strict")
 
 
 @router.post("/auth/otp/request", status_code=204)
@@ -83,7 +118,7 @@ def otp_request(body: PhoneBody, conn=Depends(get_conn), send=Depends(get_code_s
 
 
 @router.post("/auth/otp/verify")
-def otp_verify(body: VerifyBody, request: Request, conn=Depends(get_conn)):
+def otp_verify(body: VerifyBody, request: Request, response: Response, conn=Depends(get_conn)):
     if not otp.verify_code(conn, body.phone, body.code):
         raise ApiError(401, "invalid_code", "The code is wrong or has expired.")
     h = pii.phone_hash(body.phone)
@@ -107,15 +142,28 @@ def otp_verify(body: VerifyBody, request: Request, conn=Depends(get_conn)):
             audit.append(conn, action="auth.login", result="deny", reason="user_suspended", actor_id=who,
                          actor_role=role, device_id=body.device_id, **client_info(request))
             raise ApiError(403, "user_suspended", "This account is suspended.")
-    return sessions.issue_tokens(conn, subject_id=who, role=role, device_id=body.device_id, **client_info(request))
+    tokens = sessions.issue_tokens(conn, subject_id=who, role=role, device_id=body.device_id, **client_info(request))
+    return _hand_over(request, response, tokens, body.account)
 
 
 @router.post("/auth/refresh")
-def refresh(body: RefreshBody, conn=Depends(get_conn)):
+def refresh(body: RefreshBody, request: Request, response: Response, conn=Depends(get_conn)):
+    token = body.refresh_token
+    if token is None:  # the cookie: only for the web client, which proves it with the custom header
+        if not _web(request):
+            raise ApiError(403, "csrf_required", "This request must come from the SwasthyoID web app.")
+        token = request.cookies.get(_cookie(body.account))
     try:
-        return sessions.refresh(conn, body.refresh_token, body.device_id)
+        if not token:
+            raise sessions.InvalidSession("no_token")
+        tokens = sessions.refresh(conn, token, body.device_id)
     except sessions.InvalidSession:
-        raise ApiError(401, "invalid_session", "Log in again.")
+        if body.refresh_token is not None:
+            raise ApiError(401, "invalid_session", "Log in again.")
+        failed = JSONResponse({"code": "invalid_session", "message": "Log in again.", "details": {}}, status_code=401)
+        _clear(failed, body.account)  # a dead cookie is dropped, so the browser stops sending it
+        return failed
+    return _hand_over(request, response, tokens, body.account) if body.refresh_token is None else tokens
 
 
 @router.post("/auth/logout", status_code=204)
@@ -124,7 +172,9 @@ def logout(request: Request, conn=Depends(get_conn), a: Actor = Depends(actor)):
     sessions.revoke_device(conn, a.id, a.device_id)
     audit.append(conn, action="auth.logout", result="allow", actor_id=a.id, actor_role=a.role, device_id=a.device_id,
                  **client_info(request))
-    return Response(status_code=204)
+    response = Response(status_code=204)
+    _clear(response, _account(a.role))
+    return response
 
 
 @router.post("/auth/logout-all", status_code=204)
@@ -133,7 +183,9 @@ def logout_all(request: Request, conn=Depends(get_conn), a: Actor = Depends(acto
     sessions.revoke_all(conn, a.id)
     audit.append(conn, action="auth.logout_all", result="allow", actor_id=a.id, actor_role=a.role, device_id=a.device_id,
                  **client_info(request))
-    return Response(status_code=204)
+    response = Response(status_code=204)
+    _clear(response, _account(a.role))
+    return response
 
 
 # ---- credentials

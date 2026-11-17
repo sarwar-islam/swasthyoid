@@ -20,8 +20,6 @@ UNBUILT = {
 }
 # Server routes the web mock does not answer, and why that is fine.
 SERVER_ONLY = {
-    ("POST", "/auth/refresh"): "Token refresh. The web keeps its 15-minute access token in memory and signs in again "
-                               "when it expires (a 401 shows 'sign in again'); it does not refresh yet.",
     ("GET", "/credentials/{}/document"): "An admin opens a credential's document. Uploading the document is unbuilt "
                                          "(B2 decision 6), so the console has no link to it yet.",
 }

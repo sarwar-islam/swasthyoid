@@ -4,8 +4,8 @@ import type { Transport } from "../api/client";
 import { mockTransport } from "../api/mock";
 import { axeViolations, DOCTOR_TOKEN, renderApp } from "../test-utils";
 
-// B8c: the access token lives 15 minutes and the web does not refresh it. When the server refuses it (401), the user is signed
-// out and the sign-in page says why, instead of every screen saying "sign in again" with no way forward.
+// B8c, with W2: when the server refuses the token (401) and it cannot be renewed from the refresh cookie (none here), the user is
+// signed out and the sign-in page says why, instead of every screen saying "sign in again" with no way forward.
 afterEach(() => cleanup());
 
 function expiresAfter(n: number): Transport {

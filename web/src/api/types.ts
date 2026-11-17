@@ -35,7 +35,7 @@ export interface OtpVerifyBody {
 /** POST /auth/otp/verify, /auth/refresh. BUILT. The access token is a JWT with `sub` (the user id) and `role`. */
 export interface TokenPair {
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string; // the web gets it as an HttpOnly cookie instead (W2)
 }
 
 /** GET /me. APPROVED contract (owner decision 2026-11-15), not built yet: the authenticated patient's own Health ID, profile

@@ -66,7 +66,7 @@ describe("mock transport", () => {
     await expect(client.request("POST", "/auth/otp/request", { body: { phone: "+8801700000001" } })).resolves.toBeNull();
     const tokens = await client.request<TokenPair>("POST", "/auth/otp/verify",
       { body: { phone: "+8801700000001", code: MOCK_CODE, device_id: "web" } });
-    expect(Object.keys(tokens).sort()).toEqual(["access_token", "refresh_token"]);
+    expect(Object.keys(tokens)).toEqual(["access_token"]); // W2: the web client's refresh token is an HttpOnly cookie
     const wrong = await failed(client.request("POST", "/auth/otp/verify", { body: { code: "000000" } }));
     expect([wrong.status, wrong.code]).toEqual([401, "invalid_code"]);
   });
