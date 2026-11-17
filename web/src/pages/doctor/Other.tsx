@@ -56,6 +56,7 @@ export function Credentials() {
         {cred && <p>{t("cred.current")}: <span className="mono" lang="en">{cred.number}</span> · {t("cred.status")}: <StatusChipStaff status={cred.status} /></p>}
       </div>
       {done && <p className="ok-note section" role="status">{t("cred.submitted")}</p>}
+      {cred?.status === "pending" && <CredentialPhoto id={cred.id} have={cred.has_document} onDone={me.reload} />}
       {!cred && (
         <form onSubmit={submit} className="card section" noValidate>
           <div className="field">
@@ -67,6 +68,47 @@ export function Credentials() {
         </form>
       )}
     </>
+  );
+}
+
+/** W2: a photo or scan of the pending certificate, for the admin who checks it (JPEG or PNG; the server removes the metadata). */
+function CredentialPhoto({ id, have, onDone }: { id: string; have: boolean; onDone: () => void }) {
+  const { t } = useI18n();
+  const { api } = useSession();
+  const [file, setFile] = useState<File | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file, file.name);
+    setBusy(true);
+    setError(null);
+    try {
+      await api.request("POST", `/credentials/${id}/document`, { body: form });
+      setSent(true);
+      setFile(null);
+      onDone();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={submit} className="card section stack" noValidate>
+      {sent ? <p className="ok-note" role="status">{t("cred.docDone")}</p> : have && <p className="muted">{t("cred.docHave")}</p>}
+      <div className="field">
+        <label htmlFor="cred-doc">{t("cred.doc")}</label>
+        <input id="cred-doc" type="file" accept="image/jpeg,image/png" aria-describedby="cred-doc-help"
+               onChange={(e) => { setFile(e.target.files?.[0] ?? null); setSent(false); }} />
+        <p id="cred-doc-help" className="muted">{t("cred.docHelp")}</p>
+      </div>
+      <ErrorNote error={error} />
+      <button type="submit" className="btn-primary" disabled={!file || busy}>{t("cred.docUpload")}</button>
+    </form>
   );
 }
 

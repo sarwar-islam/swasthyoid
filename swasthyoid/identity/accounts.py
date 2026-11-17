@@ -140,6 +140,19 @@ def submit_credential(conn, *, user_id, type, number, doc_key=None):
     ).fetchone()
 
 
+def attach_credential_document(conn, *, credential_id, user_id, doc_key):
+    """Point the owner's pending credential at its stored document (a newer upload replaces the older one). Returns False
+    if there is no such pending credential of this user."""
+    with conn.transaction():
+        row = conn.execute(
+            "UPDATE credentials SET doc_key = %s, updated_at = clock_timestamp() "
+            "WHERE id = %s AND user_id = %s AND status = 'pending' RETURNING id", [doc_key, credential_id, user_id]).fetchone()
+        if row:
+            audit.append(conn, action="credential.document.upload", result="allow", actor_id=user_id, actor_role="doctor",
+                         resource_type="user", resource_id=user_id)
+        return row is not None
+
+
 def approve_credential(conn, credential_id, *, admin_id):
     """Admin approves a pending credential; its owner becomes `verified`."""
     with conn.transaction():

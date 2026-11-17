@@ -1,5 +1,9 @@
 """W2 logout over HTTP: one device, every device, and the access token stops at once. Synthetic people only."""
-from swasthyoid.tests.test_api_m1 import ADMIN, PATIENT, PROFILE, V1, api, audit_reasons, login  # noqa: F401  (fixture)
+import pytest
+
+from swasthyoid.tests.test_api_m1 import (  # noqa: F401  (fixtures)
+    ADMIN, PATIENT, PROFILE, V1, api, audit_reasons, login, people,
+)
 from swasthyoid import pii
 from swasthyoid.identity import accounts
 
@@ -166,3 +170,64 @@ def test_staff_sessions_end_after_15_idle_minutes_and_refresh_is_no_activity(api
     assert r.status_code == 401
     assert "session_idle" in audit_reasons(api, "auth.refresh_failed")
     assert api.http.get(f"{V1}/me", headers=bearer(tokens)).status_code == 401
+
+
+# ---- W2 credential document (owner decision b, 2026-11-17): JPEG or PNG only, stored without metadata
+
+@pytest.fixture
+def store(tmp_path, monkeypatch):
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv("DOCUMENT_STORE", str(tmp_path))
+    monkeypatch.setenv("DOCUMENT_KEY", Fernet.generate_key().decode())
+    return tmp_path
+
+
+def send(api, people, data, credential=None, headers=None, name="bmdc.jpg"):
+    return api.http.post(f"{V1}/credentials/{credential or people.credential}/document", headers=headers or people.doctor,
+                         files={"file": (name, data, "application/octet-stream")})
+
+
+def test_a_doctor_uploads_a_credential_photo_and_only_a_clean_copy_is_kept(api, people, store):  # noqa: F811
+    from swasthyoid.tests import images
+    r = send(api, people, images.jpeg_with_metadata())
+    assert r.status_code == 201, r.text
+    assert r.json() == {"id": people.credential, "status": "pending", "has_document": True}
+    assert api.http.get(f"{V1}/me", headers=people.doctor).json()["credential"]["has_document"] is True
+    listed = api.http.get(f"{V1}/credentials?status=pending", headers=people.admin).json()
+    assert [c["has_document"] for c in listed] == [True]
+    served = api.http.get(f"{V1}/credentials/{people.credential}/document", headers=people.admin)
+    assert served.headers["content-type"] == "image/jpeg"
+    for marker in (b"Exif", b"SYNTHETIC-CAMERA-MAKER", b"SYNTHETIC-COMMENT", b"2026:01:02"):
+        assert marker not in served.content
+    stored = list(store.rglob("*.jpg"))
+    assert len(stored) == 1 and b"SYNTHETIC" not in stored[0].read_bytes()  # encrypted at rest, too
+    assert actions(api, "credential.document.upload") == 1
+    png = send(api, people, images.png_with_metadata(), name="bmdc.png")  # a newer upload replaces it
+    assert png.status_code == 201
+    served = api.http.get(f"{V1}/credentials/{people.credential}/document", headers=people.admin)
+    assert served.headers["content-type"] == "image/png" and b"SYNTHETIC-PNG-COMMENT" not in served.content
+
+
+def test_a_credential_document_must_be_a_jpeg_or_png(api, people, store):  # noqa: F811
+    for data, code in ((b"%PDF-1.7 synthetic", "image_unsupported"), (b"\x89PNG\r\n\x1a\nbroken", "image_undecodable")):
+        r = send(api, people, data)
+        assert (r.status_code, r.json()["code"]) == (422, code)
+    assert api.conn.execute("SELECT doc_key FROM credentials").fetchone()[0] is None
+    assert not list(store.rglob("*.*"))
+
+
+def test_only_the_owner_uploads_and_only_while_pending(api, people, store):  # noqa: F811
+    from swasthyoid.tests import images
+    other = login(api, "+8801700000077", account="staff", staff={"role": "doctor", "name": "Synthetic Doctor 2"})
+    assert send(api, people, images.JPEG, headers=other).status_code == 404  # never says whose it is
+    assert send(api, people, images.JPEG, headers=people.patient).status_code == 403
+    assert api.http.post(f"{V1}/credentials/{people.credential}/approve", headers=people.admin).status_code == 200
+    assert send(api, people, images.JPEG).status_code == 404  # verified: the reviewed document stays as it was
+    assert not list(store.rglob("*.*"))  # nothing left behind by the refused uploads
+
+
+def test_a_client_can_no_longer_name_a_storage_key(api, people):  # noqa: F811
+    r = api.http.post(f"{V1}/credentials", headers=people.doctor,
+                      json={"type": "BMDC", "number": "SYNTH-BMDC-0002", "doc_key": "patients/someone/1.jpg"})
+    assert r.status_code in (201, 409)
+    assert api.conn.execute("SELECT count(*) FROM credentials WHERE doc_key IS NOT NULL").fetchone()[0] == 0

@@ -38,7 +38,8 @@ def _staff_view(row):
 
 def _credential_view(row):
     return {"id": row["id"], "user_id": row["user_id"], "name": row["name"], "role": row["role"], "type": row["type"],
-            "number": row["number"], "status": row["status"], "user_status": row["user_status"]}
+            "number": row["number"], "status": row["status"], "user_status": row["user_status"],
+            "has_document": row["doc_key"] is not None}
 
 
 # ---- credentials (M1: doctors' BMDC numbers)

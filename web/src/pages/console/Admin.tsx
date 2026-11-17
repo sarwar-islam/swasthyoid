@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert, Upload } from "lucide-react";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { AuditPage as AuditData, CatalogImport, CredentialReview, DocStatus, StaffAccount, StaffCreateBody, WorkerMetrics } from "../../api/types";
 import { ConfirmDialog, ErrorNote, Loading, Section } from "../../components/ui";
 import { formatDateTime, formatNumber, localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
@@ -31,6 +31,27 @@ function ReasonForm({ id, label, submit, busy, onSubmit, onCancel }:
 
 /** M1 credential approval: pending BMDC numbers to approve or reject (with a reason), verified doctors to suspend (with a reason;
  * every active consent of theirs is suspended at once, FRD section 2). The admin sees the registration number, never clinical content. */
+/** W2: the certificate photo a doctor uploaded, fetched only when the admin asks (each read is audited on the server). */
+function CredentialPhoto({ credential }: { credential: CredentialReview }) {
+  const { t } = useI18n();
+  const { api } = useSession();
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => () => { if (src) URL.revokeObjectURL(src); }, [src]);
+  if (!credential.has_document) return <p className="muted">{t("cr.noDoc")}</p>;
+  const show = () => api.request<Blob>("GET", `/credentials/${credential.id}/document`, { binary: true })
+    .then((blob) => setSrc(URL.createObjectURL(blob)), setError);
+  return (
+    <div className="stack">
+      <button type="button" aria-expanded={!!src} onClick={() => (src ? setSrc(null) : show())}>
+        {t(src ? "cr.hideDoc" : "cr.showDoc")}
+      </button>
+      <ErrorNote error={error} />
+      {src && <img src={src} alt={t("cr.docAlt", { name: credential.name })} style={{ maxWidth: "100%" }} />}
+    </div>
+  );
+}
+
 export function CredentialsPage() {
   const { t } = useI18n();
   const { api } = useSession();
@@ -45,6 +66,7 @@ export function CredentialsPage() {
   const item = (c: CredentialReview, actions: ReactNode) => (
     <li key={c.id} className="card stack">
       <div className="row"><strong>{c.name}</strong><span className="mono" lang="en">{c.type} {c.number}</span></div>
+      {c.status === "pending" && <CredentialPhoto credential={c} />}
       {actions}
     </li>
   );

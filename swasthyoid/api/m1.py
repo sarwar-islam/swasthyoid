@@ -2,13 +2,15 @@
 
 Handlers only orchestrate; the rules live in core/ and identity/.
 """
+import hashlib
 import os
 from datetime import date, timedelta
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import APIRouter, Depends, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
@@ -17,6 +19,7 @@ from swasthyoid import pii
 from swasthyoid.api.deps import (
     Actor, ApiError, actor, client_info, get_code_sender, get_conn, idempotent, person_labels, require,
 )
+from swasthyoid.capture import documents, imaging, storage
 from swasthyoid.core import audit, consent_authz, notification
 from swasthyoid.identity import accounts, otp, sessions
 
@@ -193,7 +196,7 @@ def logout_all(request: Request, conn=Depends(get_conn), a: Actor = Depends(acto
 class CredentialBody(BaseModel):
     type: str = Field(min_length=1)
     number: str = Field(min_length=1)
-    doc_key: str | None = None
+    # no doc_key: the document comes only through POST /credentials/{id}/document, never as a storage key from the client
 
 
 @router.post("/credentials", status_code=201)
@@ -207,6 +210,52 @@ def submit_credential(body: CredentialBody, request: Request, conn=Depends(get_c
         return {"id": row["id"], "status": row["status"]}
 
     return idempotent(conn, request, a, body, work)
+
+
+@router.post("/credentials/{credential_id}/document", status_code=201)
+async def upload_credential_document(credential_id: UUID, request: Request, conn=Depends(get_conn),
+                                     a: Actor = Depends(require("doctor", verified=False))):
+    """A photo or scan of the doctor's own pending credential, for the admin who reviews it (W2). JPEG or PNG only (owner
+    decision b, 2026-11-17); only a copy without EXIF, GPS, XMP or other metadata is stored. Reads the body itself, after
+    the role check, like the document uploads."""
+    length = request.headers.get("content-length", "")
+    if not length.isdigit():
+        raise ApiError(411, "length_required", "Content-Length is required.")
+    if int(length) > documents.MAX_IMAGE_BYTES + 64 * 1024:
+        raise ApiError(413, "too_large", "The upload is too large.")
+    try:
+        form = await request.form(max_files=1, max_fields=0)
+        upload = form.get("file")
+        data = await upload.read(documents.MAX_IMAGE_BYTES + 1)
+    except Exception:
+        raise ApiError(422, "invalid_upload", "Send one image as multipart form data in the field `file`.")
+    if len(data) > documents.MAX_IMAGE_BYTES:
+        raise ApiError(422, "image_file_too_large", "This image file is too large.")
+    if not data.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")):  # a PDF or anything else: say so plainly
+        raise ApiError(422, "image_unsupported", _IMAGE_MESSAGES["image_unsupported"])
+    try:
+        data, content_type = imaging.strip_metadata(data)
+    except imaging.ImageRejected as e:
+        code = e.args[0] if e.args and e.args[0] in _IMAGE_MESSAGES else "image_unsupported"
+        raise ApiError(422, code, _IMAGE_MESSAGES[code])
+
+    def work():
+        key = f"credentials/{a.id}/{uuid4()}.{'png' if content_type == 'image/png' else 'jpg'}"
+        storage.put(key, data)
+        if not accounts.attach_credential_document(conn, credential_id=credential_id, user_id=a.id, doc_key=key):
+            storage.discard(key)
+            raise ApiError(404, "not_found", "No pending credential of yours with this id.")
+        return {"id": credential_id, "status": "pending", "has_document": True}
+
+    fingerprint = f"{credential_id}:" + hashlib.sha256(data).hexdigest()
+    return await run_in_threadpool(idempotent, conn, request, a, fingerprint, work)
+
+
+_IMAGE_MESSAGES = {
+    "image_unsupported": "Only JPEG and PNG images are accepted.",
+    "image_undecodable": "This file is not a readable image (it may be damaged).",
+    "image_too_large": "This image has too many pixels.",
+}
 
 
 @router.post("/credentials/{credential_id}/approve")
@@ -411,7 +460,8 @@ def me(conn=Depends(get_conn),
     u = conn.cursor(row_factory=dict_row).execute(
         "SELECT id, role, name, status, emergency_enabled FROM users WHERE id = %s", [a.id]).fetchone()
     cred = accounts.current_credential(conn, a.id)
-    return {**u, "credential": cred and {"type": cred["type"], "number": cred["number"], "status": cred["status"]}}
+    return {**u, "credential": cred and {"id": cred["id"], "type": cred["type"], "number": cred["number"],
+                                         "status": cred["status"], "has_document": cred["doc_key"] is not None}}
 
 
 @router.post("/consents/{consent_id}/revoke")

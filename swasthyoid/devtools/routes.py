@@ -19,10 +19,7 @@ UNBUILT = {
     ("POST", "/reminders/{}/log"): "M8 adherence log (FRD P8); not built.",
 }
 # Server routes the web mock does not answer, and why that is fine.
-SERVER_ONLY = {
-    ("GET", "/credentials/{}/document"): "An admin opens a credential's document. Uploading the document is unbuilt "
-                                         "(B2 decision 6), so the console has no link to it yet.",
-}
+SERVER_ONLY = {}  # W2: refresh and the credential document are now on the mock too
 
 
 def _norm(path):

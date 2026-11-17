@@ -281,10 +281,12 @@ export interface StaffMe {
   name: string;
   status: StaffStatus;
   emergency_enabled: boolean;
-  credential: { type: "BMDC"; number: string; status: StaffStatus } | null;
+  credential: { id: string; type: "BMDC"; number: string; status: StaffStatus; has_document: boolean } | null;
 }
 
-/** POST /credentials { type, number, doc_key? } -> { id, status }. BUILT. */
+/** POST /credentials { type, number } -> { id, status }. BUILT. The document goes separately (W2): POST
+ * /credentials/{id}/document, multipart `file`, JPEG or PNG -> { id, status, has_document }; the server keeps a copy without
+ * metadata, and only an admin reads it back (GET /credentials/{id}/document). */
 export interface CredentialBody {
   type: "BMDC";
   number: string;
@@ -496,6 +498,7 @@ export interface CredentialReview {
   number: string;
   status: StaffStatus | "rejected"; // a rejected credential stays as rejected (B2); the doctor may submit a new one
   user_status: StaffStatus;
+  has_document: boolean; // W2: the doctor uploaded a photo or scan of the certificate
 }
 
 /** Staff accounts an admin manages: verifiers and clinical reviewers (doctors go through their BMDC credential). GAP routes for

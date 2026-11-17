@@ -50,7 +50,8 @@ def test_me_for_the_patient_and_every_staff_role(api, cast):
     assert (me["language"], me["cloud_ai_opt_in"]) == ("bn", False)
     doctor = api.http.get(f"{V1}/me", headers=cast.doctor).json()
     assert (doctor["role"], doctor["status"]) == ("doctor", "verified")
-    assert doctor["credential"] == {"type": "BMDC", "number": "SYNTH-BMDC-0001", "status": "verified"}
+    assert doctor["credential"] == {"id": doctor["credential"]["id"], "type": "BMDC", "number": "SYNTH-BMDC-0001",
+                                    "status": "verified", "has_document": False}
     for headers, role in ((cast.verifier, "verifier"), (cast.reviewer, "clinical_reviewer"), (cast.admin, "admin")):
         body = api.http.get(f"{V1}/me", headers=headers).json()
         assert (body["role"], body["status"], body["credential"]) == (role, "verified", None)

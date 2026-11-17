@@ -202,13 +202,15 @@ function createState() {
                                    activated_at: string | null; expires_at: string | null }>,
            staff: {
              [DOCTOR_ID]: { id: DOCTOR_ID, role: "doctor", name: "ডা. সিনথেটিক চিকিৎসক", status: "verified", emergency_enabled: true,
-                            credential: { type: "BMDC", number: "SYNTH-BMDC-0001", status: "verified" } },
+                            credential: { id: `cred-${DOCTOR_ID.slice(0, 8)}`, type: "BMDC", number: "SYNTH-BMDC-0001", status: "verified",
+                                         has_document: false } },
              [PENDING_DOCTOR_ID]: { id: PENDING_DOCTOR_ID, role: "doctor", name: "ডা. নতুন সিনথেটিক", status: "pending", emergency_enabled: false,
                                     credential: null },
              [MOCK_VERIFIER_ID]: { id: MOCK_VERIFIER_ID, role: "verifier", name: "সিনথেটিক স্বাস্থ্যকর্মী", status: "verified", emergency_enabled: false,
                                    credential: null },
              [MOCK_SUBMITTED_DOCTOR_ID]: { id: MOCK_SUBMITTED_DOCTOR_ID, role: "doctor", name: "ডা. তৃতীয় সিনথেটিক", status: "pending",
-                                           emergency_enabled: false, credential: { type: "BMDC", number: "SYNTH-BMDC-0042", status: "pending" } },
+                                           emergency_enabled: false, credential: { id: `cred-${MOCK_SUBMITTED_DOCTOR_ID.slice(0, 8)}`,
+                                           type: "BMDC", number: "SYNTH-BMDC-0042", status: "pending", has_document: false } },
              [MOCK_REVIEWER_ID]: { id: MOCK_REVIEWER_ID, role: "clinical_reviewer", name: "সিনথেটিক রিভিউয়ার", status: "verified",
                                    emergency_enabled: false, credential: null },
              [MOCK_ADMIN_ID]: { id: MOCK_ADMIN_ID, role: "admin", name: "সিনথেটিক অ্যাডমিন", status: "verified", emergency_enabled: false, credential: null },
@@ -659,9 +661,10 @@ export function mockTransport(): Transport {
   const RULE_TYPES: RuleType[] = ["ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "vital_plausibility", "red_flag", "emergency_message"];
   const SEVERITIES: Severity[] = ["contraindicated", "major", "moderate", "minor"];
   const credentialView = (u: StaffMe): CredentialReview => ({ id: `cred-${u.id.slice(0, 8)}`, user_id: u.id, name: u.name, role: "doctor", type: "BMDC",
-    number: u.credential!.number, status: u.credential!.status, user_status: u.status });
+    number: u.credential!.number, status: u.credential!.status, user_status: u.status, has_document: u.credential!.has_document });
   const staffView = (x: StaffMe): StaffAccount => ({ id: x.id, role: x.role as StaffAccount["role"], name: x.name, status: x.status,
     phone_tail: [...s.staffPhones].find(([, id]) => id === x.id)?.[0].slice(-4) ?? null });
+  const credentialDocs = new Map<string, Blob>(); // W2: credential id -> the uploaded image
   const credentialOwner = (id: string) => Object.values(s.staff).find((u) => u.role === "doctor" && u.credential && `cred-${u.id.slice(0, 8)}` === id);
   /** The server's rule (swasthyoid/pii.py normalize_phone): a Bangladesh mobile, returned as +8801XXXXXXXXX, else null. */
   const bdMobile = (raw: unknown) => {
@@ -732,8 +735,20 @@ export function mockTransport(): Transport {
       const number = String((r.body as { number?: unknown }).number ?? "").trim();
       if (!number) return error(422, "invalid_credential", "Enter the registration number.");
       if (Object.values(s.staff).some((d) => d.credential?.number === number)) return error(409, "credential_exists", "This credential number is already registered.");
-      doctor.credential = { type: "BMDC", number, status: "pending" };
+      doctor.credential = { id: `cred-${doctor.id.slice(0, 8)}`, type: "BMDC", number, status: "pending", has_document: false };
       return ok({ id: `cred-${doctor.id.slice(0, 8)}`, status: "pending" }, 201);
+    }],
+    // W2, as the server: the owner's pending credential only; JPEG or PNG only (the server also strips the metadata)
+    ["POST", "/credentials/{id}/document", (r, p) => {
+      const doctor = doctorOf(r);
+      if (!doctor) return error(403, "role_not_allowed", "You are not allowed to do this.");
+      if (doctor.credential?.id !== p.id || doctor.credential.status !== "pending") return error(404, "not_found", "No pending credential of yours with this id.");
+      const file = r.body instanceof FormData ? r.body.get("file") : null;
+      if (!(file instanceof Blob)) return error(422, "invalid_upload", "Send one image as multipart form data in the field `file`.");
+      if (!["image/jpeg", "image/png"].includes(file.type)) return error(422, "image_unsupported", "Only JPEG and PNG images are accepted.");
+      credentialDocs.set(p.id, file);
+      doctor.credential.has_document = true;
+      return ok({ id: p.id, status: "pending", has_document: true }, 201);
     }],
     ["POST", "/consents/requests", (r) => {
       const doctor = doctorOf(r);
@@ -1233,6 +1248,14 @@ export function mockTransport(): Transport {
       const status = new URLSearchParams(r.path.split("?")[1] ?? "").get("status");
       return ok([...Object.values(s.staff).filter((x) => x.role === "doctor" && x.credential).map(credentialView), ...s.rejectedCredentials]
         .filter((c) => !status || c.status === status));
+    }],
+    ["GET", "/credentials/{id}/document", (r, p) => {
+      const u = consoleUser(r, "admin");
+      if (!isUser(u)) return u;
+      const doc = credentialDocs.get(p.id);
+      if (!doc) return error(404, "not_found", "No document for this credential.");
+      staffAudit(u, "credential.document.read", p.id);
+      return ok(doc);
     }],
     ["POST", "/credentials/{id}/approve", (r, p) => {
       const u = consoleUser(r, "admin");
