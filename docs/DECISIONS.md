@@ -2410,3 +2410,44 @@ with doctor and facility; a bad session length (503); review only after closing,
 suspending the capability, `not_pending`, restore by an admin; the admin route; the database guard. Local PostgreSQL 16:
 1565 passed, 0 failed, 19 skipped in 18 min 14 s. Web: 183 passed (no screen change); type check clean. The schema applies over the B6 schema (067b9f8 schema
 with a row, then the new schema twice).
+
+## B8a Local live environment, synthetic seed and route reconciliation (owner approval 2026-11-17)
+
+**Owner decisions.** (1) A separate `swasthyoid_dev` database, never the test database. (2) Secrets are machine-level
+user environment variables outside the repository. (3) A synthetic-only seed: admin, two clinical reviewers, a verifier,
+a doctor, a patient and a caregiver, with documents confirmed through the real M3 workflow. (4) Screens the server does not
+serve yet show an honest bilingual "not built" state in live mode, never a made-up success (B8b).
+
+- **`scripts/dev_setup.ps1`** creates, only when missing, `SWASTHYOID_DEV_*` user variables (fresh random keys, document
+  folder under `%LOCALAPPDATA%\swasthyoid-dev`) and two databases: `swasthyoid_dev` and `swasthyoid_dev_m10`. It prints no
+  secret. **`scripts/dev_api.ps1`** maps them to the app's variables, sets `APP_ENV=development` and `DEV_LOG_CODES=1`
+  (sign-in codes appear in the API log only), clears any test-mode confirmation, and runs uvicorn on 127.0.0.1 (`-Seed`
+  runs the seed instead).
+- **Development-only values, not approvals.** `dev_api.ps1` sets `TIMELINE_CONSENT_HOURS=24` and
+  `ASSIST_SESSION_MINUTES=30` so consent and verifier flows can be exercised. They are technical settings for the local
+  environment, not clinical, legal or policy values; production stays DECISION-PENDING and REVIEWER-PENDING (no default).
+- **M10 stays off.** The normal configuration removes `EMERGENCY_ACCESS_ENABLED`. Break-glass is exercised only with
+  `dev_api.ps1 -Emergency`: its own database (`swasthyoid_dev_m10`), its own document folder and port 8010; the web build
+  that talks to it sets `SWASTHYOID_API_TARGET` (vite proxy) and `VITE_FEATURE_EMERGENCY_ACCESS=1`. Turning it on there
+  implies no clinical or legal approval.
+- **Seed (`swasthyoid/devtools/seed.py`, `python -m swasthyoid.devtools.seed`).** Refused unless `APP_ENV=development`.
+  Does nothing when any account exists. Seeds the admin with `seed_admin`, then drives the real routes in-process: staff
+  created by the admin, the doctor's BMDC credential submitted and approved, the patient and caregiver registered, two
+  documents (prescription, lab report) entered by hand, reviewed and confirmed by the reviewers, a third left in
+  `needs_review`. No rules, consents or thresholds are created (they need the clinical reviewer). Phones are fixed
+  synthetic numbers; codes are captured in memory and never printed. It reuses the synthetic test image (`shortcut:`).
+- **Route reconciliation (`swasthyoid/devtools/routes.py`, `docs/ROUTES.md`).** Correction: the plan said "69 FastAPI
+  routes, eight missing". Read from the app's own OpenAPI specification there are **62** operations (61 under `/api/v1`
+  plus `GET /health`); the web mock answers **68**; **59** are on both; **9** are mock only and **3** server only.
+  The 9 mock-only routes are M5 summary and search (P3), M7 triage (P8), M8 reminders (P8) and M13 vitals (P6), each
+  explained in `ROUTES.md`. Server only: `POST /auth/refresh` (the web signs in again instead), `GET
+  /credentials/{id}/document` (upload unbuilt) and `POST /admin/users/{id}/emergency` (mock route added in B8b). A test
+  fails when a route appears on either side without an explanation or the report is out of date.
+
+**Verification.** `tests/test_seed.py` (2): refused for test, production and unset `APP_ENV` with no tables created; a
+full seed into a fresh database (role counts, all verified, emergency capability off, document states, verifications,
+events, no rules or consents, audit entries) with no 6-digit code in the output; a second run changes nothing.
+`tests/test_route_reconciliation.py` (3). Both dev databases seeded. Local PostgreSQL 16 (full run, started before the
+B8b mock edits): 1568 passed, 19 skipped; the 2 route reconciliation tests failed only because `mock.ts` gained a route
+during the 20-minute run, and pass on rerun. Web: 183 passed; type check clean. No schema change.
+
