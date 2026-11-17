@@ -321,27 +321,30 @@ def test_worker_hanging_beyond_the_hard_timeout_is_killed(prod):
 
 
 def test_heartbeat_keeps_a_long_job_and_nobody_else_can_take_it(prod, monkeypatch):
-    monkeypatch.setenv("FAKE_ENGINE_SECONDS", "4")
+    # The lease must outlast the time before the first heartbeat: preprocessing and, on Windows, starting the spawn
+    # child (which blocks while the pages are sent to a fresh interpreter) took over 1.5 s on a loaded machine, so
+    # the old 1.5 s lease could run out before any heartbeat. The engine still outlasts the lease three times over.
+    lease = timedelta(seconds=4)
+    monkeypatch.setenv("FAKE_ENGINE_SECONDS", "12")
     doc_id = upload(prod, patient(prod))
-    stolen = []
+    stolen, done = [], threading.Event()
 
-    def rival():  # tries to take the document while the first worker is still on it
+    def rival():  # keeps trying to take the document for as long as the first worker is on it
         with prod.connect() as conn:
-            for _ in range(12):
-                time.sleep(0.4)
-                stolen.append(extraction.claim(conn, doc_id, lease=timedelta(seconds=1.5)))
+            while not done.wait(0.4):
+                stolen.append(extraction.claim(conn, doc_id, lease=lease))
 
     watcher = threading.Thread(target=rival)
     watcher.start()
     try:
         with prod.connect() as conn:
-            # the job outlasts its 1.5 s lease several times over; only the heartbeat keeps it
-            extraction.run_due(conn, fake_engines.slow, lease=timedelta(seconds=1.5),
+            extraction.run_due(conn, fake_engines.slow, lease=lease,
                                heartbeat=timedelta(seconds=0.3), hard_timeout=timedelta(seconds=60))
             assert job(conn, doc_id) == ("needs_review", 1, None, None)
     finally:
+        done.set()
         watcher.join(30)
-    assert stolen == [None] * 12
+    assert len(stolen) >= 25 and not any(stolen)  # tried all through the job, never got it
 
 
 def test_orphaned_ocr_child_stops_when_its_worker_is_killed(prod, monkeypatch, tmp_path):
