@@ -1,7 +1,10 @@
 import type { LucideIcon } from "lucide-react";
 import { Activity, BadgeCheck, Camera, Database, FileSearch, Gavel, HeartPulse, Home, Inbox, KeyRound, LayoutGrid,
   ListChecks, ScrollText, ShieldAlert, ShieldCheck, Siren, UserPlus, Users } from "lucide-react";
-import { Link, NavLink, Outlet } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { ConfirmDialog } from "../components/ui";
+import { leaveReasons } from "../leave";
 import { LanguageToggle, ThemeSelect } from "../components/Controls";
 import { flags } from "../flags";
 import { useI18n } from "../i18n/i18n";
@@ -57,12 +60,35 @@ export const STAFF_NAV: Record<"doctor" | "verifier" | "console", { title: Key; 
 function TopBar({ subtitle }: { subtitle: Key }) {
   const { t } = useI18n();
   const { claims, signOut } = useSession();
-  return (
+  const { pathname } = useLocation();
+  // UX-2: typing in a form on the page makes it unsaved until it is sent or the page changes
+  const dirty = useRef(false);
+  useEffect(() => {
+    dirty.current = false;
+    const onInput = (e: Event) => { if ((e.target as Element | null)?.closest?.("main form")) dirty.current = true; };
+    const onSubmit = () => { dirty.current = false; };
+    document.addEventListener("input", onInput, true);
+    document.addEventListener("change", onInput, true);
+    document.addEventListener("submit", onSubmit, true);
+    return () => {
+      document.removeEventListener("input", onInput, true);
+      document.removeEventListener("change", onInput, true);
+      document.removeEventListener("submit", onSubmit, true);
+    };
+  }, [pathname]);
+  const [ask, setAsk] = useState<{ assist: boolean; unsaved: boolean } | null>(null);
+  return (<>
     <header className="topbar">
       <Link to="/" className="brand"><HeartPulse size={22} aria-hidden="true" />{t("app.name")} <small>{t(subtitle)}</small></Link>
-      <div className="controls"><LanguageToggle /><ThemeSelect />{claims && <button type="button" onClick={signOut}>{t("common.signOut")}</button>}</div>
+      <div className="controls"><LanguageToggle /><ThemeSelect />{claims && <button type="button" onClick={() => setAsk({ assist: leaveReasons().includes("assist"), unsaved: dirty.current })}>
+        {t("common.signOut")}</button>}</div>
     </header>
-  );
+    <ConfirmDialog open={ask !== null} title={t("logout.confirm")} confirmLabel={t("logout.yes")} danger={Boolean(ask?.assist || ask?.unsaved)}
+                   onCancel={() => setAsk(null)} onConfirm={() => { setAsk(null); signOut(); }}>
+      {ask?.assist && <p className="error-note">{t("logout.assist")}</p>}
+      {ask?.unsaved && <p className="error-note">{t("logout.unsaved")}</p>}
+    </ConfirmDialog>
+  </>);
 }
 
 function SkipLink() {

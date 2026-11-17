@@ -105,6 +105,7 @@ describe("W2 session renewal", () => {
     const { seen, transport } = cookieFor("patient", PATIENT_TOKEN);
     renderApp("/patient/more", { lang: "en", transport });
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, sign out" }));
     await screen.findByRole("button", { name: /Send code/ });
     cleanup();
     seen.length = 0;

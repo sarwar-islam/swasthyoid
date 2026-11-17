@@ -68,6 +68,7 @@ describe("W2 sign out", () => {
     const { seen, transport } = spy();
     renderApp("/patient", { lang: "en", signedIn: true, transport });
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, sign out" }));
     await waitFor(() => expect(seen.some((r) => r.method === "POST" && r.path === "/auth/logout")).toBe(true));
     await screen.findByRole("button", { name: /Send code/ });
     await expect(createClient(transport, () => PATIENT_TOKEN).request("GET", "/me")).rejects.toMatchObject({ status: 401 });
@@ -89,6 +90,7 @@ describe("W2 sign out", () => {
     const offline: Transport = async (r) => (r.path.startsWith("/auth/logout") ? { status: 503, body: null } : inner(r));
     renderApp("/patient", { lang: "en", signedIn: true, transport: offline });
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, sign out" }));
     await screen.findByRole("button", { name: /Send code/ });
   });
 });

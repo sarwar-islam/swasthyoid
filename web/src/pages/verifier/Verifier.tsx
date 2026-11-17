@@ -6,6 +6,7 @@ import { MOCK_CODE } from "../../api/mock";
 import type { AssistSession } from "../../api/types";
 import { ErrorNote } from "../../components/ui";
 import { localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
+import { useLeaveWarning } from "../../leave";
 import { useSession } from "../../session";
 import { clock, useMe, useSecondsLeft } from "../doctor/doctor";
 import { Capture, DocList } from "../patient/Capture";
@@ -26,6 +27,7 @@ export function VerifierFrame() {
   const { t } = useI18n();
   const me = useMe();
   const [session, set] = useState<AssistSession | null>(null);
+  useLeaveWarning("assist", session !== null);
   const status = me.data?.status;
   return (
     <Assist.Provider value={{ session, set }}>

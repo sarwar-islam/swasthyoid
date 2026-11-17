@@ -50,8 +50,9 @@ export function StatusChip({ status }: { status: DocStatus }) {
 }
 
 /** A confirmation step for actions that cannot be undone (revoke, reject). Focus starts on the safe choice; Escape cancels. */
-export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, danger = true }:
-  { open: boolean; title: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void; danger?: boolean }) {
+export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, danger = true, children }:
+  { open: boolean; title: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void; danger?: boolean;
+    children?: ReactNode }) {
   const { t } = useI18n();
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -68,8 +69,10 @@ export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, 
   if (!open) return null;
   return (
     <div className="dialog-backdrop">
-      <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" className="dialog card">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby={children ? "confirm-body" : undefined}
+           className="dialog card">
         <p id="confirm-title" className="dialog-title">{title}</p>
+        {children && <div id="confirm-body">{children}</div>}
         <div className="actions">
           <button type="button" ref={cancelRef} onClick={onCancel}>{t("common.cancel")}</button>
           <button type="button" className={danger ? "btn-danger" : "btn-primary"} onClick={onConfirm}>{confirmLabel}</button>
