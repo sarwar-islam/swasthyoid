@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (747 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (756 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (747 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (29) · [`more`](#more) (19) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (29) · [`more`](#more) (19) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -732,6 +732,11 @@ Generated from `web/src/i18n/strings.ts` (747 strings). Do not edit the strings 
 | `cred.submitted` | জমা হয়েছে। একজন অ্যাডমিন যাচাই করবেন। | Submitted. An admin will verify it. |  |
 | `cred.current` | জমা দেওয়া নম্বর | Submitted number |  |
 | `cred.status` | অবস্থা | Status |  |
+| `cred.doc` | সনদের ছবি (JPEG বা PNG) | Certificate photo (JPEG or PNG) |  |
+| `cred.docHelp` | BMDC সনদের পরিষ্কার একটি ছবি বা স্ক্যান। শুধু অ্যাডমিন এটি দেখবেন; ছবির অবস্থান ও অন্য তথ্য মুছে রাখা হয়। | A clear photo or scan of your BMDC certificate. Only an admin sees it; its location and other details are removed. |  |
+| `cred.docUpload` | ছবি আপলোড করুন | Upload photo |  |
+| `cred.docDone` | সনদের ছবি জমা হয়েছে। | Certificate photo submitted. |  |
+| `cred.docHave` | সনদের ছবি জমা দেওয়া আছে। নতুন ছবি দিলে আগেরটি বদলে যাবে। | A certificate photo is on file. A new photo replaces it. |  |
 
 ## bg
 
@@ -872,7 +877,11 @@ Generated from `web/src/i18n/strings.ts` (747 strings). Do not edit the strings 
 
 | Key | Bangla | English (source meaning) | Review |
 |---|---|---|---|
-| `cr.intro` | অনুমোদনের আগে BMDC নিবন্ধন নম্বরটি মিলিয়ে দেখুন। জমা দেওয়া নথি এখানে এখনো দেখা যায় না। | Check the BMDC registration number before approving. The submitted document can't be viewed here yet. |  |
+| `cr.intro` | অনুমোদনের আগে BMDC নিবন্ধন নম্বর আর সনদের ছবি মিলিয়ে দেখুন। | Check the BMDC registration number and the certificate photo before approving. |  |
+| `cr.showDoc` | সনদের ছবি দেখুন | Show certificate photo |  |
+| `cr.hideDoc` | ছবি লুকান | Hide photo |  |
+| `cr.noDoc` | কোনো ছবি জমা হয়নি | No photo submitted |  |
+| `cr.docAlt` | {name}-এর BMDC সনদের ছবি | BMDC certificate photo of {name} |  |
 | `cr.pending` | অনুমোদন বাকি | Waiting for approval |  |
 | `cr.nonePending` | অনুমোদন বাকি নেই। | Nothing is waiting for approval. |  |
 | `cr.verified` | যাচাই হওয়া ডাক্তার | Verified doctors |  |

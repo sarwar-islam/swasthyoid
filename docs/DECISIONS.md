@@ -2809,3 +2809,12 @@ memory, tabs renew one at a time under `navigator.locks`, a custom header guards
 - Known limits: on screen, input without requests counts as activity but not on the server, so a user typing a long form
   for over the limit is signed out at the next request. The doctor's QR waiting screen polls, which keeps that session
   active while it is open. One database write per authenticated request (`shortcut:` comment in `sessions.touch`).
+
+**W2b credential document.** `POST /credentials/{id}/document` (the doctor who owns a pending credential; multipart `file`,
+up to 10 MB). Files that do not start with a JPEG or PNG signature get 422 `image_unsupported`; Pillow then decodes them
+(pixel cap) and `imaging.strip_metadata` makes the copy that is stored (EXIF with GPS, XMP, ICC, comments removed);
+only that copy is kept, encrypted under `credentials/<user>/<uuid>`. A newer upload replaces the older one while pending;
+someone else's or a verified credential is 404; audited `credential.document.upload`. `doc_key` is no longer accepted in
+`POST /credentials` (a client could have pointed the admin view at any storage key). `GET /me` and the admin list say
+`has_document`; `/me` also gives the credential's `id`. Web: the doctor's registration page has the upload (JPEG/PNG,
+explained); the admin's approval list has "Show certificate photo" on pending credentials.
