@@ -2900,3 +2900,52 @@ documents" does not claim the patient still takes them: the record does not say.
 session, unsaved-form and assisted-session warnings, summary provenance and no internal fields in both languages with axe,
 all five empty sections, no alert or summary request). Browser pane (mock, dark): landing and the code screen at 768 and
 1280 px, summary and dialog at 768 px, no horizontal scroll. Copy list regenerated.
+
+## UX-3 global design system and interaction standards (2026-11-18)
+
+**Audit.** 50 routes across Landing, the four sign-in pages, Patient (19), Doctor (9), Verifier (3), Console (7) and
+`/portals`. One stylesheet pair (`tokens.css`, `base.css`) already served every portal; shared components live in
+`components/ui.tsx`. Nothing was redesigned per page: the change is to tokens, global rules and shared components.
+
+**Tokens added.** Spacing 40/48 (all spacing is a 4px multiple), `--dur-fast/--dur/--dur-slow` and `--ease`, font weights,
+`--measure` 68ch, `--hairline`, `--radius-sm`, `--radius-inner` (card radius minus the gap), `--surface-3` for raised
+layers (dark mode lifts surfaces: #111e21, #17282c, #1e3338), two soft wide shadows, `--focus-ring`. Fonts unchanged.
+
+**Global rules.** Balanced headings; paragraphs capped at the measure; tabular numbers for ids, dates, chips, readings and
+table cells; hairline borders and soft shadows on cards and dialogs; secondary buttons unfilled, one filled main action;
+hover only on pointer devices, never on filled buttons' colours; invalid fields marked; 44px hit area for icon buttons;
+sticky header with `scroll-padding-top` so anchors are not hidden; safe-area insets on header, content and floating
+controls; smooth scrolling only without reduced motion.
+
+**Shared components.** `CopyButton` (announces "Copied" or "Could not copy", replaces Home's own copy code, added to the
+profile); `CommandMenu` (Ctrl/⌘+K or the search button, signed-in shells only; lists only the pages that shell shows this
+role, searches page names, never records; combobox + listbox with arrow keys, Enter, Escape and focus return);
+`SkipLink` now also on Landing and every sign-in page. Modals (command menu, confirmations) render at the page root and
+lock page scrolling while open; the page root has the theme background, so nothing white shows under or around a backdrop.
+
+**Landing and sign-in.** Phone menu button (`aria-expanded`) for the section links; reading progress bar and back-to-top
+on the long page. Sign-in errors sit under the phone or code field with `aria-invalid` and a line on how to fix it; the
+submit button shows `aria-busy`. Document and credential images load lazily.
+
+**Already in place (kept).** Skeletons and retry (UX-1); idempotency keys on every write (client); one renewal at a time;
+keeping the last data while reloading (`useLoad`), which is the safe form of stale-while-revalidate here: nothing is cached
+across reloads or in shared caches; OTP one-time-code autofill, server-matched expiry, resend, expired state; confirmations
+for revoke, reject and sign-out; reduced-motion handling.
+
+**Not applicable (nothing to build).** Password toggles (no passwords: phone OTP only). Cookie banner: the only cookie is
+the HttpOnly session cookie, strictly necessary; language and theme are in local storage; no analytics (legal review to
+confirm). UTM tracking (no analytics). Swipe sheets and predictive back (no sheets; the browser's back works). Optimistic
+updates and undo: every write is consent, clinical, safety or account data, or not safely reversible, so all wait for the
+server (rule from the brief).
+
+**Blocked on approved content (not invented).** FAQ, floating contact action, last-updated dates on policy pages, legal text.
+
+**Needs a decision.** Pre-rendering the landing page and splitting the bundle by portal: the JS is one 624 kB chunk (178 kB
+gzip; 618 kB before UX-3). Pre-rendering needs a new build dependency; lazy routes change loading behaviour in every portal.
+
+**Verification.** Web: 256 passed (9 new in `ux3.test.tsx`: command menu in Bangla and English with axe, keyboard and focus
+return, doctor sees only doctor pages, absent when signed out; copy success and failure; landing skip link and menu in both
+languages with axe; sign-in field error). Type check clean. Browser pane (mock), axe-core 4 with colour contrast (WCAG 2.1
+AA): 15 patient pages × light/dark at 375 px, 4 doctor, 2 verifier, 2 reviewer and 5 admin pages × light/dark at 375 px,
+landing and 7 patient + 2 doctor pages × light/dark at 1280 px (pane-width during part of the run), 4 patient and 2 admin
+pages × light/dark at 768 px: 0 violations, no horizontal scroll. Copy list: 812 strings.

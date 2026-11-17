@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (799 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (812 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (799 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (34) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`logout`](#logout) (4) · [`hs`](#hs) (11) · [`err`](#err) (62) · [`login`](#login) (23) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (36) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (9) · [`cmd`](#cmd) (8) · [`login`](#login) (25) · [`logout`](#logout) (4) · [`hs`](#hs) (11) · [`err`](#err) (62) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -109,6 +109,8 @@ Generated from `web/src/i18n/strings.ts` (799 strings). Do not edit the strings 
 | `land.privacy` | গোপনীয়তা | Privacy |  |
 | `land.create` | রোগী অ্যাকাউন্ট খুলুন | Create patient account |  |
 | `land.doctors.apply` | ডাক্তার হিসেবে আবেদন করুন | Apply for doctor access |  |
+| `land.menu` | মেনু | Menu |  |
+| `land.toTop` | উপরে যান | Back to top |  |
 
 ## more
 
@@ -167,11 +169,55 @@ Generated from `web/src/i18n/strings.ts` (799 strings). Do not edit the strings 
 | `common.loading` | লোড হচ্ছে… | Loading… |  |
 | `common.error` | কিছু একটা ভুল হয়েছে। আবার চেষ্টা করুন। | Something went wrong. Try again. |  |
 | `common.retry` | আবার চেষ্টা করুন | Try again |  |
+| `common.copyFailed` | কপি করা যায়নি। নম্বরটি স্ক্রিন থেকে পড়ে নিন। | Could not copy. Read the number from the screen. |  |
 | `common.cancel` | না, ফিরে যান | No, go back |  |
 | `common.signOut` | লগআউট | Sign out |  |
 | `common.page` | পাতা {n} | Page {n} |  |
 | `common.mockMode` | ডেমো মোড: সব তথ্য কাল্পনিক। কোড {code} | Demo mode: all data is synthetic. Code {code} |  |
 | `common.reasonRequired` | কারণ লিখুন। | Write a reason. |  |
+
+## cmd
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `cmd.open` | পাতা খুঁজুন | Find a page |  |
+| `cmd.title` | কোন পাতায় যাবেন? | Which page? |  |
+| `cmd.placeholder` | পাতার নাম লিখুন | Type a page name |  |
+| `cmd.results` | পাতা | Pages |  |
+| `cmd.none` | এই নামে কোনো পাতা নেই। | No page has that name. |  |
+| `cmd.move` | সরান | move |  |
+| `cmd.go` | খুলুন | open |  |
+| `cmd.close` | বন্ধ | close |  |
+
+## login
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `login.fixPhone` | ১১ অঙ্কের মোবাইল নম্বর লিখুন, যেমন ০১৭০০০০০০০১। | Enter an 11-digit mobile number, for example 01700000001. |  |
+| `login.fixCode` | SMS-এ পাওয়া ছয় অঙ্কের কোডটি লিখুন, অথবা নতুন কোড পাঠান। | Enter the six-digit code from the SMS, or send a new code. |  |
+| `login.title` | লগইন | Sign in |  |
+| `login.intro` | আপনার মোবাইলে একটি এককালীন কোড পাঠানো হবে। | A one-time code will be sent to your mobile. |  |
+| `login.expired` | আপনার সেশন শেষ হয়ে গেছে। আবার লগইন করুন। | Your session has ended. Please sign in again. |  |
+| `login.phone` | মোবাইল নম্বর | Mobile number |  |
+| `login.phoneHint` | যেমন ০১৭০০০০০০০১ | For example 01700000001 |  |
+| `login.send` | কোড পাঠান | Send code |  |
+| `login.code` | এককালীন কোড | One-time code |  |
+| `login.codeHint` | SMS-এ পাওয়া ছয় অঙ্কের কোড | The six-digit code from the SMS |  |
+| `login.verify` | লগইন করুন | Sign in |  |
+| `login.changePhone` | নম্বর বদলান | Change number |  |
+| `login.newHere` | আপনি নতুন। নিচের তথ্য দিন, তারপর নতুন কোড পাঠানো হবে। | You're new here. Fill in the details below, then a new code is sent. |  |
+| `login.name` | পুরো নাম | Full name |  |
+| `login.dob` | জন্ম তারিখ | Date of birth |  |
+| `login.sex` | লিঙ্গ | Sex |  |
+| `login.sex.F` | নারী | Female |  |
+| `login.sex.M` | পুরুষ | Male |  |
+| `login.sex.O` | অন্যান্য | Other |  |
+| `login.register` | তথ্য দিয়ে নতুন কোড পাঠান | Send a new code with these details |  |
+| `login.sentTo` | কোড পাঠানো হয়েছে এই নম্বরে: | Code sent to: |  |
+| `login.expiresIn` | কোডের মেয়াদ আছে আর {time} | The code works for {time} more |  |
+| `login.codeExpired` | কোডের মেয়াদ শেষ। নতুন কোড পাঠান। | The code has expired. Send a new one. |  |
+| `login.resend` | আবার কোড পাঠান | Send the code again |  |
+| `login.resent` | নতুন কোড পাঠানো হয়েছে। আগের কোড আর কাজ করবে না। | A new code was sent. The earlier code no longer works. |  |
 
 ## logout
 
@@ -264,34 +310,6 @@ Generated from `web/src/i18n/strings.ts` (799 strings). Do not edit the strings 
 | `err.phone_exists` | এই নম্বরে আগে থেকেই একটি অ্যাকাউন্ট আছে। | This number already has an account. |  |
 | `err.version_conflict` | অন্য কেউ এই সীমা বদলেছেন। আবার লোড করে দেখুন। | Someone else changed these thresholds. Reload and check them. |  |
 | `err.invalid_threshold` | সার্ভার এই মান গ্রহণ করেনি। ক্ষেত্র ও মান আবার দেখুন। | The server did not accept these values. Check the fields and values. |  |
-
-## login
-
-| Key | Bangla | English (source meaning) | Review |
-|---|---|---|---|
-| `login.title` | লগইন | Sign in |  |
-| `login.intro` | আপনার মোবাইলে একটি এককালীন কোড পাঠানো হবে। | A one-time code will be sent to your mobile. |  |
-| `login.expired` | আপনার সেশন শেষ হয়ে গেছে। আবার লগইন করুন। | Your session has ended. Please sign in again. |  |
-| `login.phone` | মোবাইল নম্বর | Mobile number |  |
-| `login.phoneHint` | যেমন ০১৭০০০০০০০১ | For example 01700000001 |  |
-| `login.send` | কোড পাঠান | Send code |  |
-| `login.code` | এককালীন কোড | One-time code |  |
-| `login.codeHint` | SMS-এ পাওয়া ছয় অঙ্কের কোড | The six-digit code from the SMS |  |
-| `login.verify` | লগইন করুন | Sign in |  |
-| `login.changePhone` | নম্বর বদলান | Change number |  |
-| `login.newHere` | আপনি নতুন। নিচের তথ্য দিন, তারপর নতুন কোড পাঠানো হবে। | You're new here. Fill in the details below, then a new code is sent. |  |
-| `login.name` | পুরো নাম | Full name |  |
-| `login.dob` | জন্ম তারিখ | Date of birth |  |
-| `login.sex` | লিঙ্গ | Sex |  |
-| `login.sex.F` | নারী | Female |  |
-| `login.sex.M` | পুরুষ | Male |  |
-| `login.sex.O` | অন্যান্য | Other |  |
-| `login.register` | তথ্য দিয়ে নতুন কোড পাঠান | Send a new code with these details |  |
-| `login.sentTo` | কোড পাঠানো হয়েছে এই নম্বরে: | Code sent to: |  |
-| `login.expiresIn` | কোডের মেয়াদ আছে আর {time} | The code works for {time} more |  |
-| `login.codeExpired` | কোডের মেয়াদ শেষ। নতুন কোড পাঠান। | The code has expired. Send a new one. |  |
-| `login.resend` | আবার কোড পাঠান | Send the code again |  |
-| `login.resent` | নতুন কোড পাঠানো হয়েছে। আগের কোড আর কাজ করবে না। | A new code was sent. The earlier code no longer works. |  |
 
 ## home
 
