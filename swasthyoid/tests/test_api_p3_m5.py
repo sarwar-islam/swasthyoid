@@ -118,6 +118,7 @@ def test_template_summary_states_only_what_its_cited_events_hold(api, p3):
     assert meds[1]["text"] == "SYNTH-DRUG-001 500 mg · 1+0+1 · 7 days · 2026-11-12"  # as written, never "active" (D3)
     assert [x["citations"] for x in sec["labs"]["sentences"]] == [[e.lab1], [e.lab2]]  # one test, date order, no trend
     assert [x["citations"] for x in sec["follow_ups"]["sentences"]] == [[e.follow]]  # past date left out
+    assert sec["follow_ups"]["sentences"][0]["text"] == FUTURE  # its date said once, not "date · date"
     assert [x["citations"] for x in sec["allergies"]["sentences"]] == [[e.allergy]]
     assert [x["citations"] for x in sec["visits"]["sentences"]] == [[e.visit]]
     assert [x["citations"] for x in s["patient_reported"]] == [[e.vital]]

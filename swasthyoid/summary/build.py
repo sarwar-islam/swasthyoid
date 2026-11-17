@@ -49,7 +49,9 @@ def sentence(event, fields):
     eid = str(event["id"])
     facts = [{"event_id": eid, "field": f, "value": _value(event["payload"].get(f))} for f in fields]
     facts = [f for f in facts if f["value"] is not None]
-    facts.append({"event_id": eid, "field": "date", "value": event["event_date"].isoformat()})
+    when = event["event_date"].isoformat()
+    if when not in (f["value"] for f in facts):  # a follow-up's own date is its event date: say it once
+        facts.append({"event_id": eid, "field": "date", "value": when})
     return {"text": " · ".join(f["value"] for f in facts), "citations": [eid], "facts": facts}
 
 

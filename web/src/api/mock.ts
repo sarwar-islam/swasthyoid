@@ -332,7 +332,7 @@ const currentOf = (events: TimelineEvent[]) => events.filter((e) => !events.some
 function citedLine(e: TimelineEvent, fields = SUMMARY_FIELDS[e.event_type] ?? Object.keys(e.payload).sort()): Cited {
   const facts = fields.filter((f) => typeof e.payload[f] === "string" && e.payload[f].trim())
     .map((f) => ({ event_id: e.event_id, field: f, value: e.payload[f].trim() }));
-  facts.push({ event_id: e.event_id, field: "date", value: e.date });
+  if (!facts.some((f) => f.value === e.date)) facts.push({ event_id: e.event_id, field: "date", value: e.date }); // say a follow-up's date once
   return { text: facts.map((f) => f.value).join(" · "), citations: [e.event_id], facts };
 }
 
