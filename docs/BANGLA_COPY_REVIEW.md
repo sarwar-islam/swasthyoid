@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (784 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (799 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (784 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (34) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (23) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (34) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`logout`](#logout) (4) · [`hs`](#hs) (11) · [`err`](#err) (62) · [`login`](#login) (23) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -172,6 +172,31 @@ Generated from `web/src/i18n/strings.ts` (784 strings). Do not edit the strings 
 | `common.page` | পাতা {n} | Page {n} |  |
 | `common.mockMode` | ডেমো মোড: সব তথ্য কাল্পনিক। কোড {code} | Demo mode: all data is synthetic. Code {code} |  |
 | `common.reasonRequired` | কারণ লিখুন। | Write a reason. |  |
+
+## logout
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `logout.confirm` | এখন লগআউট করবেন? | Sign out now? |  |
+| `logout.yes` | হ্যাঁ, লগআউট করুন | Yes, sign out |  |
+| `logout.assist` | রোগীর সাথে চলমান সহায়তা সেশন এই স্ক্রিনে শেষ হয়ে যাবে। | The assisted session with the patient will end on this screen. |  |
+| `logout.unsaved` | এই ফর্মে যা লিখেছেন তা সংরক্ষিত হয়নি, মুছে যাবে। | What you typed on this form is not saved and will be lost. |  |
+
+## hs
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `hs.title` | আমার স্বাস্থ্য সারাংশ | My health summary |  |
+| `hs.desc` | ওষুধ, রোগনির্ণয়, ল্যাব, বাসার রিডিং ও ফলো-আপ এক নজরে | Medicines, diagnoses, labs, home readings and follow-ups at a glance |  |
+| `hs.intro` | শুধু আপনার রেকর্ডে যা লেখা আছে। এটি রোগনির্ণয় বা চিকিৎসা পরামর্শ নয়। | Only what is written in your record. This is not a diagnosis or medical advice. |  |
+| `hs.meds` | নথিতে লেখা ওষুধ | Medicines written in documents |  |
+| `hs.dx` | রোগনির্ণয় | Diagnoses |  |
+| `hs.labs` | সাম্প্রতিক ল্যাবের ফল | Recent lab results |  |
+| `hs.vitals` | বাসায় মাপা সাম্প্রতিক রিডিং | Recent home readings |  |
+| `hs.follow` | সামনের ফলো-আপ | Upcoming follow-ups |  |
+| `hs.none` | কোনো তথ্য রেকর্ড করা নেই | Not recorded yet |  |
+| `hs.verified` | নথি থেকে, মানুষ যাচাই করেছে | From a document, checked by a person |  |
+| `hs.reported` | রোগীর দেওয়া, যাচাই করা নয় | Reported by the patient, not verified |  |
 
 ## err
 

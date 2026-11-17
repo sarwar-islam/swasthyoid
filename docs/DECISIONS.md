@@ -2877,3 +2877,26 @@ mask, time left, resend and expiry; landing links; profile; records; Bangla and 
 `test_api_w2`, route reconciliation 36 passed (the `/me` test checks the new fields and that the full number is absent).
 Browser pane (mock): timeline at 375, 768 and 1280 px in the dark theme; profile, records and timeline at 375 px with no
 horizontal scroll. Copy list: 784 strings.
+
+## UX-2 sign-out confirmation and patient health summary (2026-11-17)
+
+Owner decisions: fonts stay Atkinson Hyperlegible + Hind Siliguri; sign-out asks first; patients get a read-only health
+summary.
+
+**Sign-out.** The top-bar "Sign out" opens the existing confirmation dialog (focus on "No, go back", Escape cancels). It
+warns in words when a verifier has an assisted session open (the verifier frame registers it in `web/src/leave.ts`) and
+when something was typed in a form on the page and not sent (any input in a `main form` since the page opened or the last
+submit). "Sign out on all devices" on More is unchanged (its own button, explained beside it).
+
+**Health summary.** `/patient/summary`, linked from More. Built in the browser from the patient's own timeline (`GET
+/patients/{id}/timeline`), so no new API: medicines, diagnoses, the five latest lab results (all document-verified), the
+five latest home readings (patient-reported), and follow-ups dated today or later. Each row shows the type's fields from
+`summary/build.py` FIELDS only (plus `diagnosis_text`), its date, a link to the timeline entry, and its provenance in words
+("নথি থেকে, মানুষ যাচাই করেছে" / "রোগীর দেওয়া, যাচাই করা নয়"). Empty sections say "কোনো তথ্য রেকর্ড করা নেই" / "Not
+recorded yet". It never calls the doctor summary or safety-alert routes, and interprets nothing. "Medicines written in
+documents" does not claim the patient still takes them: the record does not say.
+
+**Verification.** Web: 247 passed (10 new in `ux2.test.tsx`: dialog in Bangla and English with axe, going back keeps the
+session, unsaved-form and assisted-session warnings, summary provenance and no internal fields in both languages with axe,
+all five empty sections, no alert or summary request). Browser pane (mock, dark): landing and the code screen at 768 and
+1280 px, summary and dialog at 768 px, no horizontal scroll. Copy list regenerated.
