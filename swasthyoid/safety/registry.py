@@ -14,12 +14,9 @@ from psycopg.types.json import Jsonb
 from swasthyoid.core import audit
 from swasthyoid.safety import definitions
 
-RULE_TYPES = ("ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "red_flag",
-              "emergency_message")
+RULE_TYPES = ("ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "vital_plausibility",
+              "red_flag", "emergency_message")
 SEVERITIES = ("contraindicated", "major", "moderate", "minor")
-# REVIEWER-PENDING (owner decision 8, 2026-11-16): the one shape check on a definition. A vital_threshold names what it
-# applies to, with a unit that fits it; the editable per-patient fields come from these (B6). Nothing else is interpreted.
-VITAL_UNITS = {"bp": ("mmHg",), "glucose": ("mmol/L", "mg/dL")}
 
 
 class Invalid(Exception):
@@ -40,8 +37,11 @@ def _check(body):
     if not isinstance(explanation, dict) or not all(isinstance(explanation.get(k), str) and explanation[k].strip()
                                                     for k in ("en", "bn")):
         raise Invalid("invalid_rule")
-    if rule_type == "vital_threshold" and definition.get("unit") not in VITAL_UNITS.get(definition.get("vital_type"), ()):
-        raise Invalid("invalid_vital_threshold")
+    if rule_type in definitions.VITAL_RULE_TYPES:  # P6 (V1, V3): strict shapes; a unit that does not fit keeps its B5 code
+        try:
+            definitions.parse_vital(rule_type, definition)
+        except definitions.Invalid as e:
+            raise Invalid("invalid_vital_threshold" if e.args == ("unit",) else "invalid_rule_definition") from None
     if rule_type in definitions.ENGINE_TYPES:  # P3 (D5): the strict shapes the M6 engine reads
         try:
             definitions.parse(rule_type, severity, definition)

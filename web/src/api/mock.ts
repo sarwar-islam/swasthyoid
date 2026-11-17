@@ -3,7 +3,8 @@ import type {
   AccessEntry, AuditEntry, Cited, Consent, ConsentQr, CredentialReview, StaffAccount, DocType, DocumentView, DoctorConsent, EmergencyProfile,
   EmergencyReview, EmergencySession, ExtractedField, ExtractionResponse, FieldRow, Me, NotificationKind, OtpVerifyBody, PatientNotification,
   QrConsentRequest, Reminder, ReminderLogAction, ReviewBody, ReviewedText, Rule, RuleType, SafetyAlert, SafetyCheck, SearchHit, Severity, StaffMe,
-  StaffVerifyBody, Summary, ThresholdField, TimelineEvent, TriageState, VitalEntry, VitalEvaluation, VitalReading, VitalThresholds, VitalType, VitalUnit,
+  StaffVerifyBody, Summary, ThresholdField, TimelineEvent, TriageState, VitalContext, VitalEntry, VitalEvaluation, VitalReading,
+  VitalThresholds, VitalType, VitalUnit,
   WorkerMetrics,
 } from "./types";
 import { flags } from "../flags";
@@ -138,17 +139,20 @@ function createState() {
     ev("e-allergy", "allergy", "2026-10-02", "document_verified", { allergy_text: "SYNTH-ALLERGEN-01" }, { source_document_id: "d-verified" }),
     ev("e-lab-1", "lab_result", "2026-09-15", "document_verified", { test_name: "SYNTH-TEST-A", result: "5.4", unit: "mg/dL" }),
     ev("e-lab-2", "lab_result", "2026-11-01", "document_verified", { test_name: "SYNTH-TEST-A", result: "5.9", unit: "mg/dL" }),
-    ev("e-bp-1", "vital_reading", "2026-11-10", "patient_reported", { reading: "150/95 mmHg" }),
-    ev("e-bp-2", "vital_reading", "2026-11-10", "patient_reported", { reading: "130/85 mmHg" }, { version: 2, supersedes: "e-bp-1" }),
+    // the server's vital_reading payload (P6): the reading as entered
+    ev("e-bp-1", "vital_reading", "2026-11-10", "patient_reported", { reading_id: "v-1", vital_type: "bp", value: "150/95", unit: "mmHg",
+       context: "home", source: "manual_entry" }),
+    ev("e-bp-2", "vital_reading", "2026-11-10", "patient_reported", { reading_id: "v-2", vital_type: "bp", value: "130/85", unit: "mmHg",
+       context: "home", source: "manual_entry", correction_reason: "SYNTH typed the wrong number" }, { version: 2, supersedes: "e-bp-1" }),
   ];
-  const vitals: VitalReading[] = [
-    { event_id: "v-1", vital_type: "bp", value: "150/95", unit: "mmHg", context: "home", measured_at: iso(-120), verification_status: "patient_reported",
-      version: 1, supersedes: null, recorded_at: iso(-120) },
-    { event_id: "v-2", vital_type: "bp", value: "130/85", unit: "mmHg", context: "home", measured_at: iso(-120), verification_status: "patient_reported",
-      version: 2, supersedes: "v-1", recorded_at: iso(-119) },
-    { event_id: "v-3", vital_type: "glucose", value: "6.1", unit: "mmol/L", context: "fasting", measured_at: iso(-30), verification_status: "patient_reported",
-      version: 1, supersedes: null, recorded_at: iso(-30) },
-  ];
+  const reading = (id: string, eventId: string, vital_type: VitalType, value: string, unit: VitalUnit, context: VitalContext, hoursAgo: number,
+                   of: VitalReading | null = null, reason: string | null = null): VitalReading =>
+    ({ id, event_id: eventId, vital_type, value, unit, context, measured_at: iso(-hoursAgo), verification_status: "patient_reported",
+       version: of ? of.version + 1 : 1, supersedes: of?.event_id ?? null, supersedes_reading_id: of?.id ?? null, correction_reason: reason,
+       recorded_at: iso(-hoursAgo) });
+  const v1 = reading("v-1", "e-bp-1", "bp", "150/95", "mmHg", "home", 120);
+  const vitals: VitalReading[] = [v1, reading("v-2", "e-bp-2", "bp", "130/85", "mmHg", "home", 119, v1, "SYNTH typed the wrong number"),
+    reading("v-3", "e-v-3", "glucose", "6.1", "mmol/L", "fasting", 30)];
   const reminders: Reminder[] = [
     { id: "r-proposed", kind: "medicine", status: "proposed", as_written: "SYNTH-DRUG-003 · 1+0+1 (as written)", times: ["08:00", "20:00"],
       source_event_id: "e-med", log: [] },
@@ -191,6 +195,9 @@ function createState() {
 
   return { me, consents, history, documents, extractions, timeline, phones: new Set([MOCK_PHONE]), reviews: {} as Record<string, ReviewBody["fields"]>,
            vitals, reminders, emergency, triage: {} as Record<string, number>, records, histories, patientOf, codes,
+           // P6: what each reading id was saved with (its fingerprint) and its evaluation, for idempotent retries
+           vitalSaved: Object.fromEntries(vitals.map((v) => [v.id, { fingerprint: "", evaluation: notEvaluated("no_applicable_threshold") }])) as
+             Record<string, { fingerprint: string; evaluation: VitalEvaluation }>,
            sessions: [] as Array<{ id: string; verifier_id: string; patient_id: string; status: "pending" | "active" | "expired" | "revoked";
                                    activated_at: string | null; expires_at: string | null }>,
            staff: {
@@ -249,7 +256,7 @@ function seedRules(iso: (offsetHours: number) => string): Rule[] {
                 extra: Record<string, unknown> = {}): Rule => ({
     id: `${ruleId}-v${version}`, rule_id: ruleId, version, rule_type: ruleType, severity, status,
     // the engine types use the strict P3 shape (D5); their names are made up
-    definition: ["ddi", "allergy", "duplicate"].includes(ruleType) ? extra : { placeholder: "REVIEWER-PENDING", synthetic: true, ...extra },
+    definition: ["ddi", "allergy", "duplicate", "vital_threshold"].includes(ruleType) ? extra : { placeholder: "REVIEWER-PENDING", synthetic: true, ...extra },
     explanation: { en: `[REVIEWER-PENDING] Approved explanation for ${ruleId} goes here.`,
                    bn: `[রিভিউয়ার-অনুমোদন বাকি] ${ruleId}-এর অনুমোদিত ব্যাখ্যা এখানে বসবে।` },
     // B5 four-eyes: the seeds are written by a second synthetic reviewer, so the signed-in reviewer may approve them
@@ -261,11 +268,16 @@ function seedRules(iso: (offsetHours: number) => string): Rule[] {
     rule("SYNTH-DDI-0001", 2, "ddi", "major", "draft", 20, { schema: 1, ingredients: ["synthgen-alpha", "synthgen-beta"] }),
     rule("SYNTH-ALG-0001", 1, "allergy", "moderate", "approved", 190,
          { schema: 1, allergen_terms: ["SYNTH-ALLERGEN-01"], ingredients: ["synthgen-beta"] }),
-    rule("SYNTH-VT-0001", 1, "vital_threshold", null, "draft", 10, { vital_type: "bp" }),
-    // approved SYNTHETIC threshold rules, so the doctor's thresholds screen has fields; no value and no limit (REVIEWER-PENDING)
-    rule("SYNTH-VT-0101", 1, "vital_threshold", null, "approved", 180, { vital_type: "bp", unit: "mmHg" }),
-    rule("SYNTH-VT-0102", 1, "vital_threshold", null, "approved", 180, { vital_type: "bp", unit: "mmHg" }),
-    rule("SYNTH-VT-0103", 1, "vital_threshold", null, "approved", 180, { vital_type: "glucose", unit: "mmol/L" }),
+    rule("SYNTH-VT-0001", 1, "vital_threshold", null, "draft", 10,
+         { schema: 1, vital_type: "bp", unit: "mmHg", component: "systolic", contexts: ["resting"], comparison: "at_or_above", level: "flagged" }),
+    // approved SYNTHETIC threshold rules (P6 strict shape), so the doctor's thresholds screen has fields. They hold no number: the
+    // value is the treating doctor's per-patient setting, and with none set a reading is not_evaluated (REVIEWER-PENDING, Q7/Q13)
+    rule("SYNTH-VT-0101", 1, "vital_threshold", null, "approved", 180,
+         { schema: 1, vital_type: "bp", unit: "mmHg", component: "systolic", contexts: ["home", "resting"], comparison: "at_or_above", level: "critical" }),
+    rule("SYNTH-VT-0102", 1, "vital_threshold", null, "approved", 180,
+         { schema: 1, vital_type: "bp", unit: "mmHg", component: "diastolic", contexts: ["home", "resting"], comparison: "at_or_above", level: "critical" }),
+    rule("SYNTH-VT-0103", 1, "vital_threshold", null, "approved", 180,
+         { schema: 1, vital_type: "glucose", unit: "mmol/L", contexts: ["fasting"], comparison: "at_or_above", level: "flagged" }),
     rule("SYNTH-RF-0001", 1, "red_flag", null, "draft", 9, { phrase: "SYNTH-RED-FLAG" }),
     rule("SYNTH-EM-0001", 1, "emergency_message", null, "draft", 8),
   ];
@@ -288,19 +300,56 @@ const pending = (en: string, bn: string): ReviewedText =>
   ({ status: "REVIEWER-PENDING", en: `[REVIEWER-PENDING] ${en}`, bn: `[রিভিউয়ার-অনুমোদন বাকি] ${bn}` });
 export const MOCK_RED_FLAG = "SYNTH-RED-FLAG"; // the mock routes a message containing this to the emergency card
 
-function mockEvaluate(entry: VitalEntry): { confirm: boolean; evaluation: VitalEvaluation } {
-  if (entry.vital_type === "bp") {
-    const [sys, dia] = entry.value.split("/").map(Number);
-    const confirm = sys > 300 || dia > 200 || sys <= dia; // mock-only plausibility check
-    // 180/120 is the FRD's own example of a critical reading (M13); every other reading has no approved rule yet
-    const critical = sys >= 180 || dia >= 120;
-    return { confirm, evaluation: critical
-      ? { level: "critical", rule_id: "SYNTH-RULE-BP-CRITICAL", message: pending("Approved escalation message goes here.", "অনুমোদিত জরুরি বার্তা এখানে বসবে।") }
-      : { level: "not_evaluated", rule_id: null, message: null } };
+const notEvaluated = (reason: string): VitalEvaluation => ({ level: "not_evaluated", rule_id: null, message: null, reason });
+
+// P6, as the server (safety/definitions.py, vitals/readings.py): the existing vocabulary and the strict vital rule shapes.
+const VITAL_VOCAB: Record<VitalType, { units: VitalUnit[]; contexts: VitalContext[]; components: string[] }> = {
+  bp: { units: ["mmHg"], contexts: ["home", "resting"], components: ["systolic", "diastolic"] },
+  glucose: { units: ["mmol/L", "mg/dL"], contexts: ["fasting", "post_meal", "random"], components: [] },
+};
+const positive = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
+/** null when the definition fits; "unit" or "shape" otherwise. */
+function vitalShapeError(ruleType: RuleType, d: Record<string, unknown>): "unit" | "shape" | null {
+  const vocab = VITAL_VOCAB[d.vital_type as VitalType];
+  if (!vocab || !vocab.units.includes(d.unit as VitalUnit)) return "unit";
+  const keys = ["schema", "vital_type", "unit", ...(ruleType === "vital_threshold" ? ["contexts", "comparison", "level"] : ["at_least", "at_most"]),
+                ...(vocab.components.length ? ["component"] : [])];
+  if (d.schema !== 1 || Object.keys(d).length !== keys.length || !keys.every((k) => k in d)) return "shape";
+  if (vocab.components.length && !vocab.components.includes(String(d.component))) return "shape";
+  if (ruleType === "vital_threshold") {
+    const c = d.contexts;
+    if (!Array.isArray(c) || !c.length || new Set(c).size !== c.length || !c.every((x) => vocab.contexts.includes(x))) return "shape";
+    return ["at_or_above", "at_or_below"].includes(String(d.comparison)) && ["flagged", "critical"].includes(String(d.level)) ? null : "shape";
   }
-  const value = Number(entry.value);
-  const confirm = entry.unit === "mmol/L" ? value > 40 : value > 700; // mock-only: a value that looks like the wrong unit
-  return { confirm, evaluation: { level: "not_evaluated", rule_id: null, message: null } };
+  return positive(d.at_least) && positive(d.at_most) && (d.at_least as number) < (d.at_most as number) ? null : "shape";
+}
+
+/** The reading's numbers by part ("systolic"/"diastolic" for BP, "" for glucose), or null if the format is wrong. */
+function vitalParts(e: Partial<VitalEntry>): Record<string, number> | null {
+  const m = e.vital_type === "bp" ? /^([0-9]{1,4})\/([0-9]{1,4})$/.exec(e.value ?? "") : null;
+  const parts: Record<string, number> | null = e.vital_type === "bp" ? (m ? { systolic: Number(m[1]), diastolic: Number(m[2]) } : null)
+    : /^[0-9]{1,5}(\.[0-9]{1,2})?$/.test(e.value ?? "") ? { "": Number(e.value) } : null;
+  return parts && Object.values(parts).every((v) => v > 0) ? parts : null;
+}
+
+/** As the server: approved vital_threshold rules for this vital, unit and context with the doctor's per-patient value; no
+ * applicable value, or a rule that does not fit, is not_evaluated, never within range. The message is the rule's own text. */
+function evaluateVital(rules: Rule[], overrides: Record<string, number | null>, e: VitalEntry, parts: Record<string, number>): VitalEvaluation {
+  const fired: Array<[number, Rule]> = [];
+  let applicable = 0;
+  for (const r of rules.filter((x) => x.rule_type === "vital_threshold" && x.status === "approved").sort((a, b) => a.rule_id.localeCompare(b.rule_id))) {
+    const d = r.definition;
+    if (vitalShapeError("vital_threshold", d)) return notEvaluated("rule_load_error");
+    const limit = overrides[r.rule_id];
+    const part = String(d.component ?? "");
+    if (limit == null || d.vital_type !== e.vital_type || d.unit !== e.unit || !(part in parts) || !(d.contexts as string[]).includes(e.context)) continue;
+    applicable += 1;
+    if (d.comparison === "at_or_above" ? parts[part] >= limit : parts[part] <= limit) fired.push([d.level === "critical" ? 2 : 1, r]);
+  }
+  if (!applicable) return notEvaluated("no_applicable_threshold");
+  if (!fired.length) return { level: "within_range", rule_id: null, message: null, reason: null };
+  const [, top] = fired.sort((a, b) => b[0] - a[0] || a[1].rule_id.localeCompare(b[1].rule_id))[0];
+  return { level: top.definition.level as "flagged" | "critical", rule_id: top.rule_id, message: { ...top.explanation, status: "approved" }, reason: null };
 }
 
 /** One step of the mock triage: the red-flag check runs on the first message and on every answer, before anything else. */
@@ -324,7 +373,7 @@ function pendingText(en: string, bn: string): ReviewedText {
 const SUMMARY_FIELDS: Partial<Record<TimelineEvent["event_type"], string[]>> = {
   medication: ["name_as_written", "strength", "form", "dose_instruction", "duration"], allergy: ["allergy_text"],
   lab_result: ["test_name", "result", "unit", "reference_range"], visit: ["facility_name", "admission_date", "discharge_date"],
-  follow_up: ["follow_up_date"],
+  follow_up: ["follow_up_date"], vital_reading: ["value", "unit", "context"],
 };
 const currentOf = (events: TimelineEvent[]) => events.filter((e) => !events.some((x) => x.supersedes === e.event_id));
 
@@ -541,8 +590,11 @@ export function mockTransport(): Transport {
   const unauthenticated = error(401, "unauthenticated", "Sign in first.");
   const notFound = error(404, "not_found", "No document with this id.");
   /** C3 in-app inbox: only the mock patient has an app here (see `authed`). */
-  const notify = (kind: NotificationKind, actor: string | null, categories: string[], facility: string | null = null, patientId = MOCK_PATIENT_ID) => {
-    if (patientId === MOCK_PATIENT_ID) s.notifications.unshift(note(`n-${crypto.randomUUID().slice(0, 8)}`, kind, new Date().toISOString(), actor, categories, facility));
+  const notify = (kind: NotificationKind, actor: string | null, categories: string[], facility: string | null = null, patientId = MOCK_PATIENT_ID,
+                  extra: Partial<PatientNotification> = {}) => {
+    if (patientId === MOCK_PATIENT_ID) {
+      s.notifications.unshift({ ...note(`n-${crypto.randomUUID().slice(0, 8)}`, kind, new Date().toISOString(), actor, categories, facility), ...extra });
+    }
   };
   const activate = (c: Consent) => {
     c.status = "active";
@@ -585,7 +637,7 @@ export function mockTransport(): Transport {
   const staffAudit = (u: StaffMe, action: string, resource: string, reason: string | null = null) =>
     appendAudit({ actor_id: u.id, actor_role: u.role, action, result: "allow", reason, resource });
   const reasonOf = (r: ApiRequest) => String((r.body as { reason?: unknown } | undefined)?.reason ?? "").trim();
-  const RULE_TYPES: RuleType[] = ["ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "red_flag", "emergency_message"];
+  const RULE_TYPES: RuleType[] = ["ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "vital_plausibility", "red_flag", "emergency_message"];
   const SEVERITIES: Severity[] = ["contraindicated", "major", "moderate", "minor"];
   const credentialView = (u: StaffMe): CredentialReview => ({ id: `cred-${u.id.slice(0, 8)}`, user_id: u.id, name: u.name, role: "doctor", type: "BMDC",
     number: u.credential!.number, status: u.credential!.status, user_status: u.status });
@@ -960,20 +1012,62 @@ export function mockTransport(): Transport {
     // verifiers never read timelines (FRD section 2)
     ["GET", "/patients/{id}/timeline", (r, p) =>
       gate(r, p.id, { doctor: "timeline", care: "view_timeline" }, "timeline.read") ?? ok(s.records[p.id]?.timeline ?? [])],
-    ["GET", "/vitals", (r) => (authed(r) ? ok(s.vitals) : unauthenticated)],
+    // V5: patients only; anyone else signed in is refused by role, as the server
+    ["GET", "/vitals", (r) => (authed(r) ? ok([...s.vitals].sort((a, b) => b.recorded_at.localeCompare(a.recorded_at)))
+      : who(r) ? roleDenied() : unauthenticated)],
+    // P6, as the server (vitals/readings.py): the app's reading id makes a retry safe; a correction is a new reading with a reason
     ...(["/vitals", "/vitals/{id}/correct"] as const).map((path): [Method, string, Handler] => ["POST", path, (r, p) => {
-      if (!authed(r)) return unauthenticated;
-      const entry = r.body as VitalEntry;
-      const original = p.id ? s.vitals.find((v) => v.event_id === p.id) : undefined;
+      if (!authed(r)) return who(r) ? roleDenied() : unauthenticated;
+      const e = (r.body ?? {}) as Partial<VitalEntry>;
+      const vocab = VITAL_VOCAB[e.vital_type as VitalType];
+      const parts = vitalParts(e);
+      const when = Date.parse(e.measured_at ?? "");
+      const allowed = ["id", "vital_type", "value", "unit", "context", "measured_at", "confirmed", ...(p.id ? ["reason"] : [])];
+      if (typeof r.body !== "object" || Array.isArray(r.body) || !Object.keys(e).every((k) => allowed.includes(k)) || !e.id || !vocab
+        || !vocab.units.includes(e.unit!) || !vocab.contexts.includes(e.context!) || !parts || Number.isNaN(when)
+        || !/(Z|[+-]\d{2}:\d{2})$/.test(e.measured_at!) || when > Date.now() + 5 * 60_000 || (e.confirmed != null && typeof e.confirmed !== "boolean")) {
+        return error(422, "invalid_reading", "Check the value, unit, context and time.");
+      }
+      const reason = p.id ? (typeof e.reason === "string" ? e.reason.trim() : "") : null;
+      if (p.id && !reason) return error(422, "reason_required", "A correction needs a reason.");
+      if (reason && reason.length > 500) return error(422, "invalid_reading", "Check the value, unit, context and time.");
+      const entry = e as VitalEntry;
+      const fingerprint = JSON.stringify([p.id ?? null, entry.vital_type, entry.value, entry.unit, entry.context, new Date(when).toISOString(), reason]);
+      const known = s.vitalSaved[entry.id];
+      if (known) {
+        if (known.fingerprint !== fingerprint) return error(409, "reading_id_conflict", "This reading id was already used for a different reading.");
+        return ok({ reading: s.vitals.find((v) => v.id === entry.id)!, evaluation: known.evaluation });
+      }
+      const original = p.id ? s.vitals.find((v) => v.id === p.id) : undefined;
       if (p.id && !original) return error(404, "not_found", "No reading with this id.");
-      const shape = entry.vital_type === "bp" ? /^\d{2,3}\/\d{2,3}$/ : /^\d+(\.\d+)?$/;
-      if (!shape.test(entry.value ?? "") || !["mmHg", "mmol/L", "mg/dL"].includes(entry.unit)) return error(422, "invalid_reading", "Check the value and unit.");
-      const { confirm, evaluation } = mockEvaluate(entry);
-      if (confirm && !entry.confirmed) return error(422, "confirmation_required", "This value looks unusual. Confirm it.");
-      const reading: VitalReading = { event_id: `v-${crypto.randomUUID().slice(0, 8)}`, vital_type: entry.vital_type, value: entry.value,
-        unit: entry.unit, context: entry.context, measured_at: entry.measured_at, verification_status: "patient_reported",
-        version: original ? original.version + 1 : 1, supersedes: original?.event_id ?? null, recorded_at: new Date().toISOString() };
+      if (original && s.vitals.some((v) => v.supersedes_reading_id === original.id)) {
+        return error(409, "already_corrected", "This reading was already corrected. Correct the newest version.");
+      }
+      if (original && original.vital_type !== entry.vital_type) return error(422, "invalid_reading", "Check the value, unit, context and time.");
+      // plausibility only from approved vital_plausibility rules (none are seeded); a rule that does not fit asks to confirm
+      const unusual = !entry.confirmed && s.rules.some((x) => x.rule_type === "vital_plausibility" && x.status === "approved" && (
+        vitalShapeError("vital_plausibility", x.definition) !== null || (x.definition.vital_type === entry.vital_type && x.definition.unit === entry.unit
+          && String(x.definition.component ?? "") in parts
+          && !((x.definition.at_least as number) <= parts[String(x.definition.component ?? "")]
+               && parts[String(x.definition.component ?? "")] <= (x.definition.at_most as number)))));
+      if (unusual) return error(422, "confirmation_required", "This value looks unusual. Confirm it.");
+      const evaluation = evaluateVital(s.rules, s.thresholds[MOCK_PATIENT_ID]?.overrides ?? {}, entry, parts);
+      const now = new Date().toISOString();
+      const eventId = `e-v-${crypto.randomUUID().slice(0, 8)}`;
+      const reading: VitalReading = { id: entry.id, event_id: eventId, vital_type: entry.vital_type, value: entry.value, unit: entry.unit,
+        context: entry.context, measured_at: new Date(when).toISOString(), verification_status: "patient_reported",
+        version: original ? original.version + 1 : 1, supersedes: original?.event_id ?? null, supersedes_reading_id: original?.id ?? null,
+        correction_reason: reason, recorded_at: now };
       s.vitals.push(reading);
+      s.vitalSaved[entry.id] = { fingerprint, evaluation };
+      s.records[MOCK_PATIENT_ID].timeline.unshift({ event_id: eventId, event_type: "vital_reading", date: now.slice(0, 10), date_precision: "day",
+        verification_status: "patient_reported", source_document_id: null, recorded_at: now, version: reading.version, supersedes: reading.supersedes,
+        payload: { reading_id: entry.id, vital_type: entry.vital_type, value: entry.value, unit: entry.unit, context: entry.context,
+                   source: "manual_entry", ...(reason ? { correction_reason: reason } : {}) } });
+      if (evaluation.level === "critical" || evaluation.level === "flagged") {
+        notify(evaluation.level === "critical" ? "vital_critical" : "vital_flagged", null, [], null, MOCK_PATIENT_ID,
+               { reading_id: entry.id, message: evaluation.message });
+      }
       return ok({ reading, evaluation }, 201);
     }]),
     ["POST", "/triage/sessions", (r) => {
@@ -1028,11 +1122,11 @@ export function mockTransport(): Transport {
         || typeof b.explanation?.en !== "string" || !b.explanation.en.trim() || typeof b.explanation?.bn !== "string" || !b.explanation.bn.trim()) {
         return error(422, "invalid_rule", "Check the type, severity, definition and both explanations.");
       }
-      // B5, as the server (REVIEWER-PENDING vocabulary): a vital_threshold names what it applies to, with a unit that fits it
-      const units: Record<string, string[]> = { bp: ["mmHg"], glucose: ["mmol/L", "mg/dL"] };
-      const vt = def as { vital_type?: unknown; unit?: unknown };
-      if (b.rule_type === "vital_threshold" && !(units[String(vt.vital_type)] ?? []).includes(String(vt.unit))) {
-        return error(422, "invalid_vital_threshold", "A vital threshold needs vital_type bp or glucose and a matching unit.");
+      // P6, as the server (safety/definitions.py parse_vital): the strict vital shapes; the vocabulary is the existing one
+      if (b.rule_type === "vital_threshold" || b.rule_type === "vital_plausibility") {
+        const bad = vitalShapeError(b.rule_type, def as Record<string, unknown>);
+        if (bad === "unit") return error(422, "invalid_vital_threshold", "A vital rule needs vital_type bp or glucose and a matching unit.");
+        if (bad) return error(422, "invalid_rule_definition", "This rule type needs its schema-1 definition.");
       }
       if (!engineShapeOk(b.rule_type!, b.severity, def as Record<string, unknown>)) {
         return error(422, "invalid_rule_definition", "This rule type needs its schema-1 definition and a severity.");

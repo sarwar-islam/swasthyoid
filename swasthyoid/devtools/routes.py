@@ -17,9 +17,6 @@ UNBUILT = {
     ("POST", "/triage/sessions/{}/answer"): "M7 triage (FRD P8), next answer in a session; same as above.",
     ("GET", "/reminders"): "M8 reminders (FRD P8). Proposals from verified prescriptions; not built.",
     ("POST", "/reminders/{}/log"): "M8 adherence log (FRD P8); not built.",
-    ("GET", "/vitals"): "M13 home vitals list (FRD P6); only per-patient thresholds exist (B6).",
-    ("POST", "/vitals"): "M13 entering a reading (FRD P6); validation and escalation text are REVIEWER-PENDING.",
-    ("POST", "/vitals/{}/correct"): "M13 correcting a reading (FRD P6); not built.",
 }
 # Server routes the web mock does not answer, and why that is fine.
 SERVER_ONLY = {

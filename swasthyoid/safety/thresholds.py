@@ -3,7 +3,7 @@
 The editable fields are the approved `vital_threshold` rules: key = rule_id, with the rule's vital_type, unit and
 explanation. Each change is a new append-only version holding the whole set of overrides. Values are checked only as
 positive numbers: the allowed range is REVIEWER-PENDING, as is every default (always null until the reviewer names it in
-the rule definition). Nothing evaluates readings against these yet.
+the rule definition). M13 evaluates home readings against these values (vitals/readings.py, P6).
 """
 import math
 
@@ -33,6 +33,11 @@ def _latest(conn, patient_id):
         "SELECT t.version, t.overrides, t.updated_at, u.name AS updated_by_name FROM patient_thresholds t "
         "JOIN users u ON u.id = t.updated_by WHERE t.patient_id = %s ORDER BY t.version DESC LIMIT 1",
         [patient_id]).fetchone() or {"version": 0, "overrides": {}, "updated_at": None, "updated_by_name": None}
+
+
+def current_overrides(conn, patient_id):
+    """The treating doctor's current per-patient values, {rule_id: number} (M13 evaluation, P6)."""
+    return _latest(conn, patient_id)["overrides"]
 
 
 def read(conn, patient_id):

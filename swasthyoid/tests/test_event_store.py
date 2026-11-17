@@ -114,7 +114,8 @@ def test_current_events_are_per_patient_and_ordered(conn):
 @pytest.mark.parametrize("sql", [
     "UPDATE events SET payload = '{}'",
     "DELETE FROM events",
-    "TRUNCATE events",
+    # CASCADE: a plain TRUNCATE is already refused by vital_readings' foreign key (P6); the trigger must still stop this
+    "TRUNCATE events CASCADE",
 ])
 def test_append_only(conn, sql):
     events.append(conn, **base())

@@ -105,6 +105,10 @@ INBOX_KINDS = {
     "CAREGIVER_REQUEST_PLACEHOLDER": "caregiver_request",
     "CAREGIVER_GRANTED_PLACEHOLDER": "caregiver_granted",
     "EMERGENCY_ACCESS_PLACEHOLDER": "emergency_access",  # written by M10 (B7)
+    # M13 (P6): a home reading an approved threshold rule called critical or flagged. The text is that rule version's own
+    # approved explanation, read when shown. No quiet-hours bypass: there is no approved policy (safeguard 2).
+    "VITAL_CRITICAL_PLACEHOLDER": "vital_critical",
+    "VITAL_FLAGGED_PLACEHOLDER": "vital_flagged",
 }
 INBOX_LIMIT = 100
 

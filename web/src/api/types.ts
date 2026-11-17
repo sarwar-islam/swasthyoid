@@ -169,27 +169,33 @@ export interface TimelineEvent {
   payload: Record<string, string>;
 }
 
-// ---- M13 home vitals (FRD section 7: POST /vitals, GET /vitals, POST /vitals/{id}/correct; response shapes PROPOSED here)
+// ---- M13 home vitals (FRD section 7: POST /vitals, GET /vitals, POST /vitals/{id}/correct; BUILT in P6). The app makes the
+// reading id: a retry with the same id and data returns the saved result, other data with that id is 409 reading_id_conflict.
 
 export type VitalType = "bp" | "glucose";
 export type VitalUnit = "mmHg" | "mmol/L" | "mg/dL";
 export type VitalContext = "home" | "resting" | "fasting" | "post_meal" | "random";
 
 export interface VitalEntry {
+  id: string; // made by the app (a UUID), kept across retries of the same reading
   vital_type: VitalType;
   value: string; // "120/80" for BP, "6.2" for glucose; ASCII digits
   unit: VitalUnit;
   context: VitalContext;
   measured_at: string; // ISO
   confirmed?: boolean; // true after the patient confirmed a value the server called implausible (422 confirmation_required)
+  reason?: string; // corrections only: required (422 reason_required)
 }
 
-/** A `vital_reading` event: always patient_reported, never device-verified. A correction is a new reading that supersedes. */
-export interface VitalReading extends Omit<VitalEntry, "confirmed"> {
+/** A saved reading (a `vital_reading` event): always patient_reported, never device-verified. A correction is a new reading
+ * that supersedes the original, which stays (409 already_corrected for an original that was corrected already). */
+export interface VitalReading extends Omit<VitalEntry, "confirmed" | "reason"> {
   event_id: string;
   verification_status: "patient_reported";
   version: number;
-  supersedes: string | null;
+  supersedes: string | null; // the event it replaced
+  supersedes_reading_id: string | null;
+  correction_reason: string | null;
   recorded_at: string;
 }
 
@@ -204,7 +210,9 @@ export interface ReviewedText {
 export interface VitalEvaluation {
   level: "within_range" | "flagged" | "critical" | "not_evaluated";
   rule_id: string | null;
-  message: ReviewedText | null; // the escalation or alert text; critical always carries one
+  message: ReviewedText | null; // the fired rule version's approved text (flagged and critical)
+  // not_evaluated only: no_applicable_threshold, rule_load_error or evaluation_unavailable. Never shown as "safe".
+  reason: string | null;
 }
 
 export interface VitalSaved {
@@ -422,7 +430,8 @@ export interface AssistSession {
 
 // ---- F5 clinical reviewer console (staff role `clinical_reviewer`, the backend's name). Never a patient's record.
 
-export type RuleType = "ddi" | "allergy" | "duplicate" | "drug_disease" | "class_lookback" | "vital_threshold" | "red_flag" | "emergency_message";
+export type RuleType = "ddi" | "allergy" | "duplicate" | "drug_disease" | "class_lookback" | "vital_threshold" | "vital_plausibility"
+  | "red_flag" | "emergency_message";
 export type RuleStatus = "draft" | "approved" | "rejected" | "superseded";
 
 /** One version of a rule in the one registry (FRD M6: every change is a new version; only `approved` runs). Shape GAP.
@@ -579,7 +588,8 @@ export interface QrConsentRequest {
  * `emergency_access` exists only where M10 is enabled (the server writes one for every break-glass session, FRD M10).
  * BUILT in B3, with `consent_granted` and `caregiver_granted` added (owner decision 2026-11-16). A notice about a request that
  * later closed stays as history. */
-export type NotificationKind = "consent_request" | "consent_granted" | "caregiver_request" | "caregiver_granted" | "emergency_access";
+export type NotificationKind = "consent_request" | "consent_granted" | "caregiver_request" | "caregiver_granted" | "emergency_access"
+  | "vital_critical" | "vital_flagged"; // M13 (P6): a home reading an approved threshold rule fired on
 export interface PatientNotification {
   id: string;
   kind: NotificationKind;
@@ -588,6 +598,8 @@ export interface PatientNotification {
   actor_name: string | null; // the doctor or caregiver
   categories: string[]; // what was asked for (consent and caregiver requests)
   facility: string | null; // emergency_access only; never the reason or the card's values
+  reading_id?: string | null; // vital notices only
+  message?: ReviewedText | null; // vital notices only: the approved text of the rule version that fired
 }
 
 /** One patient's vital thresholds (M13: per-patient override by the treating doctor under active consent; defaults are the

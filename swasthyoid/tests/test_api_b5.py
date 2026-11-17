@@ -56,8 +56,10 @@ def test_a_draft_is_checked_for_shape_only(api, b5, body, code):
 
 
 def test_versions_four_eyes_and_one_approved_version(api, b5):
-    vt = {**DDI, "rule_type": "vital_threshold", "severity": None, "definition": {"vital_type": "glucose", "unit": "mmol/L"}}
-    assert draft(api, b5.reviewer, vt).status_code == 201  # REVIEWER-PENDING shape: accepted, nothing else interpreted
+    vt = {**DDI, "rule_type": "vital_threshold", "severity": None,
+          "definition": {"schema": 1, "vital_type": "glucose", "unit": "mmol/L", "contexts": ["fasting"],
+                         "comparison": "at_or_above", "level": "flagged"}}
+    assert draft(api, b5.reviewer, vt).status_code == 201  # the P6 strict shape (V3); no number in it
     v1 = draft(api, b5.reviewer).json()
     assert (v1["version"], v1["status"], v1["created_by_name"]) == (1, "draft", "Synthetic clinical_reviewer")
     assert re.fullmatch(r"RULE-[0-9A-F]{8}", v1["rule_id"])

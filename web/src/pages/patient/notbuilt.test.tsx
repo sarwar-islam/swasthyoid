@@ -4,9 +4,9 @@ import type { Transport } from "../../api/client";
 import { mockTransport } from "../../api/mock";
 import { axeViolations, renderApp } from "../../test-utils";
 
-// B8b: in live mode the M7, M8 and M13 routes are not on the server (docs/ROUTES.md); FastAPI answers a bare 404. The
-// screen must say so in both languages and never show made-up data or a success.
-const UNBUILT = /^\/(vitals|reminders|triage)/;
+// B8b: in live mode the M7 and M8 routes are not on the server (docs/ROUTES.md; M13 is since P6); FastAPI answers a bare 404.
+// The screen must say so in both languages and never show made-up data or a success.
+const UNBUILT = /^\/(reminders|triage)/;
 function liveLike(): Transport {
   const inner = mockTransport();
   return async (r) => (UNBUILT.test(r.path) ? { status: 404, body: { detail: "Not Found" } } : inner(r));
@@ -17,7 +17,7 @@ afterEach(() => cleanup());
 
 describe("screens the server does not serve yet", () => {
   for (const lang of ["bn", "en"] as const) {
-    for (const path of ["/patient/vitals", "/patient/reminders"]) {
+    for (const path of ["/patient/reminders"]) {
       it(`${path} says it is not on the server yet (${lang})`, async () => {
         const { container } = renderApp(path, { lang, signedIn: true, transport: liveLike() });
         expect((await screen.findByRole("alert")).textContent).toBe(NOT_BUILT[lang]);

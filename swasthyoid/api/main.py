@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from swasthyoid import db
 from swasthyoid.api import (admin, caregivers, documents, emergency, inbox, internal, m1, rules, safety, summary, timeline,
-                            verifier)
+                            verifier, vitals)
 from swasthyoid.api.deps import ApiError, check_config
 
 
@@ -32,6 +32,7 @@ app.include_router(rules.router, prefix="/api/v1")
 app.include_router(safety.router, prefix="/api/v1")
 app.include_router(summary.router, prefix="/api/v1")
 app.include_router(emergency.router, prefix="/api/v1")
+app.include_router(vitals.router, prefix="/api/v1")
 
 
 @app.exception_handler(ApiError)

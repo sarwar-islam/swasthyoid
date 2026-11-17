@@ -65,11 +65,20 @@ describe("clinical reviewer: the rule registry", () => {
     expect(versions.map((r) => r.status)).toEqual(["superseded", "approved"]); // only one approved version runs
   });
 
-  it("a vital threshold needs a known vital_type and a unit that fits it (REVIEWER-PENDING vocabulary)", async () => {
-    const vt = (definition: Record<string, unknown>) => draft({ rule_type: "vital_threshold", severity: null, definition });
-    expect(await failure(reviewer().request("POST", "/rules", { body: vt({ vital_type: "bp", unit: "mg/dL" }) })))
+  it("a vital rule needs a known vital_type, a unit that fits it and the strict schema-1 shape (P6; SYNTHETIC)", async () => {
+    const vt = (definition: Record<string, unknown>, rule_type = "vital_threshold") => draft({ rule_type, severity: null, definition });
+    const glucose = { schema: 1, vital_type: "glucose", unit: "mmol/L", contexts: ["fasting"], comparison: "at_or_above", level: "flagged" };
+    expect(await failure(reviewer().request("POST", "/rules", { body: vt({ ...glucose, vital_type: "bp", unit: "mg/dL" }) })))
       .toEqual([422, "invalid_vital_threshold"]);
-    expect((await reviewer().request<Rule>("POST", "/rules", { body: vt({ vital_type: "glucose", unit: "mmol/L" }) })).status).toBe("draft");
+    for (const bad of [{ vital_type: "glucose", unit: "mmol/L" }, { ...glucose, schema: 2 }, { ...glucose, contexts: [] },
+      { ...glucose, contexts: ["home"] }, { ...glucose, level: "urgent" }, { ...glucose, component: "systolic" }, { ...glucose, extra: 1 }]) {
+      expect(await failure(reviewer().request("POST", "/rules", { body: vt(bad) }))).toEqual([422, "invalid_rule_definition"]);
+    }
+    expect(await failure(reviewer().request("POST", "/rules", { body: vt({ ...glucose, comparison: "at_or_above" }, "vital_plausibility") })))
+      .toEqual([422, "invalid_rule_definition"]);
+    expect((await reviewer().request<Rule>("POST", "/rules", { body: vt(glucose) })).status).toBe("draft");
+    expect((await reviewer().request<Rule>("POST", "/rules", { body: vt({ schema: 1, vital_type: "bp", unit: "mmHg", component: "diastolic",
+      at_least: 1, at_most: 2 }, "vital_plausibility") })).status).toBe("draft");
   });
 
   it("rejects only with a reason, and a reviewed version cannot be reviewed again", async () => {

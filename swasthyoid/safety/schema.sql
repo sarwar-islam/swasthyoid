@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS rules (
     rule_id        text NOT NULL CHECK (rule_id ~ '^[A-Z0-9][A-Z0-9-]{2,63}$'),
     version        int NOT NULL CHECK (version >= 1),
     rule_type      text NOT NULL CHECK (rule_type IN ('ddi', 'allergy', 'duplicate', 'drug_disease', 'class_lookback',
-                                                      'vital_threshold', 'red_flag', 'emergency_message')),
+                                                      'vital_threshold', 'vital_plausibility', 'red_flag',
+                                                      'emergency_message')),
     severity       text CHECK (severity IS NULL OR severity IN ('contraindicated', 'major', 'moderate', 'minor')),
     status         text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'rejected', 'superseded')),
     definition     jsonb NOT NULL CHECK (jsonb_typeof(definition) = 'object' AND definition <> '{}'::jsonb),
@@ -23,6 +24,10 @@ CREATE TABLE IF NOT EXISTS rules (
     UNIQUE (rule_id, version),
     CONSTRAINT rules_four_eyes CHECK (status NOT IN ('approved', 'superseded') OR reviewed_by IS DISTINCT FROM created_by)
 );
+-- P6 (owner decision V1): vital_plausibility, also for a database made before it.
+ALTER TABLE rules DROP CONSTRAINT IF EXISTS rules_rule_type_check;
+ALTER TABLE rules ADD CONSTRAINT rules_rule_type_check CHECK (rule_type IN ('ddi', 'allergy', 'duplicate', 'drug_disease',
+    'class_lookback', 'vital_threshold', 'vital_plausibility', 'red_flag', 'emergency_message'));
 CREATE UNIQUE INDEX IF NOT EXISTS rules_one_draft ON rules (rule_id) WHERE status = 'draft';
 CREATE UNIQUE INDEX IF NOT EXISTS rules_one_approved ON rules (rule_id) WHERE status = 'approved';
 CREATE INDEX IF NOT EXISTS rules_type ON rules (rule_type, status);

@@ -8,7 +8,8 @@ import { useLoad, useSession } from "../../session";
 import { SeverityChip } from "../doctor/Workspace";
 import { useAction } from "./console";
 
-const TYPES: RuleType[] = ["ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "red_flag", "emergency_message"];
+const TYPES: RuleType[] = ["ddi", "allergy", "duplicate", "drug_disease", "class_lookback", "vital_threshold", "vital_plausibility",
+  "red_flag", "emergency_message"];
 const SEVERITIES: Severity[] = ["contraindicated", "major", "moderate", "minor"];
 
 /** A rule's explanation counts as approved text only on an approved version that is not a placeholder; anything else is marked. */

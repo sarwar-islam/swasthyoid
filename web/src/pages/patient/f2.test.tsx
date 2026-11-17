@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiRequest, Transport } from "../../api/client";
-import { MOCK_RED_FLAG, mockTransport } from "../../api/mock";
-import { axeViolations, renderApp } from "../../test-utils";
+import { type ApiError, type ApiRequest, createClient, type Transport } from "../../api/client";
+import { MOCK_CODE, MOCK_PATIENT_ID, MOCK_RED_FLAG, mockTransport } from "../../api/mock";
+import type { Rule, VitalSaved } from "../../api/types";
+import { ADMIN_TOKEN, axeViolations, DOCTOR_TOKEN, PATIENT_TOKEN, renderApp, REVIEWER_TOKEN } from "../../test-utils";
 
 // jsdom has no layout engine, so screen-width behaviour (375px and desktop) is checked in the browser, not here.
 let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -30,6 +31,24 @@ const type = (label: RegExp | string, value: string) => fireEvent.change(screen.
 const click = (name: RegExp | string) => fireEvent.click(screen.getByRole("button", { name }));
 const open = (path: string, lang: "bn" | "en" = "en", transport?: Transport) => renderApp(path, { lang, signedIn: true, transport });
 const NEVER_SAFE = /you are safe|you're safe|আপনি নিরাপদ/i;
+const failure = (p: Promise<unknown>) => p.then(() => 0, (e: ApiError) => e.status);
+/** The treating doctor (seeded consent with `safety`) sets per-patient values for approved SYNTHETIC rules. */
+async function withSetting(transport: Transport, overrides: Record<string, number>) {
+  const doctor = createClient(transport, () => DOCTOR_TOKEN);
+  const current = await doctor.request<{ version: number }>("GET", `/patients/${MOCK_PATIENT_ID}/vital-thresholds`);
+  await doctor.request("PUT", `/patients/${MOCK_PATIENT_ID}/vital-thresholds`, { body: { version: current.version, overrides } });
+}
+/** A SYNTHETIC plausibility rule, written and approved by two reviewers (B5 four-eyes); no clinical number. */
+async function approvePlausibility(transport: Transport) {
+  await createClient(transport, () => ADMIN_TOKEN).request("POST", "/admin/staff",
+    { body: { role: "clinical_reviewer", name: "Synthetic Reviewer 2", phone: "+8801900000011" } });
+  const { access_token } = await createClient(transport).request<{ access_token: string }>("POST", "/auth/otp/verify",
+    { body: { phone: "+8801900000011", code: MOCK_CODE, device_id: "t", account: "staff" } });
+  const rule = await createClient(transport, () => access_token).request<Rule>("POST", "/rules", { body: { rule_type: "vital_plausibility", severity: null,
+    definition: { schema: 1, vital_type: "bp", unit: "mmHg", component: "systolic", at_least: 81, at_most: 9999 },
+    explanation: { en: "SYNTH plausibility", bn: "SYNTH plausibility" } } });
+  await createClient(transport, () => REVIEWER_TOKEN).request("POST", `/rules/${rule.id}/approve`);
+}
 
 describe("More menu", () => {
   it("lists the health tools; the emergency profile only when M10's flag is on", async () => {
@@ -58,36 +77,66 @@ describe("M13 home vitals", () => {
     click("সংরক্ষণ করুন");
     const status = await screen.findByText("সংরক্ষিত হয়েছে।");
     expect(within(status.closest("[role=status]")!).getByText("রোগীর নিজের দেওয়া · যাচাই হয়নি")).toBeTruthy();
-    expect(screen.getByText(/অনুমোদিত নিয়ম এখনো নেই/)).toBeTruthy();
+    // no doctor's per-patient value is set: not checked, never "within range" (P6 safeguard 6)
+    expect(screen.getByText(/কোনো অনুমোদিত সীমার সাথে মেলানো হয়নি/)).toBeTruthy();
     const body = seen.find((r) => r.method === "POST" && r.path === "/vitals")!.body as Record<string, string>;
     expect([body.vital_type, body.value, body.unit, body.context]).toEqual(["bp", "128/82", "mmHg", "home"]);
+    expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(document.body.textContent).not.toMatch(NEVER_SAFE);
+    expect(await axeViolations(document.body)).toEqual([]);
   });
 
-  it("a critical reading shows the reviewed escalation message (pending here) with the 999 call and the emergency card", async () => {
-    open("/patient/vitals");
-    type("Top number (systolic)", "180");
-    type("Bottom number (diastolic)", "120");
+  it("a critical reading (SYNTHETIC doctor setting) shows the approved rule's own text with the 999 call and the emergency card", async () => {
+    const transport = mockTransport();
+    await withSetting(transport, { "SYNTH-VT-0101": 999 }); // a SYNTHETIC number, not a clinical threshold
+    open("/patient/vitals", "en", transport);
+    type("Top number (systolic)", "999");
+    type("Bottom number (diastolic)", "90");
     click("Save");
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByText("Urgent alert")).toBeTruthy();
-    expect(within(alert).getByText(/\[REVIEWER-PENDING\] Approved escalation message goes here./)).toBeTruthy();
+    expect(within(alert).getByText(/Approved explanation for SYNTH-VT-0101 goes here/)).toBeTruthy();
     expect(within(alert).getByRole("link", { name: "Call 999" }).getAttribute("href")).toBe("tel:999");
     expect(within(alert).getByRole("link", { name: "Open the emergency card" }).getAttribute("href")).toBe("/patient/emergency");
     expect(document.body.textContent).not.toMatch(NEVER_SAFE);
+    expect(await axeViolations(document.body)).toEqual([]);
   });
 
-  it("an implausible value needs confirmation before it is saved, and the confirmation is sent", async () => {
+  it("no plausibility check runs without an approved rule: an odd value is saved as entered, not checked", async () => {
     const { seen, transport } = spy();
     open("/patient/vitals", "en", transport);
-    type("Top number (systolic)", "80"); // top not above bottom: the mock calls it implausible, not critical
+    type("Top number (systolic)", "80");
+    type("Bottom number (diastolic)", "90");
+    click("Save");
+    expect(await screen.findByText("Saved.")).toBeTruthy();
+    expect(screen.queryByText("This value looks unusual. Check the number and the unit again.")).toBeNull();
+    expect(seen.filter((r) => r.path === "/vitals" && r.method === "POST")).toHaveLength(1);
+  });
+
+  it("an approved plausibility rule (SYNTHETIC) asks for confirmation, and the confirmation is sent with the same id", async () => {
+    const { seen, transport } = spy();
+    await approvePlausibility(transport);
+    open("/patient/vitals", "en", transport);
+    type("Top number (systolic)", "80");
     type("Bottom number (diastolic)", "90");
     click("Save");
     expect(await screen.findByText("This value looks unusual. Check the number and the unit again.")).toBeTruthy();
-    expect(seen.filter((r) => r.path === "/vitals" && r.method === "POST")).toHaveLength(1);
     click("Yes, the value is right");
     expect(await screen.findByText("Saved.")).toBeTruthy();
-    expect((seen.filter((r) => r.path === "/vitals" && r.method === "POST").at(-1)!.body as { confirmed?: boolean }).confirmed).toBe(true);
+    const posts = seen.filter((r) => r.path === "/vitals" && r.method === "POST").map((r) => r.body as { id: string; confirmed?: boolean });
+    expect(posts).toHaveLength(2);
+    expect(posts[1].confirmed).toBe(true);
+    expect(posts[1].id).toBe(posts[0].id);
+  });
+
+  it("a resend with the same reading id returns the saved reading; other data under that id is a conflict", async () => {
+    const api = createClient(mockTransport(), () => PATIENT_TOKEN);
+    const entry = { id: crypto.randomUUID(), vital_type: "bp", value: "128/82", unit: "mmHg", context: "home", measured_at: new Date().toISOString() };
+    const first = await api.request<VitalSaved>("POST", "/vitals", { body: entry });
+    const again = await api.request<VitalSaved>("POST", "/vitals", { body: entry });
+    expect(again.reading).toEqual(first.reading);
+    expect((await api.request<unknown[]>("GET", "/vitals")).length).toBe(4);
+    await expect(api.request("POST", "/vitals", { body: { ...entry, value: "129/82" } })).rejects.toMatchObject({ status: 409, code: "reading_id_conflict" });
   });
 
   it("glucose records its unit and context; non-numbers are refused before sending", async () => {
@@ -107,7 +156,7 @@ describe("M13 home vitals", () => {
     expect([body.vital_type, body.value, body.unit, body.context]).toEqual(["glucose", "110", "mg/dL", "post_meal"]);
   });
 
-  it("correcting a reading posts a correction and keeps the original in its history", async () => {
+  it("correcting a reading needs a reason, posts a correction and keeps the original in its history", async () => {
     const { seen, transport } = spy();
     open("/patient/vitals", "en", transport);
     const glucose = (await screen.findByText(/6\.1 mmol\/L/)).closest("li")!;
@@ -115,11 +164,48 @@ describe("M13 home vitals", () => {
     expect(screen.getByText(/You're correcting an earlier reading/)).toBeTruthy();
     type("Value", "6.4");
     click("Save");
+    expect(screen.getByText("Write a reason.")).toBeTruthy();
+    expect(seen.some((r) => r.method === "POST")).toBe(false);
+    type("Reason for the correction", "SYNTH typo");
+    click("Save");
     await screen.findByText("Saved.");
-    expect(seen.some((r) => r.method === "POST" && r.path === "/vitals/v-3/correct")).toBe(true);
+    const post = seen.find((r) => r.method === "POST")!;
+    expect(post.path).toBe("/vitals/v-3/correct");
+    expect((post.body as { reason: string }).reason).toBe("SYNTH typo");
     const corrected = (await screen.findByText(/6\.4 mmol\/L/)).closest("li")!;
     expect(within(corrected).getByText("Corrected (version 2)")).toBeTruthy();
+    expect(within(corrected).getByText("Corrected because: SYNTH typo")).toBeTruthy();
     expect(within(corrected).getByText(/6\.1 mmol\/L/)).toBeTruthy(); // the original, under "Earlier versions"
+  });
+
+  it("a reading already corrected cannot be corrected again; another patient's reading is not found", async () => {
+    const api = createClient(mockTransport(), () => PATIENT_TOKEN);
+    const entry = { id: crypto.randomUUID(), vital_type: "bp", value: "131/83", unit: "mmHg", context: "home", measured_at: new Date().toISOString(),
+                    reason: "SYNTH" };
+    await expect(api.request("POST", "/vitals/v-1/correct", { body: entry })).rejects.toMatchObject({ status: 409, code: "already_corrected" });
+    await expect(api.request("POST", "/vitals/v-nobody/correct", { body: entry })).rejects.toMatchObject({ status: 404 });
+    await expect(api.request("POST", "/vitals/v-2/correct", { body: { ...entry, reason: " " } })).rejects.toMatchObject({ code: "reason_required" });
+    expect(await failure(createClient(mockTransport(), () => DOCTOR_TOKEN).request("GET", "/vitals"))).toBe(403);
+  });
+
+  it("a flagged or critical reading puts one notice in the inbox with the rule's text; not_evaluated puts none (both languages)", async () => {
+    for (const lang of ["en", "bn"] as const) {
+      const transport = mockTransport();
+      const api = createClient(transport, () => PATIENT_TOKEN);
+      const at = new Date().toISOString();
+      await api.request("POST", "/vitals", { body: { id: crypto.randomUUID(), vital_type: "bp", value: "999/90", unit: "mmHg", context: "home", measured_at: at } });
+      const before = (await api.request<unknown[]>("GET", "/notifications")).length;
+      await withSetting(transport, { "SYNTH-VT-0101": 999 });
+      await api.request("POST", "/vitals", { body: { id: crypto.randomUUID(), vital_type: "bp", value: "999/90", unit: "mmHg", context: "home", measured_at: at } });
+      expect((await api.request<unknown[]>("GET", "/notifications")).length).toBe(before + 1);
+      open("/patient/inbox", lang, transport);
+      const item = (await screen.findAllByText(lang === "en" ? /Urgent alert/ : /জরুরি সতর্কতা/))[0].closest("li")!;
+      expect(within(item).getByText(lang === "en" ? /Approved explanation for SYNTH-VT-0101/ : /SYNTH-VT-0101-এর অনুমোদিত ব্যাখ্যা/)).toBeTruthy();
+      expect(within(item).getByRole("link", { name: lang === "en" ? "Open the emergency card" : /জরুরি কার্ড/ }).getAttribute("href")).toBe("/patient/emergency");
+      expect(document.body.textContent).not.toMatch(NEVER_SAFE);
+      expect(await axeViolations(document.body)).toEqual([]);
+      cleanup();
+    }
   });
 });
 

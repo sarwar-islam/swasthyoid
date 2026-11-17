@@ -140,7 +140,8 @@ describe("M5 summary, timeline and search, filtered by consent", () => {
     expect([...labs.querySelectorAll("li")].map((li) => li.querySelector("bdi")!.textContent)).toEqual([
       "SYNTH-TEST-A · 5.4 · mg/dL · 2026-09-15", "SYNTH-TEST-A · 5.9 · mg/dL · 2026-11-01"]); // date order, no trend computed
     const reported = screen.getByRole("heading", { name: "Reported by patient, not verified" }).closest("section")!;
-    expect(within(reported).getByText(/130\/85 mmHg/)).toBeTruthy();
+    expect(within(reported).getByText(/130\/85/)).toBeTruthy(); // P6: value, unit and context, each a cited fact as the server
+    expect(reported.textContent).toMatch(/mmHg/);
     expect(meds.textContent).not.toMatch(/mmHg/); // vitals never mix into verified sections
     expect(document.body.textContent).not.toMatch("150/95"); // the corrected reading is not summarised
   });

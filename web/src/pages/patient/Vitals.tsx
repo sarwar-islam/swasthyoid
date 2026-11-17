@@ -40,7 +40,7 @@ function Result({ saved }: { saved: VitalSaved }) {
       <p><strong>{t("vitals.saved")}</strong> <ProvenanceBadge value="patient_reported" /></p>
       {level === "flagged" && <><p>{t("vitals.flagged")}</p>{message && <Reviewed text={message} />}</>}
       {level === "within_range" && <p>{t("vitals.within")}</p>}
-      {level === "not_evaluated" && <p>{t("vitals.notEvaluated")}</p>}
+      {level === "not_evaluated" && <><p>{t("vitals.notEvaluated")}</p><Link to="/patient/emergency">{t("emergency.open")}</Link></>}
     </div>
   );
 }
@@ -57,6 +57,10 @@ export function Vitals() {
   const [unit, setUnit] = useState<VitalUnit>("mmHg");
   const [context, setContext] = useState<VitalContext>("home");
   const [when, setWhen] = useState(localNow);
+  const [reason, setReason] = useState("");
+  const [reasonMissing, setReasonMissing] = useState(false);
+  // P6 safeguard 4: one id per reading, kept across retries until it is saved, so a resend never makes a second reading
+  const [readingId, setReadingId] = useState(() => crypto.randomUUID());
   const [correcting, setCorrecting] = useState<VitalReading | null>(null);
   const [confirmFor, setConfirmFor] = useState<VitalEntry | null>(null);
   const [saved, setSaved] = useState<VitalSaved | null>(null);
@@ -74,11 +78,12 @@ export function Vitals() {
     setError(null);
     setSaved(null);
     try {
-      const path = correcting ? `/vitals/${correcting.event_id}/correct` : "/vitals";
+      const path = correcting ? `/vitals/${correcting.id}/correct` : "/vitals";
       const result = await api.request<VitalSaved>("POST", path, { body: entry });
       setConfirmFor(null);
       setCorrecting(null);
-      setSys(""); setDia(""); setValue("");
+      setSys(""); setDia(""); setValue(""); setReason("");
+      setReadingId(crypto.randomUUID());
       setSaved(result);
       readings.reload();
     } catch (e) {
@@ -91,13 +96,17 @@ export function Vitals() {
     e.preventDefault();
     const [s, d, v] = [sys, dia, value].map((x) => toAsciiDigits(x.trim()));
     const ok = type === "bp" ? INTEGER.test(s) && INTEGER.test(d) : DECIMAL.test(v); // the data type only; no clinical range
+    const missing = !!correcting && !reason.trim();
     setInvalid(!ok);
-    if (!ok) return;
-    send({ vital_type: type, value: type === "bp" ? `${s}/${d}` : v, unit, context, measured_at: new Date(when).toISOString() });
+    setReasonMissing(missing);
+    if (!ok || missing) return;
+    send({ id: readingId, vital_type: type, value: type === "bp" ? `${s}/${d}` : v, unit, context,
+           measured_at: new Date(when).toISOString(), ...(correcting ? { reason: reason.trim() } : {}) });
   };
 
   const startCorrection = (r: VitalReading) => {
     setCorrecting(r);
+    setReason(""); setReasonMissing(false);
     choose(r.vital_type);
     setUnit(r.unit);
     setContext(r.context);
@@ -110,13 +119,14 @@ export function Vitals() {
   };
 
   const all = readings.data ?? [];
-  const replaced = new Set(all.map((r) => r.supersedes).filter(Boolean));
+  const replaced = new Set(all.map((r) => r.supersedes_reading_id).filter(Boolean));
   const older = (r: VitalReading) => {
     const chain: VitalReading[] = [];
-    for (let p = all.find((x) => x.event_id === r.supersedes); p; p = all.find((x) => x.event_id === p!.supersedes)) chain.push(p);
+    for (let p = all.find((x) => x.id === r.supersedes_reading_id); p; p = all.find((x) => x.id === p!.supersedes_reading_id)) chain.push(p);
     return chain;
   };
-  const show = (r: VitalReading) => `${localDigits(r.value, lang)} ${r.unit} · ${t(`vitals.ctx.${r.context}`)}`;
+  // the value as entered keeps its own digits in the Bangla UI (owner digits decision); the label is translated
+  const show = (r: VitalReading) => <><bdi>{r.value} {r.unit}</bdi> · {t(`vitals.ctx.${r.context}`)}</>;
 
   return (
     <>
@@ -164,6 +174,14 @@ export function Vitals() {
           <label htmlFor="when">{t("vitals.when")}</label>
           <input id="when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
         </div>
+        {correcting && (
+          <div className="field">
+            <label htmlFor="reason">{t("vitals.reason")}</label>
+            <input id="reason" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} aria-invalid={reasonMissing}
+                   aria-describedby={reasonMissing ? "reason-missing" : undefined} />
+            {reasonMissing && <p id="reason-missing" className="error-note" role="alert">{t("err.reason_required")}</p>}
+          </div>
+        )}
         <ErrorNote error={error} />
         {confirmFor ? (
           <div className="stack" role="alert">
@@ -180,17 +198,18 @@ export function Vitals() {
         {readings.loading ? <Loading /> : <ErrorNote error={readings.error} />}
         {!readings.loading && all.length === 0 && <p className="muted">{t("vitals.none")}</p>}
         <ul className="list">
-          {all.filter((r) => !replaced.has(r.event_id)).sort((a, b) => b.measured_at.localeCompare(a.measured_at)).map((r) => (
-            <li key={r.event_id} className="card event patient_reported">
+          {all.filter((r) => !replaced.has(r.id)).sort((a, b) => b.measured_at.localeCompare(a.measured_at)).map((r) => (
+            <li key={r.id} className="card event patient_reported">
               <div className="row">
                 <strong>{t(r.vital_type === "bp" ? "vitals.bp" : "vitals.glucose")} · {formatDate(r.measured_at, lang)}</strong>
                 <ProvenanceBadge value="patient_reported" />
               </div>
               <p>{show(r)}</p>
               {r.version > 1 && <p className="muted">{t("tl.corrected", { n: localDigits(String(r.version), lang) })}</p>}
+              {r.correction_reason && <p className="muted">{t("vitals.correctedBecause", { reason: r.correction_reason })}</p>}
               {older(r).length > 0 && (
                 <details><summary>{t("vitals.older")}</summary>
-                  <ul>{older(r).map((o) => <li key={o.event_id} className="muted">{show(o)}</li>)}</ul></details>
+                  <ul>{older(r).map((o) => <li key={o.id} className="muted">{show(o)}</li>)}</ul></details>
               )}
               <button type="button" onClick={() => startCorrection(r)}><PenLine size={18} aria-hidden="true" />{t("vitals.correct")}</button>
             </li>

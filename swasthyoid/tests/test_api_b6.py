@@ -12,7 +12,11 @@ from swasthyoid.tests.test_api_b2 import cast  # noqa: F401
 from swasthyoid.tests.test_api_b5 import DDI, b5, draft  # noqa: F401
 from swasthyoid.tests.test_api_m1 import PATIENT, V1, api, people, request_consent  # noqa: F401
 
-VT = {**DDI, "rule_type": "vital_threshold", "severity": None, "definition": {"vital_type": "glucose", "unit": "mmol/L"},
+VT_GLUCOSE = {"schema": 1, "vital_type": "glucose", "unit": "mmol/L", "contexts": ["fasting"],  # P6 strict shape (V3)
+              "comparison": "at_or_above", "level": "flagged"}
+VT_BP = {"schema": 1, "vital_type": "bp", "unit": "mmHg", "component": "systolic", "contexts": ["home"],
+         "comparison": "at_or_above", "level": "critical"}
+VT = {**DDI, "rule_type": "vital_threshold", "severity": None, "definition": VT_GLUCOSE,
       "explanation": {"en": "SYNTH threshold label", "bn": "সিনথেটিক সীমা"}}
 ALERTS, THRESHOLDS = "/safety-alerts", "/vital-thresholds"
 
@@ -145,7 +149,7 @@ def test_threshold_fields_come_from_approved_rules_with_null_defaults(api, b5):
     empty = api.http.get(path(b5, THRESHOLDS), headers=b5.doctor).json()
     assert (empty["version"], empty["fields"], empty["updated_at"], empty["updated_by_name"]) == (0, [], None, None)
     rule = approved(api, b5, VT)
-    draft(api, b5.reviewer, {**VT, "definition": {"vital_type": "bp", "unit": "mmHg"}})  # a draft gives no field
+    draft(api, b5.reviewer, {**VT, "definition": VT_BP})  # a draft gives no field
     fields = api.http.get(path(b5, THRESHOLDS), headers=b5.doctor).json()["fields"]
     assert fields == [{"key": rule["rule_id"], "vital_type": "glucose", "unit": "mmol/L", "default_value": None,
                        "override_value": None,

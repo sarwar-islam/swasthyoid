@@ -2,7 +2,7 @@ import { Bell, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import type { PatientNotification } from "../../api/types";
-import { ErrorNote, Loading } from "../../components/ui";
+import { ErrorNote, Loading, Reviewed } from "../../components/ui";
 import { formatDateTime, useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
 import { useLoad, useSession } from "../../session";
@@ -30,10 +30,12 @@ export function Inbox() {
   const TEXT: Record<Exclude<PatientNotification["kind"], "emergency_access">, Key> = {
     consent_request: "inbox.consent", consent_granted: "inbox.consentGranted",
     caregiver_request: "inbox.caregiver", caregiver_granted: "inbox.caregiverGranted",
+    vital_critical: "vitals.critical", vital_flagged: "vitals.flagged", // M13: the approved rule text follows (P6)
   };
   const text = (n: PatientNotification) => n.kind === "emergency_access"
     ? t("inbox.emergency", { name: someone(n), facility: n.facility ?? "" })
     : t(TEXT[n.kind], { name: someone(n), what: what(n) });
+  const vital = (n: PatientNotification) => n.kind === "vital_critical" || n.kind === "vital_flagged";
 
   return (
     <>
@@ -48,10 +50,16 @@ export function Inbox() {
               <span className="muted">{formatDateTime(n.created_at, lang)}</span>
               {!n.read_at && <span className="chip chip-needs_review">{t("inbox.new")}</span>}
             </div>
-            <p id={`note-${n.id}`}>{n.kind === "emergency_access" ? <ShieldAlert size={18} aria-hidden="true" /> : <Bell size={18} aria-hidden="true" />} {text(n)}</p>
-            {n.kind !== "caregiver_request" && <p className="muted">{t("inbox.security")}</p>}
+            <p id={`note-${n.id}`}>{n.kind === "emergency_access" || n.kind === "vital_critical" ? <ShieldAlert size={18} aria-hidden="true" /> : <Bell size={18} aria-hidden="true" />} {text(n)}</p>
+            {vital(n) && n.message && <Reviewed text={n.message} />}
+            {n.kind !== "caregiver_request" && !vital(n) && <p className="muted">{t("inbox.security")}</p>}
             <div className="actions">
-              {n.kind === "emergency_access"
+              {vital(n) ? (
+                <>
+                  {n.kind === "vital_critical" && <Link className="btn btn-emergency" to="/patient/emergency">{t("emergency.open")}</Link>}
+                  <Link to="/patient/vitals">{t("inbox.readings")}</Link>
+                </>
+              ) : n.kind === "emergency_access"
                 ? <Link to="/patient/consent#history">{t("inbox.history")}</Link>
                 : <Link to="/patient/consent">{t(n.kind === "caregiver_request" ? "inbox.answer" : "pqr.toConsent")}</Link>}
               {!n.read_at && <button type="button" aria-describedby={`note-${n.id}`} onClick={() => markRead(n)}>{t("inbox.read")}</button>}

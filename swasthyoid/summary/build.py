@@ -27,6 +27,7 @@ FIELDS = {
     "lab_result": ("test_name", "result", "unit", "reference_range"),
     "visit": ("facility_name", "admission_date", "discharge_date"),
     "follow_up": ("follow_up_date",),
+    "vital_reading": ("value", "unit", "context"),  # M13 (P6): the reading as entered; never a judgement of it
 }
 SECTION_OF = {"medication": "medications_recorded", "allergy": "allergies", "lab_result": "labs", "visit": "visits",
               "follow_up": "follow_ups"}
@@ -84,4 +85,4 @@ def template(events, today: date):
 def patient_reported(events):
     """Home readings, separate and never interpreted: values and dates only (FRD M5), in every mode."""
     readings = [e for e in _newest_first(events) if e["verification_status"] == "patient_reported"]
-    return [sentence(e, tuple(sorted(e["payload"]))) for e in readings[:SECTION_LIMIT]]
+    return [sentence(e, FIELDS.get(e["event_type"], tuple(sorted(e["payload"])))) for e in readings[:SECTION_LIMIT]]
