@@ -30,6 +30,8 @@ function asError(status: number, body: unknown): ApiError {
   if (b && typeof b.code === "string" && typeof b.message === "string") {
     return new ApiError(status, b.code, b.message, b.details ?? {});
   }
+  // FastAPI answers a route it does not have with a bare 404/405: say the screen is not on the server yet (docs/ROUTES.md)
+  if (status === 404 || status === 405) return new ApiError(status, "not_built", `HTTP ${status}`);
   return new ApiError(status, "unexpected_response", `HTTP ${status}`); // never echo an unknown body
 }
 

@@ -4,7 +4,8 @@ import { Link } from "react-router";
 import { apiMode } from "../../api";
 import { MOCK_RED_FLAG } from "../../api/mock";
 import type { TriageState } from "../../api/types";
-import { EmergencyCard, Reviewed } from "../../components/ui";
+import { ApiError } from "../../api/client";
+import { EmergencyCard, ErrorNote, Reviewed } from "../../components/ui";
 import { FIRST_AID_CARDS } from "../../content/reviewerPending";
 import { useI18n } from "../../i18n/i18n";
 import { useSession } from "../../session";
@@ -18,13 +19,15 @@ export function Triage() {
   const [message, setMessage] = useState("");
   const [state, setState] = useState<TriageState | null>(null);
   const [failed, setFailed] = useState(false);
+  const [notBuilt, setNotBuilt] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function step(call: () => Promise<TriageState>) {
     setBusy(true);
     try {
       setState(await call());
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "not_built") setNotBuilt(e); // say so honestly, and still fail safe
       setFailed(true); // fail safe: any error shows the emergency card
     } finally {
       setBusy(false);
@@ -36,7 +39,7 @@ export function Triage() {
     if (message.trim()) step(() => api.request<TriageState>("POST", "/triage/sessions", { body: { message: message.trim() } }));
   };
   const answer = (option: string) => step(() => api.request<TriageState>("POST", `/triage/sessions/${state!.session_id}/answer`, { body: { answer: option } }));
-  const restart = () => { setState(null); setFailed(false); setMessage(""); };
+  const restart = () => { setState(null); setFailed(false); setNotBuilt(null); setMessage(""); };
 
   const emergency = failed || state?.state === "emergency";
   return (
@@ -45,6 +48,7 @@ export function Triage() {
       <p className="notice">{t("triage.notice")}</p>
       {emergency ? (
         <>
+          <ErrorNote error={notBuilt} />
           <EmergencyCard advice={failed} />
           <div className="actions"><Link className="btn" to="/patient/first-aid"><BriefcaseMedical size={18} aria-hidden="true" />{t("emergency.firstAid")}</Link>
             <button type="button" onClick={restart}><RotateCcw size={18} aria-hidden="true" />{t("triage.again")}</button></div>

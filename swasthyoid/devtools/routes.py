@@ -29,8 +29,6 @@ SERVER_ONLY = {
                                "when it expires (a 401 shows 'sign in again'); it does not refresh yet.",
     ("GET", "/credentials/{}/document"): "An admin opens a credential's document. Uploading the document is unbuilt "
                                          "(B2 decision 6), so the console has no link to it yet.",
-    ("POST", "/admin/users/{}/emergency"): "The admin switch for a doctor's M10 capability (B7 decision 1). No console "
-                                           "screen yet; the mock answers it for parity (B8b).",
 }
 
 

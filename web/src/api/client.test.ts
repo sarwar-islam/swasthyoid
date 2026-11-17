@@ -39,6 +39,16 @@ describe("client", () => {
     const failure = await failed(createClient(transport).request("GET", "/x"));
     expect([failure.code, failure.message]).toEqual(["unexpected_response", "HTTP 500"]);
   });
+
+  it("calls a bare 404 or 405 (a route the server does not have) not_built, never a success", async () => {
+    for (const status of [404, 405]) {
+      const failure = await failed(createClient(recording(status, { detail: "Not Found" }).transport).request("GET", "/vitals"));
+      expect([failure.status, failure.code]).toEqual([status, "not_built"]);
+    }
+    const coded = await failed(createClient(recording(404, { code: "patient_not_found", message: "x" }).transport).request("GET", "/x"));
+    expect(coded.code).toBe("patient_not_found"); // the server's own 404s keep their code
+  });
+
 });
 
 describe("mock transport", () => {

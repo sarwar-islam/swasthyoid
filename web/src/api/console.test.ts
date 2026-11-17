@@ -44,7 +44,7 @@ describe("clinical reviewer: the rule registry", () => {
   it("lists rules by type", async () => {
     const ddi = await reviewer().request<Rule[]>("GET", "/rules?type=ddi");
     expect(ddi.map((r) => r.id)).toEqual(["SYNTH-DDI-0001-v1", "SYNTH-DDI-0001-v2"]);
-    expect((await reviewer().request<Rule[]>("GET", "/rules")).length).toBe(6);
+    expect((await reviewer().request<Rule[]>("GET", "/rules")).length).toBe(9); // 6 + three approved synthetic threshold rules (B8b)
   });
 
   it("drafts a rule but never approves its own (four-eyes); the author may withdraw it", async () => {
@@ -113,11 +113,19 @@ describe("clinical reviewer: break-glass post-hoc review", () => {
   it("justified keeps the capability, every new break-glass session lands in the queue, and no patient data is in it", async () => {
     await reviewer().request("POST", "/admin/emergency/reviews/er-2/review", { body: { decision: "justified" } });
     expect((await as(DOCTOR_TOKEN).request<StaffMe>("GET", "/me")).emergency_enabled).toBe(true);
+    const before = await reviewer().request<EmergencyReview[]>("GET", "/admin/emergency/reviews");
     await as(DOCTOR_TOKEN).request("POST", "/emergency/access", { body: { health_id: MOCK_HEALTH_ID, reason: "Synthetic reason", facility: "Synthetic clinic" } });
-    const queue = await reviewer().request<EmergencyReview[]>("GET", "/admin/emergency/reviews");
-    expect(queue[0]).toMatchObject({ status: "review_pending", doctor_id: MOCK_DOCTOR_ID, reason: "Synthetic reason" });
-    const text = JSON.stringify(queue);
-    for (const leak of [MOCK_PATIENT_ID, MOCK_HEALTH_ID, "SYNTH-DRUG-003"]) expect(text).not.toContain(leak);
+    // like the server: a session is reviewed only after it closes, so the open one is not in the queue and cannot be reviewed
+    expect(await reviewer().request<EmergencyReview[]>("GET", "/admin/emergency/reviews")).toEqual(before);
+    vi.useFakeTimers({ now: Date.now() + 2 * 3600_000 + 1000, toFake: ["Date"] });
+    try {
+      const queue = await reviewer().request<EmergencyReview[]>("GET", "/admin/emergency/reviews");
+      expect(queue[0]).toMatchObject({ status: "review_pending", doctor_id: MOCK_DOCTOR_ID, reason: "Synthetic reason" });
+      const text = JSON.stringify(queue);
+      for (const leak of [MOCK_PATIENT_ID, MOCK_HEALTH_ID, "SYNTH-DRUG-003", "SYNTH-ALLERGEN-01"]) expect(text).not.toContain(leak);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(await failure(reviewer().request("POST", "/admin/emergency/reviews/er-2/review", { body: { decision: "maybe" } }))).toEqual([409, "not_pending"]);
     expect(await failure(admin().request("GET", "/admin/emergency/reviews"))).toEqual([403, "role_not_allowed"]);
   });
@@ -139,6 +147,10 @@ describe("admin: credentials, catalog, audit, metrics", () => {
     expect(await failure(admin().request("POST", `/credentials/${c.id}/reject`, { body: {} }))).toEqual([422, "reason_required"]);
     await admin().request("POST", `/credentials/${c.id}/reject`, { body: { reason: "Number does not match" } });
     expect(await pendingList()).toEqual([]);
+    // like the server: the rejected credential stays on the record as rejected, without the reason
+    const rejected = await admin().request<CredentialReview[]>("GET", "/credentials?status=rejected");
+    expect(rejected).toMatchObject([{ user_id: MOCK_SUBMITTED_DOCTOR_ID, number: "SYNTH-BMDC-0042", status: "rejected" }]);
+    expect(JSON.stringify(rejected)).not.toContain("Number does not match");
     const doctor = createClient(transport, () => `${btoa(JSON.stringify({ alg: "none" }))}.${btoa(JSON.stringify({ sub: MOCK_SUBMITTED_DOCTOR_ID, role: "doctor" }))}.t`);
     await doctor.request("POST", "/credentials", { body: { type: "BMDC", number: "SYNTH-BMDC-0043" } });
     expect((await pendingList())[0].number).toBe("SYNTH-BMDC-0043");
@@ -150,7 +162,25 @@ describe("admin: credentials, catalog, audit, metrics", () => {
     await admin().request("POST", `/admin/users/${MOCK_DOCTOR_ID}/suspend`, { body: { reason: "Investigation" } });
     expect((await as(PATIENT_TOKEN).request<DoctorConsent[]>("GET", "/consents")).find((c) => c.id === "c-active")!.status).toBe("suspended");
     expect(await failure(as(DOCTOR_TOKEN).request("GET", `/patients/${MOCK_PATIENT_ID}/summary`))).toEqual([403, "consent_required"]);
-    expect((await as(DOCTOR_TOKEN).request<StaffMe>("GET", "/me")).status).toBe("suspended");
+    const me = await as(DOCTOR_TOKEN).request<StaffMe>("GET", "/me");
+    expect([me.status, me.emergency_enabled]).toEqual(["suspended", true]); // like the server: the capability is left as it is
+    expect(await failure(as(DOCTOR_TOKEN).request("POST", "/emergency/access", { body: { health_id: MOCK_HEALTH_ID, reason: "x", facility: "y" } })))
+      .toEqual([403, "emergency_not_enabled"]); // and a suspended doctor still cannot break glass
+  });
+
+  it("switches a verified doctor's emergency capability (B7 decision 1), and only that", async () => {
+    const set = (id: string, body: unknown) => admin().request("POST", `/admin/users/${id}/emergency`, { body });
+    expect(await set(MOCK_DOCTOR_ID, { enabled: false })).toEqual({ user_id: MOCK_DOCTOR_ID, emergency_enabled: false });
+    expect((await as(DOCTOR_TOKEN).request<StaffMe>("GET", "/me")).emergency_enabled).toBe(false);
+    expect(await set(MOCK_DOCTOR_ID, { enabled: true })).toEqual({ user_id: MOCK_DOCTOR_ID, emergency_enabled: true });
+    for (const body of [{}, { enabled: "yes" }, { enabled: 1 }]) expect(await failure(set(MOCK_DOCTOR_ID, body))).toEqual([422, "invalid_request"]);
+    for (const id of [MOCK_SUBMITTED_DOCTOR_ID, MOCK_VERIFIER_ID, "99999999-9999-4999-8999-999999999999"]) {
+      expect(await failure(set(id, { enabled: true }))).toEqual([404, "not_found"]); // a pending doctor, not a doctor, unknown
+    }
+    for (const t of [REVIEWER_TOKEN, DOCTOR_TOKEN, PATIENT_TOKEN, VERIFIER_TOKEN, CAREGIVER_TOKEN]) {
+      expect(await failure(as(t).request("POST", `/admin/users/${MOCK_DOCTOR_ID}/emergency`, { body: { enabled: true } }))).toEqual([403, "role_not_allowed"]);
+    }
+    expect((await admin().request<AuditPage>("GET", "/audit")).entries.map((e) => e.action).filter((a) => a.startsWith("user.emergency"))).toEqual(["user.emergency.enable", "user.emergency.disable"]);
   });
 
   it("validates a CSV catalog with a source statement and refuses anything else (B5: report only)", async () => {
@@ -234,10 +264,13 @@ describe("admin: staff provisioning (GAP routes; console roles never self-regist
     const token = (await signIn("+8801900000011")).access_token;
     expect((await as(token).request<Rule[]>("GET", "/rules")).length).toBeGreaterThan(0);
     for (const [body, code] of [[{ role: "admin", name: "x", phone: "+8801900000012" }, "invalid_role"], [{ role: "doctor", name: "x", phone: "+8801900000012" }, "invalid_role"],
-      [{ role: "verifier", name: " ", phone: "+8801900000012" }, "invalid_name"], [{ role: "verifier", name: "x", phone: "phone" }, "invalid_phone"]] as const) {
+      [{ role: "verifier", name: " ", phone: "+8801900000012" }, "invalid_name"], [{ role: "verifier", name: "x", phone: "phone" }, "invalid_phone"],
+      // like the server: Bangladesh mobile numbers only
+      [{ role: "verifier", name: "x", phone: "+441234567890" }, "invalid_phone"], [{ role: "verifier", name: "x", phone: "+8801200000012" }, "invalid_phone"]] as const) {
       expect(await failure(admin().request("POST", "/admin/staff", { body }))).toEqual([422, code]);
     }
     expect(await failure(admin().request("POST", "/admin/staff", { body: { role: "verifier", name: "x", phone: "+8801900000011" } }))).toEqual([409, "phone_exists"]);
+    expect(await failure(admin().request("POST", "/admin/staff", { body: { role: "verifier", name: "x", phone: "01900-000011" } }))).toEqual([409, "phone_exists"]); // same number
     for (const t of [REVIEWER_TOKEN, VERIFIER_TOKEN, DOCTOR_TOKEN, PATIENT_TOKEN]) {
       expect(await failure(as(t).request("POST", "/admin/staff", { body: { role: "verifier", name: "x", phone: "+8801900000013" } }))).toEqual([403, "role_not_allowed"]);
       expect(await failure(as(t).request("GET", "/admin/staff"))).toEqual([403, "role_not_allowed"]);

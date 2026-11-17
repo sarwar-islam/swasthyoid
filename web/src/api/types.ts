@@ -460,7 +460,7 @@ export interface CredentialReview {
   role: "doctor";
   type: "BMDC";
   number: string;
-  status: StaffStatus; // a rejected credential is removed, so the doctor can submit again
+  status: StaffStatus | "rejected"; // a rejected credential stays as rejected (B2); the doctor may submit a new one
   user_status: StaffStatus;
 }
 
@@ -571,7 +571,7 @@ export interface PatientNotification {
  * decides which fields exist and their limits; unknown fields are 422 invalid_threshold, a stale version is 409
  * version_conflict. Every change is a new version and audited. BUILT in B6 (api/safety.py): one field per approved
  * `vital_threshold` rule (none yet, so `fields` is empty), `default_value` always null (REVIEWER-PENDING), and a patient
- * with no change is at version 0 (the mock starts at 1). */
+ * with no change is at version 0. The mock does the same from its synthetic approved rules (B8b). */
 export interface ThresholdField {
   key: string; // opaque to the UI
   vital_type: VitalType;

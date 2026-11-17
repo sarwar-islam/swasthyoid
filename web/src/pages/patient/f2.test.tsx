@@ -200,19 +200,22 @@ describe("M10 emergency profile (flag on)", () => {
     open("/patient/emergency-profile", "en", transport);
     const blood = (await screen.findByLabelText(/Blood group/)) as HTMLInputElement;
     expect(blood.disabled).toBe(true); // nothing verified for it
+    // like the server (B7 decision 2): medicines and conditions are REVIEWER-PENDING, so nothing is offered for them either
+    expect((screen.getByLabelText(/Current medicines/) as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText("Profile off: the emergency card shows nothing.")).toBeTruthy();
     fireEvent.click(screen.getByRole("switch", { name: "Emergency profile on" }));
-    fireEvent.click(screen.getByLabelText("Current medicines"));
+    fireEvent.click(screen.getByLabelText("Allergies"));
     fireEvent.click(screen.getByLabelText("Emergency contacts"));
     click("Add another person");
     type("Name", "Synthetic Contact");
     type("Phone number", "+৮৮০১৭০০০০০০৪২");
     click("Save");
     expect(await screen.findByText("Emergency profile saved.")).toBeTruthy();
-    expect(seen.find((r) => r.method === "PUT")!.body).toEqual({ enabled: true, fields: ["active_medications", "emergency_contacts"],
+    expect(seen.find((r) => r.method === "PUT")!.body).toEqual({ enabled: true, fields: ["allergies", "emergency_contacts"],
       contacts: [{ name: "Synthetic Contact", phone: "+8801700000042" }] });
     const preview = within(screen.getByText("What the emergency card shows").closest("section")!);
-    expect(preview.getByText("SYNTH-DRUG-003")).toBeTruthy();
+    expect(preview.getByText("SYNTH-ALLERGEN-01")).toBeTruthy();
+    expect(preview.queryByText("SYNTH-DRUG-003")).toBeNull();
   });
 });
 

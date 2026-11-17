@@ -8,7 +8,7 @@ def test_every_route_difference_is_known_and_explained():
     assert mock - server == set(routes.UNBUILT)  # the screens with no server route yet (M5, M7, M8, M13)
     assert server - mock == set(routes.SERVER_ONLY)
     assert ("GET", "/health") in server & mock
-    assert len(server) == 62 and len(mock) == 68 and len(server & mock) == 59
+    assert len(server) == 62 and len(mock) == 69 and len(server & mock) == 60
 
 
 def test_the_route_report_is_current():

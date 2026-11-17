@@ -104,17 +104,21 @@ describe("vital thresholds (API)", () => {
     expect(await failure(doctor.request("GET", path))).toEqual([403, "consent_required"]);
     await openConsent(t, ["timeline"]);
     expect(await failure(doctor.request("GET", path))).toEqual([403, "category_not_allowed"]);
-    expect(await failure(client(t, PATIENT_TOKEN).request("PUT", path, { body: { version: 1, overrides: {} } }))).toEqual([403, "role_not_allowed"]);
+    expect(await failure(client(t, PATIENT_TOKEN).request("PUT", path, { body: { version: 0, overrides: {} } }))).toEqual([403, "role_not_allowed"]);
     await openConsent(t, ["timeline", "safety"]);
     const th = await doctor.request<VitalThresholds>("GET", path);
-    expect(th.fields.every((f) => f.default_value === null && f.label.status === "REVIEWER-PENDING")).toBe(true);
+    // like the server: one field per APPROVED vital_threshold rule (the draft SYNTH-VT-0001 is not one), no default, version 0
+    expect(th.version).toBe(0);
+    expect(th.fields.map((f) => f.key)).toEqual(["SYNTH-VT-0101", "SYNTH-VT-0102", "SYNTH-VT-0103"]);
+    expect(th.fields.every((f) => f.default_value === null && f.label.status === "approved" && /REVIEWER-PENDING/.test(f.label.en))).toBe(true);
     const key = th.fields[0].key;
-    expect(await failure(doctor.request("PUT", path, { body: { version: 1, overrides: { made_up: 1 } } }))).toEqual([422, "invalid_threshold"]);
-    expect(await failure(doctor.request("PUT", path, { body: { version: 1, overrides: { [key]: "x" } } }))).toEqual([422, "invalid_threshold"]);
-    const next = await doctor.request<VitalThresholds>("PUT", path, { body: { version: 1, overrides: { [key]: 150 } } });
-    expect(next).toMatchObject({ version: 2, updated_by_name: expect.any(String) });
+    expect(await failure(doctor.request("PUT", path, { body: { version: 0, overrides: { made_up: 1 } } }))).toEqual([422, "invalid_threshold"]);
+    expect(await failure(doctor.request("PUT", path, { body: { version: 0, overrides: { "SYNTH-VT-0001": 1 } } }))).toEqual([422, "invalid_threshold"]);
+    expect(await failure(doctor.request("PUT", path, { body: { version: 0, overrides: { [key]: "x" } } }))).toEqual([422, "invalid_threshold"]);
+    const next = await doctor.request<VitalThresholds>("PUT", path, { body: { version: 0, overrides: { [key]: 150 } } });
+    expect(next).toMatchObject({ version: 1, updated_by_name: expect.any(String) });
     expect(next.fields[0].override_value).toBe(150);
-    expect(await failure(doctor.request("PUT", path, { body: { version: 1, overrides: { [key]: null } } }))).toEqual([409, "version_conflict"]);
+    expect(await failure(doctor.request("PUT", path, { body: { version: 0, overrides: { [key]: null } } }))).toEqual([409, "version_conflict"]);
     const history = await client(t, PATIENT_TOKEN).request<AccessEntry[]>("GET", "/me/access-history");
     expect(history[0]).toMatchObject({ action: "vital_thresholds.update", result: "allow" });
   });
@@ -260,9 +264,9 @@ describe("F6 screens", () => {
     expect(seen.some((r) => r.method === "PUT")).toBe(false);
     fireEvent.change(inputs[0], { target: { value: "150" } });
     fireEvent.click(screen.getByRole("button", { name: "Save thresholds" }));
-    expect(await screen.findByText("Saved as version 2.")).toBeTruthy();
+    expect(await screen.findByText("Saved as version 1.")).toBeTruthy();
     const body = seen.find((r) => r.method === "PUT")!.body as { version: number; overrides: Record<string, number | null> };
-    expect(body.version).toBe(1);
+    expect(body.version).toBe(0);
     expect(Object.values(body.overrides)).toEqual([150, null, null]);
   });
 
