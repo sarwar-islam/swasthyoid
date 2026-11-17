@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (680 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (681 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -115,6 +115,7 @@ Generated from `web/src/i18n/strings.ts` (680 strings). Do not edit the strings 
 | `err.invalid_phone` | সঠিক মোবাইল নম্বর লিখুন। | Enter a valid mobile number. |  |
 | `err.too_many_requests` | অনেকবার চেষ্টা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন। | Too many tries. Wait a little and try again. |  |
 | `err.network_unavailable` | সার্ভারে পৌঁছানো যাচ্ছে না। ইন্টারনেট সংযোগ দেখুন। | The server can't be reached. Check your internet connection. |  |
+| `err.not_built` | এই অংশটি এখনো সার্ভারে চালু হয়নি। তাই এখানে কোনো তথ্য দেখানো হচ্ছে না। | This part isn't on the server yet, so nothing is shown here. |  |
 | `err.not_revocable` | এই সম্মতি এখন সক্রিয় নয়। | This consent isn't active now. |  |
 | `err.not_pending` | এই অনুরোধ আর খোলা নেই। | This request is no longer open. |  |
 | `err.not_allowed_state` | নথিটি এখন এই অবস্থায় নেই। | The document isn't in that state now. |  |

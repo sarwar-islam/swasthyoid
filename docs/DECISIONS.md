@@ -2451,3 +2451,38 @@ events, no rules or consents, audit entries) with no 6-digit code in the output;
 B8b mock edits): 1568 passed, 19 skipped; the 2 route reconciliation tests failed only because `mock.ts` gained a route
 during the 20-minute run, and pass on rerun. Web: 183 passed; type check clean. No schema change.
 
+## B8b Honest live mode and the mock aligned with the server (owner approval 2026-11-17)
+
+- **Not built, said honestly.** FastAPI answers a route it does not have with a bare 404 (or 405) and no `code`. The web
+  client now calls that `not_built` (`api/client.ts`); the server's own 404s always carry a code and keep it. `err.not_built`
+  (Bangla and English) says the part is not on the server yet and nothing is shown. In live mode this is what the M13 vitals,
+  M8 reminders, M5 summary and search screens show (`docs/ROUTES.md`). Triage keeps its fail-safe: the emergency card and
+  general advice still show, with the not-built note above them. No screen shows made-up data in live mode.
+- **Mock aligned with the server** (the B7 and B6 mismatch lists):
+  - Phones: Bangladesh mobiles only, as `swasthyoid/pii.py` (`01...`, `8801...` and `+8801...`, spaces and dashes
+    removed; operator digit 3 to 9). Applies to sign-in, staff accounts and emergency contacts; contacts are stored as
+    `+880...`; the same number written two ways is one account.
+  - A rejected credential stays in `GET /credentials?status=rejected` (without the reason); the doctor may submit again.
+  - Thresholds: one field per approved `vital_threshold` rule, keyed by rule id, default null, label from the rule's
+    explanation; a patient with no change is at version 0. The mock seeds three approved SYNTHETIC threshold rules
+    (`SYNTH-VT-0101` to `0103`: a vital type and unit only, no value or limit) so the screen can be tried; the server has
+    none until the clinical reviewer approves one, and the screen's "no approved rules" state is tested.
+  - Break-glass review: a session appears in the review queue, and can be reviewed, only after it has closed.
+  - The emergency card offers verified allergies (as written) and contacts only; blood group, medicines and conditions
+    have nothing to offer (REVIEWER-PENDING), as on the server.
+  - Suspension leaves `emergency_enabled` as it is (a suspended doctor is refused anyway).
+  - `POST /admin/users/{id}/emergency { enabled }`: 422 `invalid_request`, 404 for anyone but a verified doctor, audited
+    `user.emergency.enable|disable`. No console screen yet.
+  - Still different, on purpose: the mock does not gate M10 routes on the server flag (the web build flag hides the
+    screens); the mock answers the 9 unbuilt routes with synthetic data in demo mode, marked as demo.
+- **Route reconciliation** now: 62 server operations, 69 mock routes, 60 on both, 9 mock only, 2 server only.
+
+**Verification.** Web: 191 passed (8 new): the client's `not_built` mapping and that coded 404s keep their code; vitals,
+reminders and triage in live-like mode, Bangla and English, with axe (triage still shows the emergency card); the admin
+capability route (roles, bodies, targets, audit); rejected credentials kept; suspension keeps the capability and still
+refuses break-glass; non-Bangladesh staff phones refused and the same number written two ways refused; the review queue
+before and after the session closes; thresholds from approved rules only, version 0, a draft rule's key refused; the
+emergency profile offering allergies, not medicines. Updated, not loosened: the rule count (6 to 9, the new synthetic
+rules) and the threshold versions (from 1 to 0). Type check clean. Backend: route reconciliation 3 passed. One new string
+(`err.not_built`), added to `BANGLA_COPY_REVIEW.md`.
+
