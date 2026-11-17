@@ -42,7 +42,7 @@ function PageImage({ api, id, n }: { api: Client; id: string; n: number }) {
     }, () => setSrc(null));
     return () => { if (url) URL.revokeObjectURL(url); };
   }, [api, id, n]);
-  return src ? <img src={src} alt={t("verify.imageAlt", { n: formatNumber(n, lang) })} /> : <Loading />;
+  return src ? <img loading="lazy" decoding="async" src={src} alt={t("verify.imageAlt", { n: formatNumber(n, lang) })} /> : <Loading />;
 }
 
 function FieldInput({ id, name, value, source, threshold, onChange }:

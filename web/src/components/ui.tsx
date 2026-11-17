@@ -1,5 +1,6 @@
-import { AlertTriangle, CheckCircle2, FileCheck2, Phone, Siren, UserRound } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { AlertTriangle, CheckCircle2, Copy, FileCheck2, Phone, Siren, UserRound } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ApiError } from "../api/client";
 import type { DocStatus, Provenance, ReviewedText } from "../api/types";
 import { EMERGENCY_MESSAGE } from "../content/reviewerPending";
@@ -37,6 +38,27 @@ export function Loading({ lines = 0 }: { lines?: number }) {
   );
 }
 
+/** UX-3: copy a value; the result is announced beside the button (no layout shift). A blocked clipboard says so, and the
+ * value stays on screen to read out. */
+export function CopyButton({ value, label, done = "home.copied" }: { value: string; label: Key; done?: Key }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<"idle" | "ok" | "failed">("idle");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setState("ok");
+    } catch {
+      setState("failed");
+    }
+  };
+  return (
+    <span className="copy-row">
+      <button type="button" onClick={copy}><Copy size={18} aria-hidden="true" />{state === "ok" ? t(done) : t(label)}</button>
+      <span role="status" className="copy-status muted">{state === "failed" ? t("common.copyFailed") : ""}</span>
+    </span>
+  );
+}
+
 /** Only the two provenances the timeline has (owner decision 2026-11-15): icon + words + style, never colour alone. */
 export function ProvenanceBadge({ value }: { value: Provenance }) {
   const { t } = useI18n();
@@ -49,12 +71,23 @@ export function StatusChip({ status }: { status: DocStatus }) {
   return <span className={`chip chip-${status}`}>{status === "verified" && <CheckCircle2 size={14} aria-hidden="true" />}{t(`status.${status}`)}</span>;
 }
 
+/** While a modal is open the page behind it does not scroll, so the backdrop always covers what is on screen. */
+export function useScrollLock(locked: boolean) {
+  useEffect(() => {
+    if (!locked) return;
+    const previous = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    return () => { document.documentElement.style.overflow = previous; };
+  }, [locked]);
+}
+
 /** A confirmation step for actions that cannot be undone (revoke, reject). Focus starts on the safe choice; Escape cancels. */
 export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, danger = true, children }:
   { open: boolean; title: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void; danger?: boolean;
     children?: ReactNode }) {
   const { t } = useI18n();
   const cancelRef = useRef<HTMLButtonElement>(null);
+  useScrollLock(open);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -67,7 +100,8 @@ export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, 
     };
   }, [open, onCancel]);
   if (!open) return null;
-  return (
+  // at the root of the page: no header or card around it can clip or stack above the backdrop
+  return createPortal(
     <div className="dialog-backdrop">
       <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby={children ? "confirm-body" : undefined}
            className="dialog card">
@@ -78,7 +112,8 @@ export function ConfirmDialog({ open, title, confirmLabel, onConfirm, onCancel, 
           <button type="button" className={danger ? "btn-danger" : "btn-primary"} onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -377,7 +377,7 @@ function DocImage({ api, id, n }: { api: Client; id: string; n: number }) {
       .then((b) => { if (typeof URL.createObjectURL === "function") setSrc((url = URL.createObjectURL(b))); }, () => setSrc(null));
     return () => { if (url) URL.revokeObjectURL(url); };
   }, [api, id, n]);
-  return src ? <img src={src} alt={t("verify.imageAlt", { n: formatNumber(n, lang) })} /> : <Loading />;
+  return src ? <img loading="lazy" decoding="async" src={src} alt={t("verify.imageAlt", { n: formatNumber(n, lang) })} /> : <Loading />;
 }
 
 /** A source document, view only: the photos, never the unverified extraction (that is the patient's alone). */

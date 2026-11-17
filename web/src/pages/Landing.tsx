@@ -1,7 +1,9 @@
-import { Camera, FileCheck2, HeartHandshake, HeartPulse, History, ShieldCheck, Siren, Stethoscope, UserCheck } from "lucide-react";
+import { ArrowUp, Camera, FileCheck2, Menu, HeartHandshake, HeartPulse, History, ShieldCheck, Siren, Stethoscope, UserCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { LanguageToggle, ThemeSelect } from "../components/Controls";
 import { flags } from "../flags";
+import { SkipLink } from "../shells/Shells";
 import { useI18n } from "../i18n/i18n";
 import type { Key } from "../i18n/strings";
 
@@ -18,11 +20,26 @@ const CAN: Array<{ text: Key; icon: typeof Camera }> = [
  * Every claim here is something the code does today; no numbers, badges or medical claims (owner plan, 2026-11-17). */
 export function Landing() {
   const { t } = useI18n();
+  const [menu, setMenu] = useState(false);
+  const [scrolled, setScrolled] = useState(0);
+  // reading progress and the back-to-top button; one passive listener, no layout reads beyond the scroll position
+  useEffect(() => {
+    const onScroll = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      setScrolled(max > 0 ? Math.min(1, window.scrollY / max) : 0);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   return (
     <div className="shell landing" data-portal="patient">
+      <SkipLink />
+      <div className="scroll-progress" aria-hidden="true" style={{ "--progress": scrolled } as React.CSSProperties} />
       <header className="topbar">
         <span className="brand"><HeartPulse size={22} aria-hidden="true" />{t("app.name")}</span>
-        <nav aria-label={t("land.nav")} className="land-nav">
+        <button type="button" className="menu-toggle icon-btn" aria-expanded={menu} aria-controls="land-nav"
+                onClick={() => setMenu((m) => !m)}><Menu size={20} aria-hidden="true" />{t("land.menu")}</button>
+        <nav id="land-nav" aria-label={t("land.nav")} className={`land-nav${menu ? " open" : ""}`} onClick={() => setMenu(false)}>
           <a href="#how">{t("land.how")}</a> <a href="#can">{t("land.forPatients")}</a>{" "}
           <a href="#doctors">{t("land.doctors")}</a> <a href="#yours">{t("land.privacy")}</a>
         </nav>
@@ -34,7 +51,7 @@ export function Landing() {
       <div role="region" aria-label={t("emergency.title")}>
         <a className="emergency-bar" href="tel:999"><Siren size={20} aria-hidden="true" />{t("emergency.bar")}</a>
       </div>
-      <main id="main" className="content">
+      <main id="main" className="content" tabIndex={-1}>
         <section className="stack" aria-labelledby="hero">
           <h1 id="hero">{t("land.hero")}</h1>
           <p>{t("land.lead")}</p>
@@ -80,6 +97,11 @@ export function Landing() {
           </div>
         </section>
       </main>
+      {scrolled > 0.25 && (
+        <button type="button" className="to-top icon-btn" aria-label={t("land.toTop")}
+                onClick={() => { window.scrollTo({ top: 0 }); document.getElementById("main")?.focus({ preventScroll: true }); }}>
+          <ArrowUp size={20} aria-hidden="true" /></button>
+      )}
       <footer className="content muted">
         <nav aria-label={t("land.staff")}>
           <strong>{t("land.staff")}:</strong>{" "}

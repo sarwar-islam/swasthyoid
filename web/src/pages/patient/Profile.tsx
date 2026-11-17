@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import type { DocType, DocumentView, Me } from "../../api/types";
-import { ErrorNote, Loading, StatusChip } from "../../components/ui";
+import { CopyButton, ErrorNote, Loading, StatusChip } from "../../components/ui";
 import { formatDate, useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
 import { useLoad, useSession } from "../../session";
@@ -19,7 +19,7 @@ export function Profile() {
       {me.loading ? <Loading lines={2} /> : <ErrorNote error={me.error} onRetry={me.reload} />}
       {p && (
         <dl className="card profile">
-          <dt>{t("me.healthId")}</dt><dd><bdi className="mono" lang="en">{p.health_id}</bdi></dd>
+          <dt>{t("me.healthId")}</dt><dd><bdi className="mono" lang="en">{p.health_id}</bdi> <CopyButton value={p.health_id} label="home.copy" /></dd>
           <dt>{t("login.name")}</dt><dd><bdi>{p.name}</bdi></dd>
           <dt>{t("login.dob")}</dt><dd>{formatDate(p.dob, lang)}</dd>
           <dt>{t("login.sex")}</dt><dd>{sex}</dd>

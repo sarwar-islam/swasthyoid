@@ -6,6 +6,7 @@ import { apiMode } from "../../api";
 import { MOCK_ADMIN_PHONE, MOCK_CODE, MOCK_DOCTOR_PHONE, MOCK_PHONE, MOCK_REVIEWER_PHONE, MOCK_VERIFIER_PHONE } from "../../api/mock";
 import type { PatientProfile, TokenPair } from "../../api/types";
 import { LanguageToggle, ThemeSelect } from "../../components/Controls";
+import { SkipLink } from "../../shells/Shells";
 import { ErrorNote } from "../../components/ui";
 import { localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
 import { useSession } from "../../session";
@@ -120,28 +121,31 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
 
   return (
     <div className="shell" data-portal={staff ? "staff" : "patient"}>
+      <SkipLink />
       <header className="topbar">
         <span className="brand"><HeartPulse size={22} aria-hidden="true" />{t("app.name")} <small>{t(`portal.${portal}`)}</small></span>
         <div className="controls"><LanguageToggle /><ThemeSelect /></div>
       </header>
-      <main id="main" className="content" style={{ maxWidth: "32rem" }}>
+      <main id="main" className="content" style={{ maxWidth: "32rem" }} tabIndex={-1}>
         <h1>{t("login.title")}</h1>
         {expired && <p className="notice" role="status">{t("login.expired")}</p>}
         <p>{t("login.intro")}</p>
         {apiMode === "mock" && <p className="notice">{t("common.mockMode", { code: localDigits(MOCK_CODE, lang) })}<br />
           <span lang="en" className="mono">{{ patient: MOCK_PHONE, doctor: MOCK_DOCTOR_PHONE, verifier: MOCK_VERIFIER_PHONE,
             console: `${MOCK_REVIEWER_PHONE} (reviewer) · ${MOCK_ADMIN_PHONE} (admin)` }[portal]}</span></p>}
-        <ErrorNote error={error} />
+        {step === "profile" && <ErrorNote error={error} />}
 
         {step === "phone" && (
           <form onSubmit={onPhone} noValidate>
             <div className="field">
               <label htmlFor="phone">{t("login.phone")}</label>
               <input id="phone" type="tel" inputMode="tel" autoComplete="tel" required value={phone}
-                     aria-describedby="phone-hint" onChange={(e) => setPhone(e.target.value)} />
+                     aria-describedby={error ? "phone-error phone-hint" : "phone-hint"} aria-invalid={Boolean(error)}
+                     onChange={(e) => setPhone(e.target.value)} />
               <span id="phone-hint" className="hint">{t("login.phoneHint")}</span>
+              {Boolean(error) && <div id="phone-error"><ErrorNote error={error} /><p className="hint">{t("login.fixPhone")}</p></div>}
             </div>
-            <button type="submit" className="btn-primary" disabled={busy || !phone.trim()}>{t("login.send")}</button>
+            <button type="submit" className="btn-primary" aria-busy={busy} disabled={busy || !phone.trim()}>{t("login.send")}</button>
           </form>
         )}
 
@@ -156,11 +160,13 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
               <label htmlFor="code">{t("login.code")}</label>
               {/* paste allowed and autofill from SMS (WCAG 3.3.8, accessible authentication) */}
               <input id="code" inputMode="numeric" autoComplete="one-time-code" required value={code} autoFocus
-                     aria-describedby="code-hint" onChange={(e) => setCode(e.target.value)} />
+                     aria-describedby={error ? "code-error code-hint" : "code-hint"} aria-invalid={Boolean(error)}
+                     onChange={(e) => setCode(e.target.value)} />
               <span id="code-hint" className="hint">{t("login.codeHint")}</span>
+              {Boolean(error) && <div id="code-error"><ErrorNote error={error} /><p className="hint">{t("login.fixCode")}</p></div>}
             </div>
             <div className="actions">
-              <button type="submit" className="btn-primary" disabled={busy || !code.trim() || left === 0}>{t("login.verify")}</button>
+              <button type="submit" className="btn-primary" aria-busy={busy} disabled={busy || !code.trim() || left === 0}>{t("login.verify")}</button>
               <button type="button" disabled={busy} onClick={onResend}>{t("login.resend")}</button>
               <button type="button" onClick={() => { setStep("phone"); setCode(""); setProfile(null); setResent(false); }}>{t("login.changePhone")}</button>
             </div>

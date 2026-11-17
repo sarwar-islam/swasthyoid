@@ -3,6 +3,7 @@ import { Activity, BadgeCheck, Camera, Database, FileSearch, Gavel, HeartPulse, 
   ListChecks, ScrollText, ShieldAlert, ShieldCheck, Siren, UserPlus, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { CommandMenu, type Command } from "../components/CommandMenu";
 import { ConfirmDialog } from "../components/ui";
 import { leaveReasons } from "../leave";
 import { LanguageToggle, ThemeSelect } from "../components/Controls";
@@ -57,7 +58,7 @@ export const STAFF_NAV: Record<"doctor" | "verifier" | "console", { title: Key; 
   ] },
 };
 
-function TopBar({ subtitle }: { subtitle: Key }) {
+function TopBar({ subtitle, commands }: { subtitle: Key; commands: Command[] }) {
   const { t } = useI18n();
   const { claims, signOut } = useSession();
   const { pathname } = useLocation();
@@ -80,7 +81,7 @@ function TopBar({ subtitle }: { subtitle: Key }) {
   return (<>
     <header className="topbar">
       <Link to="/" className="brand"><HeartPulse size={22} aria-hidden="true" />{t("app.name")} <small>{t(subtitle)}</small></Link>
-      <div className="controls"><LanguageToggle /><ThemeSelect />{claims && <button type="button" onClick={() => setAsk({ assist: leaveReasons().includes("assist"), unsaved: dirty.current })}>
+      <div className="controls">{claims && <CommandMenu items={commands} />}<LanguageToggle /><ThemeSelect />{claims && <button type="button" onClick={() => setAsk({ assist: leaveReasons().includes("assist"), unsaved: dirty.current })}>
         {t("common.signOut")}</button>}</div>
     </header>
     <ConfirmDialog open={ask !== null} title={t("logout.confirm")} confirmLabel={t("logout.yes")} danger={Boolean(ask?.assist || ask?.unsaved)}
@@ -91,10 +92,20 @@ function TopBar({ subtitle }: { subtitle: Key }) {
   </>);
 }
 
-function SkipLink() {
+export function SkipLink() {
   const { t } = useI18n();
   return <a className="skip-link" href="#main">{t("a11y.skip")}</a>;
 }
+
+// the patient's pages for the command menu: the bottom bar, then the More pages (all the patient's own)
+const PATIENT_COMMANDS: Command[] = [
+  ...PATIENT_NAV.map(({ to, label }) => ({ to, label })),
+  { to: "/patient/summary", label: "hs.title" }, { to: "/patient/records", label: "records.title" },
+  { to: "/patient/profile", label: "me.title" }, { to: "/patient/inbox", label: "nav.inbox" },
+  { to: "/patient/vitals", label: "more.vitals" }, { to: "/patient/reminders", label: "more.reminders" },
+  { to: "/patient/caregiving", label: "more.care" }, { to: "/patient/help", label: "more.help" },
+  { to: "/patient/first-aid", label: "more.firstAid" }, { to: "/patient/emergency", label: "more.emergency" },
+];
 
 /** Patient app: mobile-first, the emergency bar on every screen, a bottom bar of five. */
 export function PatientShell() {
@@ -102,7 +113,7 @@ export function PatientShell() {
   return (
     <div className="shell" data-portal="patient">
       <SkipLink />
-      <TopBar subtitle="portal.patient" />
+      <TopBar subtitle="portal.patient" commands={PATIENT_COMMANDS} />
       {/* tel: works with no server at all: the emergency route never depends on the backend */}
       <div role="region" aria-label={t("emergency.title")}>
         <a className="emergency-bar" href="tel:999"><Siren size={20} aria-hidden="true" />{t("emergency.bar")}</a>
@@ -128,7 +139,7 @@ export function StaffShell({ portal }: { portal: keyof typeof STAFF_NAV }) {
   return (
     <div className="shell" data-portal="staff">
       <SkipLink />
-      <TopBar subtitle={title} />
+      <TopBar subtitle={title} commands={items.map(({ to, label }) => ({ to, label }))} />
       <div className="staff-body">
         <nav className="side-nav" aria-label={t("a11y.mainNav")}>
           <ul>

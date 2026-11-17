@@ -1,5 +1,5 @@
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); } /* overscroll and the area under modals use the theme, never white */
 body {
   margin: 0; background: var(--bg); color: var(--ink);
   font-family: var(--font-sans); font-size: 16px; line-height: var(--leading-body);
@@ -254,3 +254,74 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: var(--space-2) 0 0
 .profile dt { color: var(--muted); }
 .profile dd { margin: 0; overflow-wrap: anywhere; }
 .hs-row { padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+
+/* ---- UX-3 global system: everything below reads the tokens, so changing a token changes every screen */
+html { scroll-padding-top: calc(var(--target) + var(--space-6)); } /* anchors land below the sticky header */
+h1, h2, h3 { text-wrap: balance; font-weight: var(--weight-semibold); }
+p, .field .hint, .notice, .error-note, .ok-note { max-width: var(--measure); }
+/* numbers line up: dates, ids, counts, readings */
+.mono, time, dd, td, .id-chip, .tl-date, .health-id, .chip, .badge, .countdown { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+svg { flex: none; vertical-align: middle; }
+
+.topbar { position: sticky; top: 0; z-index: 20; padding-top: max(var(--space-2), env(safe-area-inset-top)); }
+.content { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right));
+  padding-bottom: max(var(--space-5), env(safe-area-inset-bottom)); }
+
+/* surfaces: hairline borders and soft, wide shadows; inner boxes follow the card's radius */
+.card { border: var(--hairline) solid var(--line); box-shadow: var(--shadow-1); }
+.card .card, .card .notice, .card .error-note, .card .ok-note { border-radius: var(--radius-inner); box-shadow: none; }
+.dialog { box-shadow: var(--shadow-2); background: var(--surface-3); }
+
+/* buttons: secondary actions are unfilled; filled colour only for the main action of a section */
+button, .btn { background: transparent; border-width: var(--hairline); font-weight: var(--weight-semibold);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-fill); font-weight: var(--weight-bold); }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: var(--on-fill); font-weight: var(--weight-bold); }
+.btn-emergency { background: var(--emergency); color: #ffffff; }
+@media (hover: hover) {
+  button:not(:disabled):not(.btn-primary):not(.btn-danger):not(.btn-emergency):hover,
+  .btn:not(.btn-primary):not(.btn-danger):not(.btn-emergency):hover { border-color: var(--accent, var(--muted)); background: var(--accent-soft, var(--surface-2)); }
+  .btn-primary:not(:disabled):hover { background: var(--accent); filter: brightness(1.08); }
+  .btn-danger:not(:disabled):hover { background: var(--danger); filter: brightness(1.08); }
+  .btn-emergency:hover { filter: brightness(1.1); }
+  a.card:hover { border-color: var(--accent); box-shadow: var(--shadow-2); }
+}
+button[aria-busy="true"] { cursor: progress; }
+
+/* inputs: the label sits right above; an error is shown under its own field */
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border: 2px solid var(--danger); }
+.field .error-note { margin: var(--space-1) 0 0; }
+
+/* small icon buttons keep a 44px hit area */
+.icon-btn { min-width: var(--target); justify-content: center; padding: 0 var(--space-2); }
+kbd { font: inherit; font-size: .8em; border: var(--hairline) solid var(--line); border-bottom-width: 2px; border-radius: var(--radius-sm);
+  padding: 0 var(--space-1); color: var(--muted); }
+
+/* command menu */
+.cmdk-backdrop { position: fixed; inset: 0; min-height: 100dvh; overscroll-behavior: contain; z-index: 60; background: rgb(0 0 0 / .4); display: flex; justify-content: center;
+  align-items: flex-start; padding: max(var(--space-8), env(safe-area-inset-top)) var(--space-4) var(--space-4); }
+.cmdk { width: min(36rem, 100%); background: var(--surface-3); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+  border: var(--hairline) solid var(--line); padding: var(--space-3); }
+.cmdk ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; max-height: 60vh; overflow-y: auto; }
+.cmdk li { display: flex; align-items: center; gap: var(--space-2); min-height: var(--target); padding: 0 var(--space-3);
+  border-radius: var(--radius-inner); cursor: pointer; }
+.cmdk li[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: var(--weight-semibold); }
+.cmdk-hint { display: none; }
+@media (min-width: 768px) { .cmdk-hint { display: inline; } }
+
+/* landing: menu on phones, back to top, reading progress */
+.menu-toggle { display: inline-flex; }
+@media (min-width: 768px) { .menu-toggle { display: none; } }
+.land-nav.open { display: flex; flex-direction: column; width: 100%; order: 3; }
+.land-nav a { display: inline-flex; align-items: center; min-height: var(--target); }
+.scroll-progress { position: fixed; top: 0; left: 0; height: 3px; width: 100%; z-index: 30; background: var(--accent);
+  transform-origin: 0 50%; transform: scaleX(var(--progress, 0)); pointer-events: none; }
+.to-top { position: fixed; right: max(var(--space-4), env(safe-area-inset-right)); bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  z-index: 25; background: var(--surface-3); box-shadow: var(--shadow-2); }
+
+/* feedback appears without moving what is around it */
+.copy-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.copy-status { min-height: 1.5em; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }

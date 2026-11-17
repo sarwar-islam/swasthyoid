@@ -1,8 +1,7 @@
-import { Bell, Camera, ClipboardCheck, Copy, ShieldQuestion } from "lucide-react";
-import { useState } from "react";
+import { Bell, Camera, ClipboardCheck, ShieldQuestion } from "lucide-react";
 import { Link } from "react-router";
 import type { Consent, DocumentView, Me, PatientNotification } from "../../api/types";
-import { ErrorNote, Loading, Section } from "../../components/ui";
+import { CopyButton, ErrorNote, Loading, Section } from "../../components/ui";
 import { formatNumber, useI18n } from "../../i18n/i18n";
 import { useLoad, useSession } from "../../session";
 
@@ -13,20 +12,10 @@ export function Home() {
   const docs = useLoad(() => api.request<DocumentView[]>("GET", `/patients/${claims?.sub}/documents`), [claims?.sub]);
   const consents = useLoad(() => api.request<Consent[]>("GET", "/consents"), []);
   const notes = useLoad(() => api.request<PatientNotification[]>("GET", "/notifications"), []);
-  const [copied, setCopied] = useState(false);
 
   const toVerify = docs.data?.filter((d) => d.status === "needs_review").length ?? 0;
   const waiting = consents.data?.filter((c) => c.status === "pending").length ?? 0;
   const unread = notes.data?.filter((n) => !n.read_at).length ?? 0;
-
-  async function copy(id: string) {
-    try {
-      await navigator.clipboard.writeText(id);
-      setCopied(true);
-    } catch {
-      setCopied(false); // clipboard blocked: the number stays on screen to read out
-    }
-  }
 
   return (
     <>
@@ -38,9 +27,7 @@ export function Home() {
             {/* the ID is shown in ASCII digits: it is typed on a doctor's keyboard */}
             <p className="health-id" lang="en">{me.data.health_id}</p>
             <p className="muted">{t("home.healthIdNote")}</p>
-            <button type="button" onClick={() => copy(me.data!.health_id)}>
-              <Copy size={18} aria-hidden="true" />{copied ? t("home.copied") : t("home.copy")}
-            </button>
+            <CopyButton value={me.data.health_id} label="home.copy" />
           </>
         ) : <p className="muted">{t("home.healthIdMissing")}</p>}
       </section>

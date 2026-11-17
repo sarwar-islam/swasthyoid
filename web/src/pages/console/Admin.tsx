@@ -47,7 +47,7 @@ function CredentialPhoto({ credential }: { credential: CredentialReview }) {
         {t(src ? "cr.hideDoc" : "cr.showDoc")}
       </button>
       <ErrorNote error={error} />
-      {src && <img src={src} alt={t("cr.docAlt", { name: credential.name })} style={{ maxWidth: "100%" }} />}
+      {src && <img loading="lazy" decoding="async" src={src} alt={t("cr.docAlt", { name: credential.name })} style={{ maxWidth: "100%" }} />}
     </div>
   );
 }

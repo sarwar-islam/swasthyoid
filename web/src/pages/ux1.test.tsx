@@ -27,7 +27,7 @@ describe("UX-1 timeline", () => {
       fireEvent.click(screen.getByRole("button", { name: lang === "en" ? "Show everything" : "সব দেখান" }));
       expect(screen.getAllByRole("article")).toHaveLength(all);
       expect(await axeViolations(container)).toEqual([]);
-    });
+        }, 15_000); // two axe scans of the whole timeline
   }
 
   it("a failed load offers a retry that loads again", async () => {
