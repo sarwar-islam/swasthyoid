@@ -2780,3 +2780,32 @@ landing in Bangla and English at 375 px and desktop, 0 axe violations, no horizo
 first spread icon and text apart, fixed with an `icon-line` style; "Get started" → sign in → More → sign out on all
 devices → back to sign-in. Live (`swasthyoid_dev`, API restarted): a token worked (200), logout 204, the same token 401,
 its refresh token 401. Copy list: 747 strings.
+
+## W2 sessions, credential document and patient export (owner approval 2026-11-17)
+
+Owner decisions of 2026-11-17: (a) idle timeout 30 minutes for patients, 15 for staff, audited `session_idle`; (b) the
+credential document is JPEG or PNG only, stored without metadata, no PDF dependency; (c) home vitals go into the export in a
+separate `patient_reported` part; (d) document images stay out of the export for now; S8: the session survives a reload
+through an `HttpOnly; Secure; SameSite=Strict` refresh cookie on `Path=/api/v1/auth`, the 15-minute access token stays in
+memory, tabs renew one at a time under `navigator.locks`, a custom header guards the cookie, and logout clears it.
+
+**W2a sessions.**
+- Server: `refresh_tokens.last_seen_at` (migration in `identity/schema.sql`). Every authenticated request runs
+  `identity.sessions.touch`, which counts it as activity, or, if the device's session had no request within the role's limit,
+  revokes it and the request gets 401, audited `auth.token_rejected` / `session_idle`. A refresh is not activity: the new
+  token keeps the old `last_seen_at`, and an idle session's refresh is refused (`auth.refresh_failed` / `session_idle`), so
+  silent renewal cannot keep an unattended session alive.
+- Cookie: a request with `X-SwasthyoID-CSRF: 1` (the web client sends it on every request) gets its refresh token only as
+  the cookie, never in the body. One cookie per kind of account (`sw_refresh_patient`, `sw_refresh_staff`), so a patient tab
+  and a doctor tab in one browser keep their own sessions. `POST /auth/refresh` without a body token reads the cookie and
+  needs the header (403 `csrf_required` otherwise); a refused cookie is deleted. Logout and logout-all delete it. Clients
+  that send a body token (tests, future apps) work as before.
+- Web (`session.tsx`): the device id is kept in `localStorage` (not secret; it ties the cookie to the browser). A 401 renews
+  once and resends the request; renewals are shared within a tab and serialized across tabs with
+  `navigator.locks` (a refresh token works once; two tabs sending the same one would look like theft and end the session).
+  After a reload, a protected page first tries the cookie for its kind of account and shows "Loading" meanwhile. The
+  screen also signs out after the same idle times without pointer, key, touch or scroll input. Sign-out sets a local flag so
+  a reload does not restore a session whose cookie the server could not clear (offline sign-out); signing in clears it.
+- Known limits: on screen, input without requests counts as activity but not on the server, so a user typing a long form
+  for over the limit is signed out at the next request. The doctor's QR waiting screen polls, which keeps that session
+  active while it is open. One database write per authenticated request (`shortcut:` comment in `sessions.touch`).
