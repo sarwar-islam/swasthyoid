@@ -2738,3 +2738,45 @@ one 201 (version 2, unit `mg/dL` kept), a second correction 409 `already_correct
 the UI 201; vitals and inbox in Bangla at 375 px and desktop, 0 axe violations. Not checked live: a flagged or critical
 reading (it needs approved rules; no synthetic rule was approved in the dev database). Side effects in
 `swasthyoid_dev`: four readings (two of them corrections).
+
+## W1 landing page and W2 logout (owner approval 2026-11-17, `docs/NEXT_PLAN.md`)
+
+New work outside the FRD roadmap, approved by the owner ("Landing page + logout"). P8 is not started.
+
+**W1 landing page.** `/` is now a visitor page; the developer portal list moved to `/portals` (linked in the footer).
+Order: header (language, theme, sign in) → 999 bar → headline, "Get started" (patient sign-in, which also registers a new
+phone) and "Are you a doctor?" → prototype notice → how it works (3 steps) → what you can do (timeline, consent,
+vitals, caregiver; reminders and triage are left out until P8) → "your data, your decision" → for doctors (sign in or
+register; BMDC check) → footer with staff sign-in (verifier, reviewer and admin; no sign-up for those) and a note that the
+privacy policy and terms come after legal review. Every sentence describes what the code does today. When M10's flag is
+on, the consent promise names the emergency-card exception. No numbers, badges, logos or medical claims; no FAQ (its
+answers are the owner's, S9). The headline and copy are drafts for the owner and the Bangla review.
+
+**W2 logout.**
+- `POST /auth/logout` revokes this device's refresh tokens; `POST /auth/logout-all` revokes every session of the
+  account. Both need a live session, answer 204, and audit `auth.logout` / `auth.logout_all`.
+- Every authenticated request now also checks that the device's session is live (an unrevoked, unexpired refresh token
+  for that account and device, `identity.sessions.is_live`). So a logged-out, suspended or reuse-detected session's access
+  token stops at once instead of after up to 15 minutes; refused tokens are audited `auth.token_rejected` /
+  `session_ended`. Cost: one query per request, on a new partial index `refresh_tokens_live (subject_id, device_id)
+  WHERE revoked_at IS NULL` (migration: `identity/schema.sql`, created on API start).
+- Web: "Sign out" calls the server first and drops the token even if the call fails; "Sign out on all devices" is on the
+  patient's More page with an explanation. The mock follows the server.
+- Not done (owner decision S8 pending): keeping the session after a page reload, token refresh in the web, an idle
+  timeout, a list of signed-in devices.
+
+**Routes.** Server 70, mock 72, both 68, mock-only 4, server-only 2.
+
+**Verification.** Backend: `test_api_w2` 4 new tests; with `test_api_m1` and `test_identity`, 35 passed. Full backend
+run (25 min): **1675 passed, 20 skipped, 1 failed**: `test_extraction_recovery.py::
+test_heartbeat_keeps_a_long_job_and_nobody_else_can_take_it` (the document was still `extracting` when the test expected
+`needs_review`). It also fails on the committed code with the W1/W2 changes stashed, and it passed in the P6 full run the
+same day, so it is not caused by this work; it is timing-based (4-second fake engine, 0.4-second polls) and the dev API
+and two web servers were running on the machine. Not fixed here; CI will show whether it is flaky. The partial index was
+added after the full run started; `test_api_w2`, `test_api_m1`, `test_identity` and route reconciliation were rerun with
+it: passed. Web: 210 passed (8 new: landing in both languages with axe, the M10 wording, `/portals`, sign out,
+sign out everywhere in both languages, sign out while the server is unreachable), type check clean. Browser pane (mock):
+landing in Bangla and English at 375 px and desktop, 0 axe violations, no horizontal scroll; the step and feature lists
+first spread icon and text apart, fixed with an `icon-line` style; "Get started" → sign in → More → sign out on all
+devices → back to sign-in. Live (`swasthyoid_dev`, API restarted): a token worked (200), logout 204, the same token 401,
+its refresh token 401. Copy list: 747 strings.

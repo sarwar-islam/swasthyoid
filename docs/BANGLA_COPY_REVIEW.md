@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (715 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (747 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (715 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (29) · [`more`](#more) (19) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -61,7 +61,7 @@ Generated from `web/src/i18n/strings.ts` (715 strings). Do not edit the strings 
 | Key | Bangla | English (source meaning) | Review |
 |---|---|---|---|
 | `portal.choose` | পোর্টাল বেছে নিন | Choose a portal |  |
-| `portal.devNote` | ডেভেলপমেন্ট পাতা। লগইন পরের ধাপে আসবে। | Development page. Sign-in arrives in F1. |  |
+| `portal.devNote` | ডেভেলপমেন্ট পাতা: সব পোর্টালের লগইন এক জায়গায়। | Development page: every portal's sign-in in one place. |  |
 | `portal.patient` | রোগী | Patient |  |
 | `portal.patient.desc` | নথি, টাইমলাইন, সম্মতি, ভাইটালস | Documents, timeline, consent, vitals |  |
 | `portal.doctor` | ডাক্তার | Doctor |  |
@@ -70,6 +70,64 @@ Generated from `web/src/i18n/strings.ts` (715 strings). Do not edit the strings 
 | `portal.verifier.desc` | রোগীর উপস্থিতিতে নথি তোলা ও যাচাই | Capture and verify with the patient present |  |
 | `portal.console` | রিভিউয়ার ও অ্যাডমিন | Reviewer and admin |  |
 | `portal.console.desc` | অনুমোদন, নিয়ম, অডিট | Approvals, rules, audit |  |
+
+## land
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `land.hero` | আপনার প্রেসক্রিপশন আর রিপোর্ট, এক জায়গায়, আপনার নিয়ন্ত্রণে | Your prescriptions and reports, in one place, under your control |  |
+| `land.lead` | কাগজের প্রেসক্রিপশন ও রিপোর্টের ছবি তুলুন। যাচাইয়ের পর সেগুলো আপনার টাইমলাইনে থাকে, আর আপনি অনুমতি দিলে তবেই ডাক্তার দেখতে পান। | Take photos of your paper prescriptions and reports. Once checked, they stay on your timeline, and a doctor sees them only when you allow it. |  |
+| `land.start` | শুরু করুন | Get started |  |
+| `land.login` | লগইন | Sign in |  |
+| `land.areDoctor` | আপনি কি ডাক্তার? | Are you a doctor? |  |
+| `land.how` | কীভাবে কাজ করে | How it works |  |
+| `land.step1` | প্রেসক্রিপশন বা রিপোর্টের ছবি তুলুন। | Take a photo of a prescription or report. |  |
+| `land.step2` | একজন মানুষ লেখাগুলো মিলিয়ে দেখেন। যাচাই ছাড়া কিছুই টাইমলাইনে যায় না। | A person checks what was read. Nothing reaches your timeline unchecked. |  |
+| `land.step3` | আপনি কোড বা QR দিয়ে অনুমতি দিলে ডাক্তার আপনার সারাংশ দেখেন। | When you allow it with a code or QR, the doctor sees your summary. |  |
+| `land.can` | আপনি যা করতে পারবেন | What you can do |  |
+| `land.can.timeline` | সব প্রেসক্রিপশন ও রিপোর্ট তারিখ অনুযায়ী এক টাইমলাইনে। | Every prescription and report on one timeline, by date. |  |
+| `land.can.consent` | কে দেখতে পারবে আপনি ঠিক করেন, যেকোনো সময় বাতিল করেন। | You decide who can see it, and you can take that back any time. |  |
+| `land.can.vitals` | বাসায় মাপা রক্তচাপ ও রক্তে শর্করা লিখে রাখুন। | Keep the blood pressure and blood glucose you measure at home. |  |
+| `land.can.care` | পরিবারের কাউকে আপনার হয়ে নথি তুলতে দিন। | Let a family member upload documents for you. |  |
+| `land.yours` | আপনার তথ্য, আপনার সিদ্ধান্ত | Your data, your decision |  |
+| `land.yours.consent` | আপনার কোড বা QR ছাড়া কোনো ডাক্তার আপনার রেকর্ড দেখতে পারেন না। | No doctor can see your record without your code or QR. |  |
+| `land.yours.consentEmergency` | আপনার কোড বা QR ছাড়া কোনো ডাক্তার আপনার রেকর্ড দেখতে পারেন না। জরুরি অবস্থায় শুধু আপনার তৈরি জরুরি কার্ডটি দেখা যেতে পারে, আর আপনাকে জানানো হয়। | No doctor can see your record without your code or QR. In an emergency, only the emergency card you set up may be seen, and you are told. |  |
+| `land.yours.revoke` | যেকোনো সময় অনুমতি বাতিল করতে পারেন। | You can take back a permission any time. |  |
+| `land.yours.history` | কে কখন আপনার রেকর্ড দেখেছে, আপনি দেখতে পান। | You can see who looked at your record, and when. |  |
+| `land.yours.reported` | নিজে মাপা রিডিং সবসময় ‘রোগীর নিজের দেওয়া’ হিসেবে দেখায়। | Readings you measure yourself always show as patient-reported. |  |
+| `land.doctors` | ডাক্তারদের জন্য | For doctors |  |
+| `land.doctors.text` | BMDC যাচাইয়ের পর, রোগীর অনুমতিতে তাঁর টাইমলাইন ও সারাংশ দেখুন। সারাংশের প্রতিটি বাক্যের উৎস দেখা যায়। | Once your BMDC registration is checked, see a patient's timeline and summary with their permission. Every summary sentence shows where it came from. |  |
+| `land.doctors.go` | ডাক্তার হিসেবে লগইন বা নিবন্ধন | Sign in or register as a doctor |  |
+| `land.prototype` | এটি একটি প্রোটোটাইপ। এখানে শুধু সিনথেটিক (বানানো) তথ্য দিন। এটি রোগনির্ণয় বা চিকিৎসা পরামর্শ নয়। | This is a prototype. Enter synthetic (made-up) data only. It is not a diagnosis or medical advice. |  |
+| `land.staff` | কর্মীদের লগইন | Staff sign-in |  |
+| `land.staff.verifier` | যাচাইকারী / স্বাস্থ্যকর্মী | Verifier / health worker |  |
+| `land.staff.console` | রিভিউয়ার ও অ্যাডমিন | Reviewer and admin |  |
+| `land.policy` | গোপনীয়তা নীতি ও ব্যবহারের শর্ত আইনি পর্যালোচনার পর যোগ হবে। | The privacy policy and terms of use will be added after legal review. |  |
+| `land.dev` | সব পোর্টাল (ডেভেলপমেন্ট) | All portals (development) |  |
+
+## more
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `more.account` | অ্যাকাউন্ট | Account |  |
+| `more.signOutAll` | সব ডিভাইস থেকে লগআউট | Sign out on all devices |  |
+| `more.signOutAll.desc` | ফোন হারালে বা অন্যের ডিভাইসে লগইন থেকে গেলে এটি চাপুন। সব জায়গা থেকে লগআউট হবে, আবার কোড দিয়ে ঢুকতে হবে। | Use this if you lost your phone or stayed signed in on someone else's device. You'll be signed out everywhere and need a code to sign in again. |  |
+| `more.title` | আরও | More |  |
+| `more.vitals` | হোম ভাইটালস | Home vitals |  |
+| `more.vitals.desc` | নিজে মাপা রক্তচাপ ও শর্করা লিখুন | Log your own blood pressure and glucose |  |
+| `more.reminders` | রিমাইন্ডার | Reminders |  |
+| `more.reminders.desc` | ওষুধ ও ফলো-আপ মনে করানো | Medicine and follow-up reminders |  |
+| `more.help` | অসুস্থ বোধ করছেন? | Feeling unwell? |  |
+| `more.help.desc` | কোন বিভাগে যাবেন, সেই নির্দেশনা | Guidance on which department to see |  |
+| `more.firstAid` | প্রাথমিক চিকিৎসা | First aid |  |
+| `more.firstAid.desc` | প্রাথমিক চিকিৎসার কার্ড | First-aid cards |  |
+| `more.emergency` | জরুরি কার্ড | Emergency card |  |
+| `more.emergency.desc` | ৯৯৯ ও জরুরি বার্তা | 999 and the emergency message |  |
+| `more.profile` | জরুরি প্রোফাইল | Emergency profile |  |
+| `more.profile.desc` | জরুরি অবস্থায় কী দেখা যাবে, তা বেছে নিন | Choose what an emergency doctor can see |  |
+| `more.care` | যাঁদের দেখাশোনা করি | People I care for |  |
+| `more.care.desc` | অনুমতি নিয়ে অন্য রোগীর নথি ও টাইমলাইন | Another patient's documents and timeline, with their permission |  |
+| `more.inbox.desc` | সম্মতির অনুরোধ, পরিচর্যাকারী ও নিরাপত্তা বিজ্ঞপ্তি | Consent requests, caregivers and security notices |  |
 
 ## nav
 
@@ -411,27 +469,6 @@ Generated from `web/src/i18n/strings.ts` (715 strings). Do not edit the strings 
 | `history.allow` | অনুমতি পেয়েছেন | Allowed |  |
 | `history.deny` | আটকানো হয়েছে | Blocked |  |
 | `history.someone` | অজানা ব্যবহারকারী | Unknown user |  |
-
-## more
-
-| Key | Bangla | English (source meaning) | Review |
-|---|---|---|---|
-| `more.title` | আরও | More |  |
-| `more.vitals` | হোম ভাইটালস | Home vitals |  |
-| `more.vitals.desc` | নিজে মাপা রক্তচাপ ও শর্করা লিখুন | Log your own blood pressure and glucose |  |
-| `more.reminders` | রিমাইন্ডার | Reminders |  |
-| `more.reminders.desc` | ওষুধ ও ফলো-আপ মনে করানো | Medicine and follow-up reminders |  |
-| `more.help` | অসুস্থ বোধ করছেন? | Feeling unwell? |  |
-| `more.help.desc` | কোন বিভাগে যাবেন, সেই নির্দেশনা | Guidance on which department to see |  |
-| `more.firstAid` | প্রাথমিক চিকিৎসা | First aid |  |
-| `more.firstAid.desc` | প্রাথমিক চিকিৎসার কার্ড | First-aid cards |  |
-| `more.emergency` | জরুরি কার্ড | Emergency card |  |
-| `more.emergency.desc` | ৯৯৯ ও জরুরি বার্তা | 999 and the emergency message |  |
-| `more.profile` | জরুরি প্রোফাইল | Emergency profile |  |
-| `more.profile.desc` | জরুরি অবস্থায় কী দেখা যাবে, তা বেছে নিন | Choose what an emergency doctor can see |  |
-| `more.care` | যাঁদের দেখাশোনা করি | People I care for |  |
-| `more.care.desc` | অনুমতি নিয়ে অন্য রোগীর নথি ও টাইমলাইন | Another patient's documents and timeline, with their permission |  |
-| `more.inbox.desc` | সম্মতির অনুরোধ, পরিচর্যাকারী ও নিরাপত্তা বিজ্ঞপ্তি | Consent requests, caregivers and security notices |  |
 
 ## reviewer
 
