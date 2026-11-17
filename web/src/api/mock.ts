@@ -98,7 +98,8 @@ function prescriptionFields(): ExtractionResponse["extraction"] {
 function createState() {
   const now = Date.now();
   const iso = (offsetHours: number) => new Date(now + offsetHours * 3600_000).toISOString();
-  const me: Me = { id: MOCK_PATIENT_ID, health_id: "SID-4827190356", name: "সিনথেটিক রোগী", language: "bn", cloud_ai_opt_in: false };
+  const me: Me = { id: MOCK_PATIENT_ID, health_id: "SID-4827190356", name: "সিনথেটিক রোগী", language: "bn", cloud_ai_opt_in: false,
+                dob: "1990-01-01", sex: "F", phone_tail: MOCK_PHONE.slice(-4), created_at: "2026-11-01T09:00:00Z" };
   const consents: Consent[] = [
     { id: "c-active", grantee_id: DOCTOR_ID, grantee_role: "doctor", purpose: "TIMELINE", allowed_categories: ["timeline", "documents", "safety"],
       status: "active", activated_at: iso(-2), expires_at: iso(22), created_at: iso(-2), grantee_name: "ডা. সিনথেটিক চিকিৎসক",

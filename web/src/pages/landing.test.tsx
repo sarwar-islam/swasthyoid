@@ -24,7 +24,7 @@ describe("W1 landing page", () => {
       const h1 = screen.getByRole("heading", { level: 1 });
       expect(h1.textContent).toBe(lang === "en" ? "Your prescriptions and reports, in one place, under your control"
         : "আপনার প্রেসক্রিপশন আর রিপোর্ট, এক জায়গায়, আপনার নিয়ন্ত্রণে");
-      expect(screen.getByRole("link", { name: lang === "en" ? "Get started" : "শুরু করুন" }).getAttribute("href")).toBe("/patient/login");
+      expect(screen.getByRole("link", { name: lang === "en" ? "Create patient account" : "রোগী অ্যাকাউন্ট খুলুন" }).getAttribute("href")).toBe("/patient/login");
       expect(screen.getByRole("link", { name: lang === "en" ? "Sign in" : "লগইন" }).getAttribute("href")).toBe("/patient/login");
       expect(screen.getByRole("link", { name: lang === "en" ? "Sign in or register as a doctor" : "ডাক্তার হিসেবে লগইন বা নিবন্ধন" })
         .getAttribute("href")).toBe("/doctor/login");

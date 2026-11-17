@@ -22,6 +22,10 @@ export function Landing() {
     <div className="shell landing" data-portal="patient">
       <header className="topbar">
         <span className="brand"><HeartPulse size={22} aria-hidden="true" />{t("app.name")}</span>
+        <nav aria-label={t("land.nav")} className="land-nav">
+          <a href="#how">{t("land.how")}</a> <a href="#can">{t("land.forPatients")}</a>{" "}
+          <a href="#doctors">{t("land.doctors")}</a> <a href="#yours">{t("land.privacy")}</a>
+        </nav>
         <div className="controls">
           <LanguageToggle /><ThemeSelect />
           <Link className="btn" to="/patient/login">{t("land.login")}</Link>
@@ -35,7 +39,7 @@ export function Landing() {
           <h1 id="hero">{t("land.hero")}</h1>
           <p>{t("land.lead")}</p>
           <div className="actions">
-            <Link className="btn btn-primary" to="/patient/login">{t("land.start")}</Link>
+            <Link className="btn btn-primary" to="/patient/login">{t("land.create")}</Link>
             <a href="#doctors">{t("land.areDoctor")}</a>
           </div>
           <p className="notice">{t("land.prototype")}</p>
@@ -48,15 +52,15 @@ export function Landing() {
           </ol>
         </section>
 
-        <section className="section" aria-labelledby="can">
-          <h2 id="can">{t("land.can")}</h2>
+        <section id="can" className="section" aria-labelledby="can-title">
+          <h2 id="can-title">{t("land.can")}</h2>
           <ul className="list">
             {CAN.map(({ text, icon: Icon }) => <li key={text} className="card icon-line"><Icon size={24} aria-hidden="true" /><span>{t(text)}</span></li>)}
           </ul>
         </section>
 
-        <section className="section card" aria-labelledby="yours">
-          <h2 id="yours"><FileCheck2 size={22} aria-hidden="true" /> {t("land.yours")}</h2>
+        <section id="yours" className="section card" aria-labelledby="yours-title">
+          <h2 id="yours-title"><FileCheck2 size={22} aria-hidden="true" /> {t("land.yours")}</h2>
           <ul>
             {/* M10 shares the minimal card without a code, so the promise changes when its flag is on */}
             <li>{t(flags.emergencyAccess ? "land.yours.consentEmergency" : "land.yours.consent")}</li>
@@ -69,7 +73,11 @@ export function Landing() {
         <section id="doctors" className="section card" aria-labelledby="doctors-title">
           <h2 id="doctors-title"><Stethoscope size={22} aria-hidden="true" /> {t("land.doctors")}</h2>
           <p>{t("land.doctors.text")}</p>
-          <Link className="btn" to="/doctor/login">{t("land.doctors.go")}</Link>
+          <div className="actions">
+            {/* a new doctor signs in with the phone, then submits the BMDC number for an admin to approve */}
+            <Link className="btn btn-primary" to="/doctor/login">{t("land.doctors.apply")}</Link>
+            <Link to="/doctor/login">{t("land.doctors.go")}</Link>
+          </div>
         </section>
       </main>
       <footer className="content muted">

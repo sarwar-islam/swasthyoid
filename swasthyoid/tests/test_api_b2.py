@@ -48,6 +48,9 @@ def test_me_for_the_patient_and_every_staff_role(api, cast):
     me = api.http.get(f"{V1}/me", headers=cast.patient).json()
     assert me["health_id"] == cast.health_id and me["name"] == PROFILE["name"]
     assert (me["language"], me["cloud_ai_opt_in"]) == ("bn", False)
+    # UX-1 profile: date of birth, sex, account date, and only the last four digits of the phone
+    assert (me["dob"], me["sex"], me["phone_tail"]) == (PROFILE["dob"], PROFILE["sex"], PATIENT[-4:]) and me["created_at"]
+    assert PATIENT not in str(me)
     doctor = api.http.get(f"{V1}/me", headers=cast.doctor).json()
     assert (doctor["role"], doctor["status"]) == ("doctor", "verified")
     assert doctor["credential"] == {"id": doctor["credential"]["id"], "type": "BMDC", "number": "SYNTH-BMDC-0001",

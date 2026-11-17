@@ -457,9 +457,12 @@ def me(conn=Depends(get_conn),
        a: Actor = Depends(require("patient", "doctor", "verifier", "clinical_reviewer", "admin", verified=False))):
     if a.role == "patient":
         p = conn.cursor(row_factory=dict_row).execute(
-            "SELECT id, health_id, name_enc, language, cloud_ai_opt_in FROM patients WHERE id = %s", [a.id]).fetchone()
+            "SELECT id, health_id, name_enc, phone_enc, dob, sex, language, cloud_ai_opt_in, created_at FROM patients WHERE id = %s",
+            [a.id]).fetchone()
+        # UX-1 profile: the phone leaves the server only as its last four digits
         return {"id": p["id"], "health_id": p["health_id"], "name": pii.decrypt(p["name_enc"]), "language": p["language"],
-                "cloud_ai_opt_in": p["cloud_ai_opt_in"]}
+                "cloud_ai_opt_in": p["cloud_ai_opt_in"], "dob": p["dob"], "sex": p["sex"],
+                "phone_tail": pii.decrypt(p["phone_enc"])[-4:], "created_at": p["created_at"]}
     u = conn.cursor(row_factory=dict_row).execute(
         "SELECT id, role, name, status, emergency_enabled FROM users WHERE id = %s", [a.id]).fetchone()
     cred = accounts.current_credential(conn, a.id)

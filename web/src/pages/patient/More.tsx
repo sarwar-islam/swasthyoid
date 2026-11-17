@@ -1,4 +1,4 @@
-import { AlarmClock, Bell, BriefcaseMedical, HeartHandshake, HeartPulse, IdCard, LifeBuoy, Siren, type LucideIcon } from "lucide-react";
+import { AlarmClock, Bell, BriefcaseMedical, FileText, HeartHandshake, HeartPulse, IdCard, LifeBuoy, Siren, UserRound, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { ErrorNote } from "../../components/ui";
@@ -8,6 +8,8 @@ import type { Key } from "../../i18n/strings";
 import { useSession } from "../../session";
 
 const TILES: Array<{ to: string; title: Key; desc: Key; icon: LucideIcon; flag?: keyof typeof flags }> = [
+  { to: "/patient/profile", title: "me.title", desc: "me.desc", icon: UserRound },
+  { to: "/patient/records", title: "records.title", desc: "records.desc", icon: FileText },
   { to: "/patient/inbox", title: "nav.inbox", desc: "more.inbox.desc", icon: Bell },
   { to: "/patient/vitals", title: "more.vitals", desc: "more.vitals.desc", icon: HeartPulse },
   { to: "/patient/reminders", title: "more.reminders", desc: "more.reminders.desc", icon: AlarmClock },

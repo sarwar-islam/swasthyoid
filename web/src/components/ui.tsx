@@ -15,14 +15,26 @@ export function useErrorText() {
   };
 }
 
-export function ErrorNote({ error }: { error: unknown }) {
+/** An error in words; with `onRetry`, a button to try the same request again. */
+export function ErrorNote({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const text = useErrorText();
-  return error ? <p className="error-note" role="alert"><AlertTriangle size={18} aria-hidden="true" />{text(error)}</p> : null;
+  const { t } = useI18n();
+  return error ? (
+    <p className="error-note" role="alert"><AlertTriangle size={18} aria-hidden="true" />{text(error)}
+      {onRetry && <button type="button" className="btn-link" onClick={onRetry}>{t("common.retry")}</button>}</p>
+  ) : null;
 }
 
-export function Loading() {
+/** Loading: the words for screen readers; with `lines`, grey placeholder blocks the shape of what is coming. */
+export function Loading({ lines = 0 }: { lines?: number }) {
   const { t } = useI18n();
-  return <p role="status" className="muted">{t("common.loading")}</p>;
+  if (!lines) return <p role="status" className="muted">{t("common.loading")}</p>;
+  return (
+    <div role="status" className="skeleton">
+      <span className="sr-only">{t("common.loading")}</span>
+      {Array.from({ length: lines }, (_, i) => <div key={i} className="skeleton-line" aria-hidden="true" />)}
+    </div>
+  );
 }
 
 /** Only the two provenances the timeline has (owner decision 2026-11-15): icon + words + style, never colour alone. */

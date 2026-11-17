@@ -46,6 +46,10 @@ export interface Me {
   name: string;
   language: "bn" | "en";
   cloud_ai_opt_in: boolean;
+  dob: string; // YYYY-MM-DD
+  sex: string;
+  phone_tail: string; // the last four digits only (UX-1)
+  created_at: string;
 }
 
 // ---- C1 consent (M1 Consent Center)

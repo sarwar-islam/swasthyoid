@@ -1,5 +1,5 @@
 import { HeartPulse } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import { apiMode } from "../../api";
@@ -11,6 +11,15 @@ import { localDigits, toAsciiDigits, useI18n } from "../../i18n/i18n";
 import { useSession } from "../../session";
 
 type Step = "phone" | "code" | "profile";
+
+// the server's code lifetime (identity/otp.py CODE_TTL); the server alone decides, this only tells the user how long is left
+const CODE_TTL_S = 5 * 60;
+
+/** "01700000101" -> "•••••••0101": enough to recognise the number on a shared screen. */
+export const maskPhone = (phone: string): string => {
+  const digits = toAsciiDigits(phone).replace(/\D/g, "");
+  return digits.length > 4 ? "•".repeat(digits.length - 4) + digits.slice(-4) : digits;
+};
 
 /** M1: phone OTP sign-in for the patient app, or for staff (`account: "staff"`): the doctor portal, the verifier/CHW app and the
  * reviewer/admin console. A new user's first verify answers 409 registration_required; the code is spent, so the profile is
@@ -29,6 +38,16 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
   const [draft, setDraft] = useState<PatientProfile>({ name: "", dob: "", sex: "F", language: lang });
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [sentAt, setSentAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const [resent, setResent] = useState(false);
+  useEffect(() => {
+    if (step !== "code") return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [step]);
+  const left = Math.max(0, CODE_TTL_S - Math.floor((now - sentAt) / 1000));
+  const clock = localDigits(`${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`, lang);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -42,7 +61,18 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
     }
   }
 
-  const sendCode = () => api.request("POST", "/auth/otp/request", { body: { phone: toAsciiDigits(phone.trim()) } });
+  const sendCode = async () => {
+    await api.request("POST", "/auth/otp/request", { body: { phone: toAsciiDigits(phone.trim()) } });
+    setSentAt(Date.now());
+    setNow(Date.now());
+  };
+  // a new code replaces the old one; the server counts requests (5 in 15 minutes) and says so when there are too many
+  const onResend = () => run(async () => {
+    setResent(false);
+    await sendCode();
+    setCode("");
+    setResent(true);
+  });
 
   const onPhone = (e: FormEvent) => {
     e.preventDefault();
@@ -117,6 +147,11 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
 
         {step === "code" && (
           <form onSubmit={onCode} noValidate>
+            <p>{t("login.sentTo")} <bdi className="mono" lang="en">{maskPhone(phone)}</bdi></p>
+            {resent && <p className="notice" role="status">{t("login.resent")}</p>}
+            {left > 0
+              ? <p className="muted" aria-live="off">{t("login.expiresIn", { time: clock })}</p>
+              : <p className="notice" role="status">{t("login.codeExpired")}</p>}
             <div className="field">
               <label htmlFor="code">{t("login.code")}</label>
               {/* paste allowed and autofill from SMS (WCAG 3.3.8, accessible authentication) */}
@@ -125,8 +160,9 @@ export function Login({ portal = "patient" }: { portal?: "patient" | "doctor" | 
               <span id="code-hint" className="hint">{t("login.codeHint")}</span>
             </div>
             <div className="actions">
-              <button type="submit" className="btn-primary" disabled={busy || !code.trim()}>{t("login.verify")}</button>
-              <button type="button" onClick={() => { setStep("phone"); setCode(""); setProfile(null); }}>{t("login.changePhone")}</button>
+              <button type="submit" className="btn-primary" disabled={busy || !code.trim() || left === 0}>{t("login.verify")}</button>
+              <button type="button" disabled={busy} onClick={onResend}>{t("login.resend")}</button>
+              <button type="button" onClick={() => { setStep("phone"); setCode(""); setProfile(null); setResent(false); }}>{t("login.changePhone")}</button>
             </div>
           </form>
         )}

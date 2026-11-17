@@ -22,6 +22,7 @@ import { Home } from "./pages/patient/Home";
 import { EmergencyProfile } from "./pages/patient/EmergencyProfile";
 import { Login } from "./pages/patient/Login";
 import { More } from "./pages/patient/More";
+import { Profile, Records } from "./pages/patient/Profile";
 import { Reminders } from "./pages/patient/Reminders";
 import { Timeline } from "./pages/patient/Timeline";
 import { EmergencyPage, FirstAid, Triage } from "./pages/patient/Triage";
@@ -83,6 +84,8 @@ export function AppRoutes() {
           {pages(PATIENT_NAV, "/patient")}
           <Route path="documents/:id" element={<DocumentPage />} />
           <Route path="inbox" element={<Inbox />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="records" element={<Records />} />
           <Route path="consent/qr/:ref" element={<QrConsentPage />} />
           <Route path="vitals" element={<Vitals />} />
           <Route path="reminders" element={<Reminders />} />
