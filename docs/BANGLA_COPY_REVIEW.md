@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (756 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (759 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (756 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (29) · [`more`](#more) (19) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (29) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -112,6 +112,9 @@ Generated from `web/src/i18n/strings.ts` (756 strings). Do not edit the strings 
 | `more.account` | অ্যাকাউন্ট | Account |  |
 | `more.signOutAll` | সব ডিভাইস থেকে লগআউট | Sign out on all devices |  |
 | `more.signOutAll.desc` | ফোন হারালে বা অন্যের ডিভাইসে লগইন থেকে গেলে এটি চাপুন। সব জায়গা থেকে লগআউট হবে, আবার কোড দিয়ে ঢুকতে হবে। | Use this if you lost your phone or stayed signed in on someone else's device. You'll be signed out everywhere and need a code to sign in again. |  |
+| `more.export` | আমার তথ্য ডাউনলোড | Download my data |  |
+| `more.export.desc` | আপনার টাইমলাইন, সম্মতি, কে কখন তথ্য দেখেছেন এবং নিজে লেখা ভাইটালস (আলাদা অংশে) একটি JSON ফাইলে। নথির ছবি এখনো এতে নেই। ফাইলটি নিরাপদে রাখুন। | Your timeline, consents, who viewed your record and when, and the vitals you entered yourself (in a separate part), as one JSON file. Document photos are not included yet. Keep the file safe. |  |
+| `more.export.done` | ফাইল ডাউনলোড হয়েছে। | File downloaded. |  |
 | `more.title` | আরও | More |  |
 | `more.vitals` | হোম ভাইটালস | Home vitals |  |
 | `more.vitals.desc` | নিজে মাপা রক্তচাপ ও শর্করা লিখুন | Log your own blood pressure and glucose |  |

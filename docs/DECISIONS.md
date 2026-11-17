@@ -2818,3 +2818,24 @@ someone else's or a verified credential is 404; audited `credential.document.upl
 `POST /credentials` (a client could have pointed the admin view at any storage key). `GET /me` and the admin list say
 `has_document`; `/me` also gives the credential's `id`. Web: the doctor's registration page has the upload (JPEG/PNG,
 explained); the admin's approval list has "Show certificate photo" on pending credentials.
+
+**W2c export.** `GET /me/export`, patients only, audited `patient.export` before anything is read. One JSON file: profile,
+timeline events (home readings left out of them), `patient_reported.vitals` (all of them, corrections included, no list
+limit), consents, access history, and `not_included: ["document_images"]`. No raw M6 alerts. `Cache-Control: no-store` and
+an attachment name. Web: "Download my data" on the patient's More page, explained; the file is saved by the browser and
+nothing is kept in browser storage. Deletion still waits for S4.
+
+**Routes.** Server 72, mock 76, both 72, mock-only 4, server-only 0 (refresh and the credential document are on the mock
+now).
+
+**Verification.** Backend: `test_api_w2` 16 tests (12 new: cookie only for the web, CSRF header, logout clears the cookie,
+separate patient/staff cookies, 30/15-minute idle with refresh not counting, credential photo stripped of metadata,
+JPEG/PNG only, owner and pending only, no client `doc_key`, export contents and access). Full backend run (22 min):
+**1688 passed, 20 skipped, 0 failed**, including `test_extraction_recovery.py`. Web: 225 passed (15 new: renewal after a
+401, restore after reload in both languages with axe, staff and patient cookies kept apart, one renewal under the
+cross-tab lock, no restore after sign-out, idle sign-out at 30 and 15 minutes, credential photo in both languages with
+axe, PDF refused, admin view, export in both languages with axe), type check clean. Browser pane (mock): export at 375 px
+in Bangla, doctor upload at 375 px, admin view at 1280 px in English; 0 axe violations with colour contrast on, no horizontal
+scroll. Live (`swasthyoid_dev` through the Vite proxy): sign-in body held only `access_token`, `document.cookie` empty,
+reload restored the session (one refresh, 200), logout 204, and the old cookie was then refused (401). Copy list: 759
+strings.
