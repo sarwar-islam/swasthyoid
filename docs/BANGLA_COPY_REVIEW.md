@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (709 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (715 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (709 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (60) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (32) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (39) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (11) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`nav`](#nav) (18) · [`common`](#common) (8) · [`err`](#err) (62) · [`login`](#login) (18) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (17) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`more`](#more) (16) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (6) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (14) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -130,6 +130,8 @@ Generated from `web/src/i18n/strings.ts` (709 strings). Do not edit the strings 
 | `err.not_active` | এই অনুমতি এখন আর চালু নেই। রোগীর কাছে আবার অনুমতি চান। | This permission is no longer active. Ask the patient again. |  |
 | `err.confirmation_required` | এই মানটি অস্বাভাবিক দেখাচ্ছে। নিশ্চিত করুন। | This value looks unusual. Confirm it. |  |
 | `err.invalid_reading` | মান ও একক আবার দেখুন। | Check the value and the unit. |  |
+| `err.reading_id_conflict` | এই রিডিংটি আগে অন্য মান দিয়ে সংরক্ষিত হয়েছে। পাতাটি আবার খুলুন। | This reading was already saved with different values. Reload the page. |  |
+| `err.already_corrected` | এই রিডিং আগেই সংশোধন করা হয়েছে। সর্বশেষটি সংশোধন করুন। | This reading was already corrected. Correct the newest one. |  |
 | `err.invalid_contact` | প্রত্যেকের নাম ও সঠিক ফোন নম্বর দিন। | Give each person a name and a valid phone number. |  |
 | `err.user_not_verified` | আপনার নিবন্ধন যাচাই হয়নি। | Your registration isn't verified. |  |
 | `err.patient_not_found` | এই Health ID-তে কোনো রোগী নেই। | No patient has this Health ID. |  |
@@ -465,7 +467,9 @@ Generated from `web/src/i18n/strings.ts` (709 strings). Do not edit the strings 
 | `vitals.confirmYes` | হ্যাঁ, মানটি ঠিক আছে | Yes, the value is right |  |
 | `vitals.confirmFix` | ঠিক করি | Let me fix it |  |
 | `vitals.saved` | সংরক্ষিত হয়েছে। | Saved. |  |
-| `vitals.notEvaluated` | এই রিডিং দেখার অনুমোদিত নিয়ম এখনো নেই। কোনো উপসর্গ থাকলে ডাক্তারকে জানান। | There's no approved rule to check this reading yet. Tell a doctor about any symptoms. |  |
+| `vitals.notEvaluated` | এই রিডিংটি কোনো অনুমোদিত সীমার সাথে মেলানো হয়নি। কোনো উপসর্গ থাকলে ডাক্তারকে জানান। | This reading wasn't checked against an approved range. Tell a doctor about any symptoms. |  |
+| `vitals.reason` | সংশোধনের কারণ | Reason for the correction |  |
+| `vitals.correctedBecause` | সংশোধনের কারণ: {reason} | Corrected because: {reason} |  |
 | `vitals.within` | রিডিংটি নির্ধারিত সীমার মধ্যে। কোনো উপসর্গ থাকলে ডাক্তারকে জানান। | The reading is within the configured range. Tell a doctor about any symptoms. |  |
 | `vitals.flagged` | রিডিংটি নির্ধারিত সীমার বাইরে। | The reading is outside the configured range. |  |
 | `vitals.critical` | জরুরি সতর্কতা | Urgent alert |  |
@@ -798,6 +802,7 @@ Generated from `web/src/i18n/strings.ts` (709 strings). Do not edit the strings 
 | `rule.type.drug_disease` | ওষুধ ও রোগ | Drug-disease |  |
 | `rule.type.class_lookback` | সাম্প্রতিক একই শ্রেণির কোর্স | Recent same-class course |  |
 | `rule.type.vital_threshold` | ভাইটালের সীমা | Vital threshold |  |
+| `rule.type.vital_plausibility` | ভাইটালের সম্ভাব্য মান | Vital plausibility |  |
 | `rule.type.red_flag` | বিপদচিহ্ন | Red flag |  |
 | `rule.type.emergency_message` | জরুরি বার্তা | Emergency message |  |
 | `rule.status.draft` | খসড়া | Draft |  |
@@ -990,6 +995,7 @@ Generated from `web/src/i18n/strings.ts` (709 strings). Do not edit the strings 
 | `inbox.security` | নিরাপত্তা বিজ্ঞপ্তি। এটি বন্ধ করা যায় না। | Security notice. It can't be switched off. |  |
 | `inbox.answer` | সম্মতি পাতায় উত্তর দিন | Answer on the Consent page |  |
 | `inbox.history` | প্রবেশের ইতিহাস দেখুন | See access history |  |
+| `inbox.readings` | আপনার রিডিং দেখুন | See your readings |  |
 
 ## th
 

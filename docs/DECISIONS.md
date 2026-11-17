@@ -2638,3 +2638,103 @@ seeded patient SID-3950599369, signed in as the seeded doctor:
   names and doses keep their English digits. Not checked live: search in Bangla at 375 px (checked on the mock).
 - Side effects in `swasthyoid_dev`: one more verified prescription, two safety-check rows, three doctor consents.
   Input in the hidden browser pane was unreliable at the phone size; forms were filled at desktop size.
+
+**Correction (recorded with P6).** Point 5 above named the 7 mock-only routes wrongly. They were M13 vitals ×3
+(`GET /vitals`, `POST /vitals`, `POST /vitals/{id}/correct`), M7 triage ×2 and M8 reminders ×2. The counts were right.
+
+## P6 M13 home vitals (owner approval 2026-11-17)
+
+Approved with decisions V1–V6 and seven mandatory safeguards. **Technical completion only: nothing here is clinically
+validated and nothing is production-ready.** Every threshold number, plausibility limit, rule message and golden case
+stays REVIEWER-PENDING until FRD Q7 and Q13 are answered. The tests use SYNTHETIC rules and numbers to test the
+mechanics only.
+
+**Decisions as built.**
+- **V1 plausibility.** New rule type `vital_plausibility` (`{schema: 1, vital_type, unit, [component], at_least,
+  at_most}`), with no default limits and none seeded. Without an approved one the server checks only type, unit, context
+  and format (positive ASCII numbers; BP `n/n`; glucose up to 2 decimals; a time with a zone, at most 5 minutes in the
+  future, an engineering clock allowance). `confirmation_required` happens only when an approved plausibility rule finds
+  the value outside its range, or when an approved one does not fit its shape (fail closed).
+- **V2 units.** The existing web vocabulary: BP `mmHg` (contexts `home`, `resting`); glucose `mmol/L` or `mg/dL`
+  (contexts `fasting`, `post_meal`, `random`). The value is stored as entered, never converted. A rule applies only when
+  its unit is the reading's unit.
+- **V3 thresholds.** `vital_threshold` is now strict: `{schema: 1, vital_type, unit, [component: systolic|diastolic for
+  BP], contexts: [...], comparison: at_or_above|at_or_below, level: flagged|critical}`, with no number. The number is
+  the treating doctor's per-patient value from B6 (`PUT /patients/{id}/vital-thresholds`, keyed by `rule_id`). B6's
+  defaults stay null (REVIEWER-PENDING). A rule with no per-patient value does not apply; no applicable rule gives
+  `not_evaluated` (`no_applicable_threshold`), never `within_range`.
+- **V4 critical.** A fired rule's message is that approved rule version's own `explanation` (looked up at read time, no
+  copy stored). A critical result shows the escalation card with 999 and the emergency card. A rule that no longer fits
+  its shape gives `rule_load_error`; any failure in the check gives `evaluation_unavailable`; both are `not_evaluated`.
+  No clinical message or escalation rule was written.
+- **V5 access.** `/vitals` routes are patient-only (`require("patient")`). Doctors see readings only through the timeline
+  and summary under a `timeline` consent (P3). No caregiver access, no doctor alerts.
+- **V6 corrections.** A correction is a new reading (new event with `supersedes`), never an update.
+
+**Safeguards as built.**
+1. **Notices.** A flagged or critical reading queues one C3 notification (`VITAL_CRITICAL_PLACEHOLDER` or
+   `VITAL_FLAGGED_PLACEHOLDER`, payload `reading_id` and `rule_version_id`) in the same transaction as the reading. C3
+   retries with back-off, then marks it `fallback_in_app` and audits `notification.failure`; the reading is never lost.
+   A replay returns the saved result and queues nothing.
+2. **`not_evaluated` never notifies** (a CHECK constraint: a notification only with a flagged or critical level). There
+   is no quiet-hours bypass: no policy is approved.
+3. **Ownership.** The patient id comes from the token, not the request. Reading ids are scoped by patient, so another
+   patient's id is just "not found". Tested: doctor, verifier, clinical reviewer and admin refused (403); another
+   patient's reading id is a new id for them, and correcting it is 404; the doctor sees readings only with a timeline
+   consent. A caregiver signs in as their own patient account and reaches only their own readings.
+4. **Idempotency.** The app makes the reading id (UUID, kept across retries). Same id and same data (a SHA-256 of the
+   data, `confirmed` excluded): 200 with the saved result. Same id, other data: `409 reading_id_conflict`. Per-reading
+   advisory locks make concurrent retries safe.
+5. **Correction trail.** `POST /vitals/{id}/correct` needs a `reason` (`reason_required`, at most 500 characters). The
+   row keeps the original, `supersedes_reading_id`, reason, actor and time; audit `vitals.correct`. One correction per
+   reading (unique index; `409 already_corrected`): correct the newest version.
+6. **Never "safe".** `within_range` only when at least one approved rule applied with a value and none fired. The UI
+   never says "safe" (tested in both languages).
+7. **Synthetic only.** No clinical number, range or message in code, seed or mock.
+
+**Migrations** (applied by `db.init` on start, idempotent).
+- `swasthyoid/vitals/schema.sql` (new): `vital_readings` (primary key `patient_id, id`; event id unique; `request_hash`;
+  `supersedes_reading_id` with a same-patient foreign key; reason, actor, `confirmed`, `evaluation` jsonb, notification
+  id; CHECKs for the reason and for notices; append-only triggers for update, delete and truncate).
+- `swasthyoid/safety/schema.sql`: the `rules.rule_type` CHECK is dropped and re-added with `vital_plausibility`.
+- No data migration: existing `vital_threshold` drafts in the old loose shape keep their rows; if one were approved it
+  would be refused at draft time now, and an approved one already in a database blocks evaluation (`rule_load_error`)
+  until a reviewer replaces it.
+
+**Routes** (`docs/ROUTES.md`, regenerated). Before: server 65, mock 70, both 63, mock-only 7, server-only 2. After:
+server **68**, mock 70, both **66**, mock-only **4** (M7 triage ×2, M8 reminders ×2), server-only 2.
+
+**Other changes.** Inbox shows vital notices with the approved rule text and the emergency card link (critical only),
+and no "security notice" line. The summary's patient-reported line for a reading is value, unit, context. The vitals page
+sends the reading id, asks for a reason when correcting, shows the reason and the chain, and shows values as entered
+(their own digits in the Bangla UI). The mock now follows the server: no 180/120 trigger and no plausibility numbers.
+
+**Limitations.**
+- No evaluation without a doctor's per-patient value; in practice everything is `not_evaluated` until a reviewer
+  approves threshold rules and a doctor sets values.
+- No device import, no trends, no doctor alert, no caregiver entry.
+- `GET /vitals` returns at most 500 readings, newest first, with no paging.
+- The rule message is the reviewer's explanation text; there is no separate patient-facing message field.
+- A notice whose rule version is later rejected still shows that version's text (it is the text that was approved when
+  the reading was checked).
+
+**Outstanding reviewer decisions.** Q7 and Q13: threshold rules and numbers, plausibility limits, rule and notice copy,
+the critical escalation wording, quiet hours, golden cases. Whether doctors should be alerted (V5 says no for now).
+
+**Process notes.** `test_route_reconciliation.py` (twice) and `api/vitals.py` were written with PowerShell
+`WriteAllText` instead of the Edit tool; LF endings kept.
+
+**Verification.** Backend P6: `test_api_p6` 41 passed; B5, B6 and P3 M5 suites 62 passed; route reconciliation and lint
+6 passed. Full backend run, local PostgreSQL 16 (23 min): **1671 passed, 20 skipped, 1 failed**.
+The failure was `test_event_store.py::test_append_only[TRUNCATE events]`: the new foreign key from `vital_readings`
+refuses a plain `TRUNCATE events` before the append-only trigger runs (still refused, with another message). The case
+now uses `TRUNCATE events CASCADE`, which passes the key and is stopped by the trigger; `test_event_store` and
+`test_api_p6` rerun: 64 passed. The full suite was not run again after this one-line test change. Web: 202 passed (was 200: 6 new vitals and inbox tests, 2 "not on the
+server" vitals cases removed), type check clean. Browser pane, mock: vitals and inbox in Bangla and English at 375 px and
+desktop, 0 axe violations, no horizontal scroll; save and correction with reason. Live (`swasthyoid_dev`, seeded patient):
+a BP reading saved 201 as `not_evaluated` (`no_applicable_threshold`; no vital rules are approved there); over HTTP a
+same-id resend 200 with the same reading, other data 409 `reading_id_conflict`, a correction without a reason 422, with
+one 201 (version 2, unit `mg/dL` kept), a second correction 409 `already_corrected`, an unknown id 404; a correction in
+the UI 201; vitals and inbox in Bangla at 375 px and desktop, 0 axe violations. Not checked live: a flagged or critical
+reading (it needs approved rules; no synthetic rule was approved in the dev database). Side effects in
+`swasthyoid_dev`: four readings (two of them corrections).
