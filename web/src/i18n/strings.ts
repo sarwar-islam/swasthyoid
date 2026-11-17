@@ -682,6 +682,7 @@ export const bn = {
   "th.save": "সীমা সংরক্ষণ করুন",
   "th.saved": "সংরক্ষিত হয়েছে, সংস্করণ {v}।",
   "th.reload": "আবার লোড করুন",
+  "th.noRules": "এখনো কোনো অনুমোদিত সীমার নিয়ম নেই। ক্লিনিক্যাল রিভিউয়ার নিয়ম অনুমোদন করলে এখানে ঘর দেখা যাবে।",
   "err.version_conflict": "অন্য কেউ এই সীমা বদলেছেন। আবার লোড করে দেখুন।",
   "err.invalid_threshold": "সার্ভার এই মান গ্রহণ করেনি। ক্ষেত্র ও মান আবার দেখুন।",
 } as const;
@@ -1370,6 +1371,7 @@ export const en: Record<Key, string> = {
   "th.save": "Save thresholds",
   "th.saved": "Saved as version {v}.",
   "th.reload": "Reload",
+  "th.noRules": "No approved threshold rules yet. Fields appear here once the clinical reviewer approves a rule.",
   "err.version_conflict": "Someone else changed these thresholds. Reload and check them.",
   "err.invalid_threshold": "The server did not accept these values. Check the fields and values.",
 };

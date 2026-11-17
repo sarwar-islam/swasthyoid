@@ -286,6 +286,7 @@ export function ThresholdsPage() {
         {t("th.version", { v: formatNumber(th.version, lang) })} · {th.updated_at && th.updated_by_name
           ? t("th.changed", { name: th.updated_by_name, date: formatDateTime(th.updated_at, lang) }) : t("th.unchanged")}
       </p>
+      {th.fields.length === 0 && <p className="reviewer-pending">{t("th.noRules")}</p>}
       <ul className="list">
         {th.fields.map((f) => (
           <li key={f.key} className="card stack">
@@ -307,7 +308,7 @@ export function ThresholdsPage() {
       <ErrorNote error={error} />
       {saved !== null && <p className="ok-note" role="status">{t("th.saved", { v: formatNumber(saved, lang) })}</p>}
       <div className="actions">
-        <button type="submit" className="btn-primary" disabled={busy}>{t("th.save")}</button>
+        {th.fields.length > 0 && <button type="submit" className="btn-primary" disabled={busy}>{t("th.save")}</button>}
         {error instanceof ApiError && error.code === "version_conflict" && (
           <button type="button" onClick={() => { setError(null); data.reload(); }}>{t("th.reload")}</button>
         )}

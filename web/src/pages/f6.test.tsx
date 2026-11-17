@@ -266,6 +266,31 @@ describe("F6 screens", () => {
     expect(Object.values(body.overrides)).toEqual([150, null, null]);
   });
 
+  it.each([
+    ["en", "Patient's Health ID", "safety information", "Send consent request", "Code from the patient", "Confirm with the code",
+     "Vital thresholds", "No approved threshold rules yet.", "Save thresholds"],
+    ["bn", "রোগীর Health ID", "নিরাপত্তা তথ্য", "সম্মতির অনুরোধ পাঠান", "রোগীর বলা কোড", "কোড দিয়ে নিশ্চিত করুন",
+     "ভাইটাল সীমা", "এখনো কোনো অনুমোদিত সীমার নিয়ম নেই।", "সীমা সংরক্ষণ করুন"],
+  ] as const)("doctor (%s): with no approved threshold rule the screen says so and offers no save", async (lang, hid, safety, send, code, confirm, tab, note, save) => {
+    const inner = mockTransport();
+    // B6: the server lists fields only from approved vital_threshold rules, and none is approved yet
+    const transport: Transport = async (r) => {
+      const res = await inner(r);
+      return r.method === "GET" && r.path.endsWith("/vital-thresholds") ? { ...res, body: { ...(res.body as object), fields: [] } } : res;
+    };
+    const { container } = renderApp("/doctor", { lang, token: DOCTOR_TOKEN, transport });
+    fireEvent.change(await screen.findByLabelText(hid), { target: { value: MOCK_HEALTH_ID } });
+    fireEvent.click(screen.getByLabelText(safety));
+    await waitFor(() => expect((screen.getByRole("button", { name: send }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: send }));
+    fireEvent.change(await screen.findByLabelText(code), { target: { value: MOCK_CODE } });
+    fireEvent.click(screen.getByRole("button", { name: confirm }));
+    fireEvent.click(await screen.findByRole("link", { name: tab }));
+    expect(await screen.findByText(new RegExp(`^${note}`))).toBeTruthy();
+    expect(screen.queryByRole("button", { name: save })).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("doctor: no thresholds tab without safety; Bangla screen passes axe", async () => {
     renderApp("/doctor", { lang: "bn", token: DOCTOR_TOKEN });
     fireEvent.change(await screen.findByLabelText("রোগীর Health ID"), { target: { value: MOCK_HEALTH_ID } });

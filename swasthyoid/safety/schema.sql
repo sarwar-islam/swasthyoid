@@ -50,6 +50,73 @@ CREATE TRIGGER rules_guard BEFORE UPDATE OR DELETE ON rules FOR EACH ROW EXECUTE
 DROP TRIGGER IF EXISTS rules_no_truncate ON rules;
 CREATE TRIGGER rules_no_truncate BEFORE TRUNCATE ON rules FOR EACH STATEMENT EXECUTE FUNCTION append_only();
 
+-- M6 safety alerts (B6; FRD M6, invariant 6). Nothing writes alerts yet: no M6 engine runs. An alert names the rule VERSION
+-- that fired (shown with that version's explanation even after it is superseded) and keeps its evidence. Only the
+-- handling fields change, and only open -> acknowledged | overridden; an override always carries a reason. Never deleted.
+CREATE TABLE IF NOT EXISTS safety_alerts (
+    id                 uuid PRIMARY KEY,
+    patient_id         uuid NOT NULL REFERENCES patients (id),
+    rule_version_id    uuid NOT NULL REFERENCES rules (id),
+    severity           text NOT NULL CHECK (severity IN ('contraindicated', 'major', 'moderate', 'minor')),
+    source_document_id uuid NOT NULL REFERENCES documents (id),
+    evidence_event_ids uuid[] NOT NULL CHECK (cardinality(evidence_event_ids) > 0),
+    created_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
+    status             text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'acknowledged', 'overridden')),
+    handled_by         uuid REFERENCES users (id),
+    handled_at         timestamptz,
+    reason             text,
+    CONSTRAINT safety_alerts_handled CHECK ((status = 'open') = (handled_by IS NULL AND handled_at IS NULL)),
+    CONSTRAINT safety_alerts_override_reason CHECK (status <> 'overridden' OR btrim(coalesce(reason, '')) <> '')
+);
+CREATE INDEX IF NOT EXISTS safety_alerts_patient ON safety_alerts (patient_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION safety_alerts_guard() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'safety alerts cannot be deleted';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.status <> 'open' OR NOT EXISTS (SELECT 1 FROM rules WHERE id = NEW.rule_version_id AND status = 'approved') THEN
+            RAISE EXCEPTION 'an alert starts open and comes from an approved rule version';
+        END IF;
+        RETURN NEW;
+    END IF;
+    IF (NEW.id, NEW.patient_id, NEW.rule_version_id, NEW.severity, NEW.source_document_id, NEW.evidence_event_ids,
+        NEW.created_at)
+       IS DISTINCT FROM (OLD.id, OLD.patient_id, OLD.rule_version_id, OLD.severity, OLD.source_document_id,
+                         OLD.evidence_event_ids, OLD.created_at) THEN
+        RAISE EXCEPTION 'a safety alert is immutable';
+    END IF;
+    IF NOT (OLD.status = 'open' AND NEW.status IN ('acknowledged', 'overridden')) THEN
+        RAISE EXCEPTION 'illegal alert transition: % -> %', OLD.status, NEW.status;
+    END IF;
+    RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS safety_alerts_guard ON safety_alerts;
+CREATE TRIGGER safety_alerts_guard BEFORE INSERT OR UPDATE OR DELETE ON safety_alerts
+    FOR EACH ROW EXECUTE FUNCTION safety_alerts_guard();
+DROP TRIGGER IF EXISTS safety_alerts_no_truncate ON safety_alerts;
+CREATE TRIGGER safety_alerts_no_truncate BEFORE TRUNCATE ON safety_alerts FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
+-- M13 per-patient threshold overrides (B6). One row per version, append-only; the newest version holds the whole set of
+-- overrides (key = an approved vital_threshold rule_id, value a positive number). Version numbers start at 1; with no row
+-- the patient is at version 0. Nothing evaluates readings against these yet.
+CREATE TABLE IF NOT EXISTS patient_thresholds (
+    patient_id uuid NOT NULL REFERENCES patients (id),
+    version    int NOT NULL CHECK (version >= 1),
+    overrides  jsonb NOT NULL CHECK (jsonb_typeof(overrides) = 'object'),
+    updated_by uuid NOT NULL REFERENCES users (id),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (patient_id, version)
+);
+DROP TRIGGER IF EXISTS patient_thresholds_no_change ON patient_thresholds;
+CREATE TRIGGER patient_thresholds_no_change BEFORE UPDATE OR DELETE ON patient_thresholds
+    FOR EACH ROW EXECUTE FUNCTION append_only();
+DROP TRIGGER IF EXISTS patient_thresholds_no_truncate ON patient_thresholds;
+CREATE TRIGGER patient_thresholds_no_truncate BEFORE TRUNCATE ON patient_thresholds
+    FOR EACH STATEMENT EXECUTE FUNCTION append_only();
+
 -- Drug catalog uploads (B5; owner decision: validate and report only while FRD question 1, the licence, is open). The file
 -- is read in memory by capture/drugcatalog.py and dropped; only its hash, size, the loader's counts and the admin's own
 -- statement of where it came from are kept. No catalog data is stored anywhere. Append-only.

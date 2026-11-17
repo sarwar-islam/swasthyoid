@@ -320,7 +320,9 @@ export interface SearchHit {
 export type Severity = "contraindicated" | "major" | "moderate" | "minor";
 
 /** An M6 alert on a newly verified prescription. Ack: POST /safety/alerts/{id}/ack { action, reason } (FRD). Listing alerts:
- * `GET /patients/{id}/safety-alerts`, APPROVED contract (owner decision 2026-11-16), not built yet. Mocked. */
+ * `GET /patients/{id}/safety-alerts`, APPROVED contract (owner decision 2026-11-16). BUILT in B6 (api/safety.py): a doctor
+ * under a consent covering `safety` only; `explanation` is the text of the rule version that fired. No M6 engine writes
+ * alerts yet, so the server's list is empty. */
 export interface SafetyAlert {
   id: string;
   rule_id: string;
@@ -560,7 +562,9 @@ export interface PatientNotification {
  * reviewer-approved M6 rules). GAP: GET /patients/{id}/vital-thresholds (the FRD lists only the PUT) and the shapes of
  * PUT /patients/{id}/vital-thresholds { version, overrides } -> VitalThresholds. Under a consent covering `safety`. The server
  * decides which fields exist and their limits; unknown fields are 422 invalid_threshold, a stale version is 409
- * version_conflict. Every change is a new version and audited. */
+ * version_conflict. Every change is a new version and audited. BUILT in B6 (api/safety.py): one field per approved
+ * `vital_threshold` rule (none yet, so `fields` is empty), `default_value` always null (REVIEWER-PENDING), and a patient
+ * with no change is at version 0 (the mock starts at 1). */
 export interface ThresholdField {
   key: string; // opaque to the UI
   vital_type: VitalType;
