@@ -82,3 +82,5 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX IF NOT EXISTS refresh_tokens_subject ON refresh_tokens (subject_id);
+-- W2: every request checks that its device's session is live (identity/sessions.py is_live)
+CREATE INDEX IF NOT EXISTS refresh_tokens_live ON refresh_tokens (subject_id, device_id) WHERE revoked_at IS NULL;

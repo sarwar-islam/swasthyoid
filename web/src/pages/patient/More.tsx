@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { flags } from "../../flags";
 import { useI18n } from "../../i18n/i18n";
 import type { Key } from "../../i18n/strings";
+import { useSession } from "../../session";
 
 const TILES: Array<{ to: string; title: Key; desc: Key; icon: LucideIcon; flag?: keyof typeof flags }> = [
   { to: "/patient/inbox", title: "nav.inbox", desc: "more.inbox.desc", icon: Bell },
@@ -18,6 +19,7 @@ const TILES: Array<{ to: string; title: Key; desc: Key; icon: LucideIcon; flag?:
 /** F2: the patient's health tools (M13, M8, M7, M10 when its flag is on); F4: caregiver mode. */
 export function More() {
   const { t } = useI18n();
+  const { signOutEverywhere } = useSession();
   return (
     <>
       <h1>{t("more.title")}</h1>
@@ -28,6 +30,11 @@ export function More() {
           </li>
         ))}
       </ul>
+      <section className="card section" aria-labelledby="account-title">
+        <h2 id="account-title">{t("more.account")}</h2>
+        <p className="muted">{t("more.signOutAll.desc")}</p>
+        <button type="button" onClick={signOutEverywhere}>{t("more.signOutAll")}</button>
+      </section>
     </>
   );
 }

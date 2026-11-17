@@ -63,8 +63,8 @@ function base64url(value: object): string {
 }
 
 /** An UNSIGNED token shaped like the backend's JWT (sub, role), so the client reads it the same way. Mock only. */
-function mockJwt(sub: string, role: string): string {
-  return `${base64url({ alg: "none", typ: "JWT" })}.${base64url({ sub, role, device_id: "mock" })}.mock`;
+function mockJwt(sub: string, role: string, sid = "s-0"): string {
+  return `${base64url({ alg: "none", typ: "JWT" })}.${base64url({ sub, role, device_id: "mock", sid })}.mock`;
 }
 
 const field = (value: string | null, confidence: number, raw = value, extra: Partial<ExtractedField> = {}): ExtractedField =>
@@ -436,9 +436,18 @@ function syntheticPage(): Blob {
 
 export function mockTransport(): Transport {
   const s = createState();
+  const issued = new Map<string, string>(); // token -> account, so a new sign-in gets a token of its own
+  const issue = (sub: string, role: string) => {
+    const token = mockJwt(sub, role, `s-${issued.size + 1}`);
+    issued.set(token, sub);
+    return token;
+  };
+  const ended = new Set<string>(); // W2: tokens of sessions that logged out (the server revokes the device's refresh tokens)
+  const bearer = (r: ApiRequest) => (r.headers.Authorization ?? "").replace(/^Bearer /, "");
   const who = (r: ApiRequest): { sub: string; role: string } | null => {
     try {
-      return JSON.parse(atob((r.headers.Authorization ?? "").replace(/^Bearer /, "").split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      if (ended.has(bearer(r))) return null;
+      return JSON.parse(atob(bearer(r).split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
     } catch {
       return null;
     }
@@ -655,6 +664,19 @@ export function mockTransport(): Transport {
 
   const routes: Array<[Method, string, Handler]> = [
     ["GET", "/health", () => ok({ status: "ok" })],
+    // W2, as the server: logout ends this session at once; logout-all also every session this mock issued to the account
+    ["POST", "/auth/logout", (r) => {
+      if (!who(r)) return unauthenticated;
+      ended.add(bearer(r));
+      return ok(null, 204);
+    }],
+    ["POST", "/auth/logout-all", (r) => {
+      const w = who(r);
+      if (!w) return unauthenticated;
+      ended.add(bearer(r));
+      issued.forEach((sub, token) => sub === w.sub && ended.add(token));
+      return ok(null, 204);
+    }],
     ["POST", "/auth/otp/request", (r) => {
       return bdMobile((r.body as { phone?: unknown } | undefined)?.phone) ? ok(null, 204) : error(422, "invalid_phone", "Enter a phone number.");
     }],
@@ -672,13 +694,13 @@ export function mockTransport(): Transport {
           s.staff[id] = { id, role: body.staff.role, name: body.staff.name, status: "pending", emergency_enabled: false, credential: null };
         }
         if (s.staff[id].status === "suspended") return error(403, "user_suspended", "This account is suspended.");
-        return ok({ access_token: mockJwt(id, s.staff[id].role), refresh_token: "synthetic-refresh-token" });
+        return ok({ access_token: issue(id, s.staff[id].role), refresh_token: "synthetic-refresh-token" });
       }
       if (!s.phones.has(phone)) {
         if (!body.profile) return error(409, "registration_required", "Request a new code and send your profile with it.");
         s.phones.add(phone); // shortcut: every mock registration signs in to the one synthetic patient
       }
-      return ok({ access_token: mockJwt(MOCK_PATIENT_ID, "patient"), refresh_token: "synthetic-refresh-token" });
+      return ok({ access_token: issue(MOCK_PATIENT_ID, "patient"), refresh_token: "synthetic-refresh-token" });
     }],
     ["GET", "/me", (r) => {
       const w = who(r);

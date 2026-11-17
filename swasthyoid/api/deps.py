@@ -109,6 +109,10 @@ def actor(request: Request, conn=Depends(get_conn)) -> Actor:
         audit.append(conn, action="auth.token_rejected", result="deny", reason="account_not_active",
                      actor_id=who, actor_role=role, device_id=claims["device_id"], **info)
         raise ApiError(401, "unauthenticated", "This account is not active.")
+    if not sessions.is_live(conn, who, claims["device_id"]):  # logged out, or every session ended
+        audit.append(conn, action="auth.token_rejected", result="deny", reason="session_ended",
+                     actor_id=who, actor_role=role, device_id=claims["device_id"], **info)
+        raise ApiError(401, "unauthenticated", "This session has ended. Log in again.")
     return Actor(who, role, claims["device_id"], is_verified=status == "verified")
 
 

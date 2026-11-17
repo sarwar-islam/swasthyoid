@@ -88,6 +88,21 @@ def refresh(conn, refresh_token, device_id):
     return tokens
 
 
+def is_live(conn, subject_id, device_id):
+    """A device's session is live while it holds an unrevoked, unexpired refresh token. Logging out, a reused refresh
+    token and suspension revoke them, so the access token stops working at once instead of at ACCESS_TTL."""
+    return conn.execute(
+        "SELECT 1 FROM refresh_tokens WHERE subject_id = %s AND device_id = %s AND revoked_at IS NULL "
+        "AND expires_at > clock_timestamp() LIMIT 1", [subject_id, device_id]).fetchone() is not None
+
+
+def revoke_device(conn, subject_id, device_id):
+    """End this device's session (logout)."""
+    return conn.execute(
+        "UPDATE refresh_tokens SET revoked_at = clock_timestamp() "
+        "WHERE subject_id = %s AND device_id = %s AND revoked_at IS NULL", [subject_id, device_id]).rowcount
+
+
 def revoke_all(conn, subject_id):
     """End every session of a subject (suspension, phone change). Access tokens run out within ACCESS_TTL."""
     return conn.execute(

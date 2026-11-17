@@ -7,6 +7,7 @@ import { useI18n } from "./i18n/i18n";
 import type { Key } from "./i18n/strings";
 import { AuditPage, CatalogPage, CredentialsPage, MetricsPage, StaffPage } from "./pages/console/Admin";
 import { ConsoleIndex, OnlyRole } from "./pages/console/console";
+import { Landing } from "./pages/Landing";
 import { ReviewsPage, RulesPage } from "./pages/console/Reviewer";
 import { DoctorFrame } from "./pages/doctor/doctor";
 import { AllAlerts, BreakGlass, Credentials } from "./pages/doctor/Other";
@@ -36,7 +37,7 @@ const PORTALS: Array<{ to: string; title: Key; desc: Key }> = [
   { to: "/console", title: "portal.console", desc: "portal.console.desc" },
 ];
 
-/** Development landing page until sign-in exists (F1): one card per portal. */
+/** Development page at /portals: one card per portal (the landing page at / is for visitors, W1). */
 function PortalChooser() {
   const { t } = useI18n();
   return (
@@ -74,7 +75,8 @@ const admin = (page: React.ReactNode) => <OnlyRole role="admin">{page}</OnlyRole
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<PortalChooser />} />
+      <Route path="/" element={<Landing />} />
+      <Route path="/portals" element={<PortalChooser />} />
       <Route path="/patient/login" element={<Login />} />
       <Route element={<RequireRole role="patient" login="/patient/login" />}>
         <Route path="/patient" element={<PatientShell />}>

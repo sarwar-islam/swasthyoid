@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from swasthyoid import pii
 from swasthyoid.api.deps import (
-    Actor, ApiError, client_info, get_code_sender, get_conn, idempotent, person_labels, require,
+    Actor, ApiError, actor, client_info, get_code_sender, get_conn, idempotent, person_labels, require,
 )
 from swasthyoid.core import audit, consent_authz, notification
 from swasthyoid.identity import accounts, otp, sessions
@@ -116,6 +116,24 @@ def refresh(body: RefreshBody, conn=Depends(get_conn)):
         return sessions.refresh(conn, body.refresh_token, body.device_id)
     except sessions.InvalidSession:
         raise ApiError(401, "invalid_session", "Log in again.")
+
+
+@router.post("/auth/logout", status_code=204)
+def logout(request: Request, conn=Depends(get_conn), a: Actor = Depends(actor)):
+    """End this device's session now: its refresh tokens are revoked and its access token stops working (W2)."""
+    sessions.revoke_device(conn, a.id, a.device_id)
+    audit.append(conn, action="auth.logout", result="allow", actor_id=a.id, actor_role=a.role, device_id=a.device_id,
+                 **client_info(request))
+    return Response(status_code=204)
+
+
+@router.post("/auth/logout-all", status_code=204)
+def logout_all(request: Request, conn=Depends(get_conn), a: Actor = Depends(actor)):
+    """End every session of this account on every device (a lost phone)."""
+    sessions.revoke_all(conn, a.id)
+    audit.append(conn, action="auth.logout_all", result="allow", actor_id=a.id, actor_role=a.role, device_id=a.device_id,
+                 **client_info(request))
+    return Response(status_code=204)
 
 
 # ---- credentials

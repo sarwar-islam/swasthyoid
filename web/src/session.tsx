@@ -25,7 +25,8 @@ interface Session {
   claims: Claims | null;
   deviceId: string;
   signIn: (tokens: TokenPair) => void;
-  signOut: () => void;
+  signOut: () => Promise<void>;
+  signOutEverywhere: () => Promise<void>;
   expired: boolean; // the server refused the token (it expired after 15 minutes, or the account was suspended)
 }
 
@@ -54,12 +55,21 @@ export function SessionProvider({ transport, initialToken = null, children }:
     setToken(tokens.access_token);
     setExpired(false);
   }, []);
-  const signOut = useCallback(() => {
+  // W2: the server ends the session first (a token that was copied stops working at once); the token is dropped here even if
+  // that call fails, so signing out never leaves the user signed in on this screen
+  const end = useCallback(async (path: "/auth/logout" | "/auth/logout-all") => {
+    try {
+      if (tokenRef.current) await api.request("POST", path);
+    } catch {
+      // offline or already ended: the token still goes, and it runs out within 15 minutes
+    }
     tokenRef.current = null;
     setToken(null);
-  }, []);
-  const value = useMemo(() => ({ api, claims: readClaims(token), deviceId, signIn, signOut, expired }),
-    [api, token, deviceId, signIn, signOut, expired]);
+  }, [api]);
+  const signOut = useCallback(() => end("/auth/logout"), [end]);
+  const signOutEverywhere = useCallback(() => end("/auth/logout-all"), [end]);
+  const value = useMemo(() => ({ api, claims: readClaims(token), deviceId, signIn, signOut, signOutEverywhere, expired }),
+    [api, token, deviceId, signIn, signOut, signOutEverywhere, expired]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
