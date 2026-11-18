@@ -83,7 +83,7 @@ describe("M2 capture", () => {
     click(/আপলোড করুন/);
     expect(await screen.findByText("ছবিটি ঝাপসা হয়েছে। ক্যামেরা স্থির রেখে আবার পরিষ্কার ছবি তুলুন।")).toBeTruthy();
     click("তবুও আপলোড করুন");
-    expect(await screen.findByText("স্বয়ংক্রিয়ভাবে পড়ার ব্যবস্থা এখনো চালু হয়নি। আপনি নিজে তথ্যগুলো লিখে দিতে পারেন।")).toBeTruthy();
+    expect(await screen.findByText("নথিটি পড়ার অপেক্ষায় আছে। এই পাতা নিজে থেকে আপডেট হবে। চাইলে নিজে তথ্যগুলো লিখে দিতে পারেন।")).toBeTruthy();
     const uploads = seen.filter((r) => r.path === "/documents" && r.method === "POST");
     expect(uploads.map((r) => (r.body as FormData).get("upload_anyway"))).toEqual(["false", "true"]);
     expect(uploads.every((r) => r.headers["Idempotency-Key"])).toBe(true);

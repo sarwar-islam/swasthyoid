@@ -164,6 +164,15 @@ export function DocumentPage({ toTimeline = "/patient/timeline" }: { toTimeline?
   const [error, setError] = useState<unknown>(null);
   const [done, setDone] = useState(false);
   const reload = () => { doc.reload(); extraction.reload(); };
+  // The worker reads a new document within seconds: check again every 3 s while it waits, for at most 2 minutes
+  // (without a worker, as in the mock, it stays waiting and the manual-entry button is there).
+  const waiting = doc.data?.status === "uploaded" || doc.data?.status === "extracting";
+  useEffect(() => {
+    if (!waiting) return;
+    const until = Date.now() + 120_000;
+    const timer = setInterval(() => (Date.now() > until ? clearInterval(timer) : reload()), 3000);
+    return () => clearInterval(timer);
+  }, [waiting, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (path: string) => {
     setError(null);
