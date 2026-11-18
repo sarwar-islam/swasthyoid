@@ -33,12 +33,28 @@ def _token_hash(token):
     return pii.secret_hash("refresh:" + token)
 
 
-def _new_tokens(conn, subject_id, role, device_id, last_seen_at=None):
+# UX-3c: (marker in the user-agent, name), first match wins; order matters (Edge and Opera also say "Chrome").
+_BROWSERS = (("Edg/", "Edge"), ("OPR/", "Opera"), ("SamsungBrowser/", "Samsung Internet"), ("Firefox/", "Firefox"),
+             ("Chrome/", "Chrome"), ("Safari/", "Safari"))
+_SYSTEMS = (("Android", "Android"), ("iPhone", "iOS"), ("iPad", "iOS"), ("Windows", "Windows"), ("Mac OS X", "macOS"),
+            ("CrOS", "ChromeOS"), ("Linux", "Linux"))
+
+
+def device_label(user_agent):
+    """A device family such as "Chrome · Android", or None. Only this label is stored or shown, never the user-agent."""
+    ua = user_agent or ""
+    browser = next((name for mark, name in _BROWSERS if mark in ua), None)
+    system = next((name for mark, name in _SYSTEMS if mark in ua), None)
+    return " · ".join(p for p in (browser, system) if p) or None
+
+
+def _new_tokens(conn, subject_id, role, device_id, last_seen_at=None, session_id=None, label=None):
     refresh_token = secrets.token_urlsafe(32)
     conn.execute(  # a rotated token keeps its session's last activity: a silent refresh is not activity
-        "INSERT INTO refresh_tokens (id, subject_id, role, device_id, token_hash, expires_at, last_seen_at) "
-        "VALUES (%s, %s, %s, %s, %s, clock_timestamp() + %s, coalesce(%s, clock_timestamp()))",
-        [uuid4(), subject_id, role, device_id, _token_hash(refresh_token), REFRESH_TTL, last_seen_at],
+        "INSERT INTO refresh_tokens (id, subject_id, role, device_id, token_hash, expires_at, last_seen_at, session_id, "
+        "device_label) VALUES (%s, %s, %s, %s, %s, clock_timestamp() + %s, coalesce(%s, clock_timestamp()), %s, %s)",
+        [uuid4(), subject_id, role, device_id, _token_hash(refresh_token), REFRESH_TTL, last_seen_at,
+         session_id or uuid4(), label],
     )
     now = datetime.now(timezone.utc)
     access_token = jwt.encode(
@@ -51,7 +67,7 @@ def _new_tokens(conn, subject_id, role, device_id, last_seen_at=None):
 def issue_tokens(conn, *, subject_id, role, device_id, ip=None, user_agent=None):
     """Log a subject in on a device. Call only after their one-time code was verified."""
     with conn.transaction():
-        tokens = _new_tokens(conn, subject_id, role, device_id)
+        tokens = _new_tokens(conn, subject_id, role, device_id, label=device_label(user_agent))
         audit.append(conn, action="auth.login", result="allow", actor_id=subject_id, actor_role=role,
                      device_id=device_id, ip=ip, user_agent=user_agent)
     return tokens
@@ -91,7 +107,8 @@ def refresh(conn, refresh_token, device_id):
             revoke_device(conn, row["subject_id"], row["device_id"])
         else:
             conn.execute("UPDATE refresh_tokens SET revoked_at = clock_timestamp() WHERE id = %s", [row["id"]])
-            tokens = _new_tokens(conn, row["subject_id"], row["role"], device_id, row["last_seen_at"])
+            tokens = _new_tokens(conn, row["subject_id"], row["role"], device_id, row["last_seen_at"], row["session_id"],
+                                 row["device_label"])
         if reason:
             audit.append(conn, action="auth.refresh_failed", result="deny", reason=reason,
                          actor_id=row and row["subject_id"], device_id=device_id)
@@ -120,6 +137,39 @@ def revoke_device(conn, subject_id, device_id):
     return conn.execute(
         "UPDATE refresh_tokens SET revoked_at = clock_timestamp() "
         "WHERE subject_id = %s AND device_id = %s AND revoked_at IS NULL", [subject_id, device_id]).rowcount
+
+
+class NotYourSession(Exception):
+    """No such session for this account (someone else's looks the same: 404)."""
+
+
+class CurrentSession(Exception):
+    """The session of the device asking; Sign out ends it."""
+
+
+_LIVE = "revoked_at IS NULL AND expires_at > clock_timestamp()"
+
+
+def list_sessions(conn, subject_id, device_id):
+    """This account's live sessions, most recently active first. `current` marks the asking device."""
+    rows = conn.cursor(row_factory=dict_row).execute(
+        f"SELECT session_id AS id, max(device_label) AS device, min(created_at) AS started_at, "
+        f"max(last_seen_at) AS last_seen_at, bool_or(device_id = %s) AS current FROM refresh_tokens "
+        f"WHERE subject_id = %s GROUP BY session_id HAVING bool_or({_LIVE}) ORDER BY current DESC, last_seen_at DESC",
+        [device_id, subject_id]).fetchall()
+    return rows
+
+
+def revoke_session(conn, subject_id, session_id, device_id):
+    """End one of this account's other sessions. Idempotent: an ended session stays ended. Returns tokens revoked."""
+    row = conn.execute("SELECT bool_or(device_id = %s) FROM refresh_tokens WHERE subject_id = %s AND session_id = %s",
+                       [device_id, subject_id, session_id]).fetchone()
+    if row[0] is None:
+        raise NotYourSession()
+    if row[0]:
+        raise CurrentSession()
+    return conn.execute("UPDATE refresh_tokens SET revoked_at = clock_timestamp() "
+                        "WHERE subject_id = %s AND session_id = %s AND revoked_at IS NULL", [subject_id, session_id]).rowcount
 
 
 def revoke_all(conn, subject_id):

@@ -440,6 +440,7 @@ export function mockTransport(): Transport {
     issued.set(token, sub);
     return token;
   };
+  const otherEnded = new Set<string>(); // UX-3c: accounts whose synthetic other session was ended
   const ended = new Set<string>(); // W2: tokens of sessions that logged out (the server revokes the device's refresh tokens)
   // W2, as the server: the web (CSRF header) gets its refresh token as an HttpOnly cookie, one per kind of account; here the
   // "cookie" is the account it renews, kept in this mock instance
@@ -687,6 +688,27 @@ export function mockTransport(): Transport {
       ended.add(bearer(r));
       issued.forEach((sub, token) => sub === w.sub && ended.add(token));
       delete cookies[w.role === "patient" ? "patient" : "staff"];
+      return ok(null, 204);
+    }],
+    // UX-3c, as the server: this device plus one synthetic other device per account; device family labels only
+    ["GET", "/auth/sessions", (r) => {
+      const w = who(r);
+      if (!w) return unauthenticated;
+      const now = Date.now();
+      const items = [{ id: "sess-current", device: "Chrome · Android", started_at: new Date(now - 3_600_000).toISOString(),
+        last_seen_at: new Date(now).toISOString(), current: true }];
+      if (!otherEnded.has(w.sub)) items.push({ id: `sess-other-${w.sub.slice(0, 8)}`, device: "Firefox · Windows",
+        started_at: new Date(now - 3 * 86_400_000).toISOString(), last_seen_at: new Date(now - 86_400_000).toISOString(), current: false });
+      return ok({ items });
+    }],
+    ["POST", "/auth/sessions/{id}/revoke", (r, p) => {
+      const w = who(r);
+      if (!w) return unauthenticated;
+      if (p.id === "sess-current") return error(409, "current_session", "This is the device you are using. Use Sign out instead.");
+      if (p.id !== `sess-other-${w.sub.slice(0, 8)}`) return error(404, "not_found", "No such session.");
+      appendAudit({ actor_id: w.sub, actor_role: w.role, action: "auth.session_revoke", result: "allow",
+        reason: otherEnded.has(w.sub) ? "already_ended" : null });
+      otherEnded.add(w.sub);
       return ok(null, 204);
     }],
     ["POST", "/auth/refresh", (r) => {

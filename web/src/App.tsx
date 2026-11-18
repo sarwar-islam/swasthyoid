@@ -6,6 +6,7 @@ import { LanguageToggle, ThemeSelect } from "./components/Controls";
 import { flags } from "./flags";
 import { useI18n } from "./i18n/i18n";
 import type { Key } from "./i18n/strings";
+import { StaffAccount } from "./components/Sessions";
 import { Loading } from "./components/ui";
 import { Landing } from "./pages/Landing";
 import { CareDocument, CaregiverFrame, CareIndex, CareRoute, CARE_TABS, Caregiving } from "./pages/patient/Caregiver";
@@ -145,6 +146,7 @@ export function AppRoutes() {
             <Route index element={<Patients />} />
             <Route path="alerts" element={<AllAlerts />} />
             <Route path="credentials" element={<Credentials />} />
+            <Route path="account" element={<StaffAccount />} />
             {flags.emergencyAccess && <Route path="emergency" element={<BreakGlass />} />}
             <Route path="patients/:pid" element={<Workspace />}>
               <Route index element={<SummaryPage />} />
@@ -164,6 +166,7 @@ export function AppRoutes() {
           <Route element={<VerifierFrame />}>
             <Route index element={<AssistStart />} />
             <Route path="queue" element={<AssistQueue />} />
+            <Route path="account" element={<StaffAccount />} />
             <Route path="documents/:id" element={<AssistDocument />} />
             <Route path="*" element={<Navigate to="/verifier" replace />} />
           </Route>
@@ -180,6 +183,7 @@ export function AppRoutes() {
           <Route path="catalog" element={admin(<CatalogPage />)} />
           <Route path="audit" element={admin(<AuditPage />)} />
           <Route path="metrics" element={admin(<MetricsPage />)} />
+          <Route path="account" element={<StaffAccount />} />
           <Route path="*" element={<Navigate to="/console" replace />} />
         </Route>
       </Route>

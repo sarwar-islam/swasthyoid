@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Activity, BadgeCheck, Camera, Database, FileSearch, Gavel, HeartPulse, Home, Inbox, KeyRound, LayoutGrid,
-  ListChecks, ScrollText, ShieldAlert, ShieldCheck, Siren, UserPlus, Users } from "lucide-react";
+  ListChecks, ScrollText, ShieldAlert, ShieldCheck, Siren, UserPlus, UserRound, Users } from "lucide-react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { CommandMenu, type Command } from "../components/CommandMenu";
@@ -42,10 +42,12 @@ export const STAFF_NAV: Record<"doctor" | "verifier" | "console", { title: Key; 
     { to: "/doctor/alerts", label: "nav.alerts", icon: ShieldAlert, phase: "F3" },
     { to: "/doctor/emergency", label: "nav.breakglass", icon: Siren, phase: "F3", flag: "emergencyAccess" },
     { to: "/doctor/credentials", label: "nav.credentials", icon: BadgeCheck, phase: "F3" },
+    { to: "/doctor/account", label: "nav.account", icon: UserRound, phase: "F3" },
   ] },
   verifier: { title: "portal.verifier", items: [
     { to: "/verifier", label: "nav.capture", icon: Camera, phase: "F4" },
     { to: "/verifier/queue", label: "nav.queue", icon: ListChecks, phase: "F4" },
+    { to: "/verifier/account", label: "nav.account", icon: UserRound, phase: "F4" },
   ] },
   console: { title: "portal.console", items: [
     { to: "/console/rules", label: "nav.rules", icon: Gavel, phase: "F5", roles: REVIEWER },
@@ -55,6 +57,7 @@ export const STAFF_NAV: Record<"doctor" | "verifier" | "console", { title: Key; 
     { to: "/console/catalog", label: "nav.catalog", icon: Database, phase: "F5", roles: ADMIN },
     { to: "/console/audit", label: "nav.audit", icon: ScrollText, phase: "F5", roles: ADMIN },
     { to: "/console/metrics", label: "nav.metrics", icon: Inbox, phase: "F5", roles: ADMIN },
+    { to: "/console/account", label: "nav.account", icon: UserRound, phase: "F5" },
   ] },
 };
 

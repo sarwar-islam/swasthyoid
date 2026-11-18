@@ -279,3 +279,70 @@ def test_only_a_patient_exports_and_only_their_own_data(api, cast):  # noqa: F81
     mine = api.http.get(f"{V1}/me/export", headers=stranger).json()
     assert mine["profile"]["name"] == "Synthetic Patient 9"
     assert mine["events"] == [] and mine["consents"] == [] and mine["patient_reported"] == {"vitals": []}
+
+
+# ---- UX-3c active sessions
+
+CHROME_ANDROID = "Mozilla/5.0 (Linux; Android 14; SYNTH) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
+
+
+def ua_device(api, phone, device_id, ua):
+    assert api.http.post(f"{V1}/auth/otp/request", json={"phone": phone}).status_code == 204
+    r = api.http.post(f"{V1}/auth/otp/verify", headers={"User-Agent": ua},
+                      json={"phone": phone, "code": api.codes[pii.normalize_phone(phone)], "device_id": device_id})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_device_label_is_a_family_never_the_user_agent():
+    from swasthyoid.identity.sessions import device_label
+    assert device_label(CHROME_ANDROID) == "Chrome · Android"
+    assert device_label("Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Edg/130.0") == "Edge · Windows"
+    assert device_label("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Version/17.0 Safari/604.1") == "Safari · iOS"
+    assert device_label("python-httpx/0.27") is None and device_label(None) is None
+
+
+def test_sessions_list_labels_and_marks_this_device(api):
+    login(api, PATIENT, profile=PROFILE)
+    phone = ua_device(api, PATIENT, "phone", CHROME_ANDROID)
+    device(api, PATIENT, "laptop")
+    r = api.http.get(f"{V1}/auth/sessions", headers=bearer(phone))
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 3 and items[0]["current"] and items[0]["device"] == "Chrome · Android"
+    assert "Mozilla" not in r.text and "537.36" not in r.text and "device_id" not in r.text
+    refreshed = api.http.post(f"{V1}/auth/refresh", json={"refresh_token": phone["refresh_token"], "device_id": "phone"}).json()
+    again = api.http.get(f"{V1}/auth/sessions", headers=bearer(refreshed)).json()["items"]
+    assert [i["id"] for i in again] == [i["id"] for i in items]  # rotating the token keeps the session
+    assert again[0]["device"] == "Chrome · Android"
+
+
+def test_revoke_another_session_ends_it_idempotently_and_audits(api):
+    login(api, PATIENT, profile=PROFILE)
+    phone, laptop = device(api, PATIENT, "phone"), device(api, PATIENT, "laptop")
+    items = api.http.get(f"{V1}/auth/sessions", headers=bearer(phone)).json()["items"]
+    current = next(i["id"] for i in items if i["current"])
+    other = [i["id"] for i in items if not i["current"]]
+    laptop_id = next(i for i in other if api.conn.execute(
+        "SELECT 1 FROM refresh_tokens WHERE session_id = %s AND device_id = 'laptop'", [i]).fetchone())
+    for _ in range(2):
+        assert api.http.post(f"{V1}/auth/sessions/{laptop_id}/revoke", headers=bearer(phone)).status_code == 204
+    assert api.http.get(f"{V1}/me", headers=bearer(laptop)).status_code == 401
+    assert api.http.get(f"{V1}/me", headers=bearer(phone)).status_code == 200
+    assert actions(api, "auth.session_revoke") == 2
+    assert "already_ended" in audit_reasons(api, "auth.session_revoke")
+    r = api.http.post(f"{V1}/auth/sessions/{current}/revoke", headers=bearer(phone))
+    assert (r.status_code, r.json()["code"]) == (409, "current_session")
+    ids = [i["id"] for i in api.http.get(f"{V1}/auth/sessions", headers=bearer(phone)).json()["items"]]
+    assert laptop_id not in ids
+
+
+def test_another_accounts_session_is_not_found(api):
+    patient = login(api, PATIENT, profile=PROFILE)
+    accounts.seed_admin(api.conn, phone=ADMIN, name="Synthetic Admin")
+    admin = login(api, ADMIN, account="staff")
+    theirs = api.http.get(f"{V1}/auth/sessions", headers=admin).json()["items"][0]["id"]
+    r = api.http.post(f"{V1}/auth/sessions/{theirs}/revoke", headers=patient)
+    assert (r.status_code, r.json()["code"]) == (404, "not_found")
+    assert api.http.get(f"{V1}/me", headers=admin).status_code == 200
+    assert api.http.get(f"{V1}/auth/sessions").status_code == 401

@@ -194,6 +194,28 @@ def logout_all(request: Request, conn=Depends(get_conn), a: Actor = Depends(acto
     return response
 
 
+@router.get("/auth/sessions")
+def list_sessions(conn=Depends(get_conn), a: Actor = Depends(actor)):
+    """UX-3c: where this account is signed in. Device family labels only, never the user-agent."""
+    return {"items": sessions.list_sessions(conn, a.id, a.device_id)}
+
+
+@router.post("/auth/sessions/{session_id}/revoke", status_code=204)
+def revoke_session(session_id: UUID, request: Request, conn=Depends(get_conn), a: Actor = Depends(actor)):
+    """End one other session of this account. Another account's session is a 404; this device's is a 409 (Sign out)."""
+    with conn.transaction():
+        try:
+            ended = sessions.revoke_session(conn, a.id, session_id, a.device_id)
+        except sessions.NotYourSession:
+            raise ApiError(404, "not_found", "No such session.")
+        except sessions.CurrentSession:
+            raise ApiError(409, "current_session", "This is the device you are using. Use Sign out instead.")
+        audit.append(conn, action="auth.session_revoke", result="allow", reason=None if ended else "already_ended",
+                     actor_id=a.id, actor_role=a.role, device_id=a.device_id, resource_type="session",
+                     resource_id=session_id, **client_info(request))
+    return Response(status_code=204)
+
+
 # ---- credentials
 
 class CredentialBody(BaseModel):

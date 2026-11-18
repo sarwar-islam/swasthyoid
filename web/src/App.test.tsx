@@ -52,12 +52,12 @@ describe("portal shells", () => {
   it("console menus hold only each role's in-scope pages; the M10 review stays hidden while its flag is off", () => {
     const menu = () => within(screen.getByRole("navigation", { name: "Main menu" })).getAllByRole("link").map((a) => a.textContent);
     renderApp("/console", { lang: "en", token: ADMIN_TOKEN });
-    expect(menu()).toEqual(["Credential approvals", "Staff accounts", "Drug catalog import", "Audit log", "Worker metrics"]);
+    expect(menu()).toEqual(["Credential approvals", "Staff accounts", "Drug catalog import", "Audit log", "Worker metrics", "My account"]);
     for (const removed of [/referral/i, /pharmac/i, /appointment/i, /dispens/i, /prescription writer/i]) {
       expect(document.body.textContent).not.toMatch(removed);
     }
     cleanup();
     renderApp("/console", { lang: "en", token: REVIEWER_TOKEN });
-    expect(menu()).toEqual(["Rule registry"]);
+    expect(menu()).toEqual(["Rule registry", "My account"]);
   });
 });

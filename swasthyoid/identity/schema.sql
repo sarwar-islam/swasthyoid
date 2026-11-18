@@ -86,3 +86,8 @@ CREATE INDEX IF NOT EXISTS refresh_tokens_subject ON refresh_tokens (subject_id)
 CREATE INDEX IF NOT EXISTS refresh_tokens_live ON refresh_tokens (subject_id, device_id) WHERE revoked_at IS NULL;
 -- W2 idle timeout: the last request of the session this token belongs to (carried over when the token rotates)
 ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS last_seen_at timestamptz NOT NULL DEFAULT clock_timestamp();
+-- UX-3c active sessions: one login is one session (its id carried over when the token rotates); the device is kept only as
+-- a family label such as "Chrome · Android", never the raw user-agent
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS session_id uuid NOT NULL DEFAULT gen_random_uuid();
+ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS device_label text;
+CREATE INDEX IF NOT EXISTS refresh_tokens_session ON refresh_tokens (subject_id, session_id);

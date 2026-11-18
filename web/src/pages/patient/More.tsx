@@ -1,6 +1,7 @@
 import { AlarmClock, Bell, BriefcaseMedical, ClipboardList, FileText, HeartHandshake, HeartPulse, IdCard, LifeBuoy, Siren, UserRound, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
+import { Sessions } from "../../components/Sessions";
 import { ErrorNote } from "../../components/ui";
 import { flags } from "../../flags";
 import { useI18n } from "../../i18n/i18n";
@@ -61,6 +62,7 @@ export function More() {
         <p className="muted">{t("more.signOutAll.desc")}</p>
         <button type="button" onClick={signOutEverywhere}>{t("more.signOutAll")}</button>
       </section>
+      <Sessions />
     </>
   );
 }
