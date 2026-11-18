@@ -1,0 +1,15 @@
+{
+  "$comment": "Copy to web/vercel.json and replace YOUR-API.onrender.com. /api is proxied, so the refresh cookie stays same-origin.",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://YOUR-API.onrender.com/api/:path*" },
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-GC1GPdSlMyRmy8PnlYijgoLrTky38YZMx3LorGrOITE='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" },
+      { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" },
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "no-referrer" }
+    ] }
+  ]
+}
