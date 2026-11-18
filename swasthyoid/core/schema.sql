@@ -163,6 +163,8 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
     error           text,
     at              timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+-- W3: one row per (notification, channel, attempt): the attempt key, so recording an attempt twice changes nothing
+CREATE UNIQUE INDEX IF NOT EXISTS notification_deliveries_attempt ON notification_deliveries (notification_id, channel, attempt);
 
 -- Platform: Idempotency-Key replay for authenticated writes (FRD 7, ERD D).
 -- The ERD keys this table by `key` alone; it is scoped per caller and endpoint here so

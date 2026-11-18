@@ -157,5 +157,103 @@ def test_if_the_audit_write_fails_the_notification_stays_queued(conn, monkeypatc
     monkeypatch.setattr(audit, "append", broken)
     with pytest.raises(RuntimeError):
         c3.deliver_due(conn, [("push", Fake(fail=True))], max_attempts=1)
-    assert row(conn, n) == ("queued", 0)  # nothing lost, it will be tried again
+    assert row(conn, n) == ("queued", 1)  # nothing lost: the claimed attempt is taken again when its lease ends
     assert deliveries(conn, n) == []
+
+
+# ---- W3: claim -> send -> record, attempt keys, two workers
+
+def test_delivered_exactly_once_and_the_gateway_gets_the_attempt_key(conn):
+    keys = []
+    n = queue(conn)
+    assert c3.deliver_due(conn, [("sms", lambda m: keys.append(c3.attempt_key(m)))]) == 1
+    make_due(conn)
+    assert c3.deliver_due(conn, [("sms", lambda m: keys.append(c3.attempt_key(m)))]) == 0
+    assert keys == [f"{n['id']}:1"]
+    assert deliveries(conn, n) == [("sms", 1, "sent")]
+
+
+def test_the_gateway_is_called_with_no_lock_held(connect):
+    first, second = connect(), connect()
+    first.autocommit = second.autocommit = True
+    n = queue(first)
+    seen = []
+
+    def gateway(m):  # while sending, another connection can still update the row: nothing holds it
+        seen.append(second.execute("UPDATE notifications SET payload = payload WHERE id = %s RETURNING 1",
+                                   [m["id"]]).fetchone())
+
+    second.execute("SET lock_timeout = '2s'")
+    assert c3.deliver_due(first, [("sms", gateway)]) == 1
+    assert seen == [(1,)] and row(first, n) == ("delivered", 1)
+
+
+def test_a_worker_that_dies_after_claiming_loses_nothing(conn):
+    n = queue(conn)
+    assert c3._claim(conn, c3.CLAIM_LEASE)["id"] == n["id"]  # claimed, then the worker is gone
+    assert c3.deliver_due(conn, [("sms", Fake())]) == 0  # hidden while the lease runs
+    make_due(conn)  # the lease ran out
+    sms = Fake()
+    assert c3.deliver_due(conn, [("sms", sms)]) == 1
+    assert sms.sent == [n["id"]] and row(conn, n) == ("delivered", 2)
+
+
+def test_a_late_worker_does_not_overwrite_the_one_that_took_over(conn):
+    n = queue(conn)
+    late = c3._claim(conn, c3.CLAIM_LEASE)
+    make_due(conn)
+    c3.deliver_due(conn, [("sms", Fake())])  # the second worker delivers attempt 2
+    conn.execute("UPDATE notifications SET status = 'queued' WHERE id = %s", [n["id"]])  # worst case: still open
+    with conn.transaction():
+        c3._record(conn, late["id"], "sms", 2, None)  # a repeat of an attempt key changes nothing
+    assert deliveries(conn, n) == [("sms", 2, "sent")]
+
+
+def test_two_workers_never_deliver_the_same_notification(connect):
+    import threading
+    setup = connect()
+    setup.autocommit = True
+    ids = [queue(setup)["id"] for _ in range(30)]
+    sent, lock = [], threading.Lock()
+
+    def gateway(m):
+        with lock:
+            sent.append(m["id"])
+
+    def worker():
+        c = connect()
+        c.autocommit = True
+        c3.deliver_due(c, [("sms", gateway)])
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(sent) == sorted(ids)  # every one, once
+    assert setup.execute("SELECT count(*) FROM notifications WHERE status = 'delivered'").fetchone()[0] == 30
+
+
+def test_gateway_down_keeps_retrying_then_falls_back_in_app_with_audit(conn):
+    n = queue(conn)
+    down = [("sms", Fake(fail=True))]
+    for attempt in (1, 2, 3):
+        assert c3.deliver_due(conn, down, max_attempts=3) == 1
+        make_due(conn)
+    assert row(conn, n) == ("fallback_in_app", 3)
+    assert [d[0] for d in deliveries(conn, n)] == ["sms", "sms", "sms", "in_app"]
+    assert conn.execute("SELECT count(*) FROM audit_logs WHERE action = 'notification.failure'").fetchone()[0] == 1
+    assert [i["id"] for i in c3.inbox(conn, n["recipient_id"])] == [n["id"]]  # never lost
+
+
+def test_sms_console_logs_only_the_template_and_last_three_digits(conn, caplog):
+    from swasthyoid.identity import accounts
+    from swasthyoid.tests.test_api_m1 import PROFILE
+    me = accounts.register_patient(conn, phone="01700000123", **PROFILE)["id"]
+    n = queue(conn, me)
+    with caplog.at_level("INFO"):
+        c3.deliver_due(conn, [("sms_console", c3.sms_console_channel(conn))])
+    assert row(conn, n) == ("delivered", 1)
+    text = caplog.text
+    assert "PLACEHOLDER_TEMPLATE" in text and "...123" in text
+    assert "01700000" not in text and "synthetic" not in text
