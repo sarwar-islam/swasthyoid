@@ -145,3 +145,20 @@ Check each provider's current free-tier terms before relying on them; they chang
    inbox (B3), but prescription checks stay queued and nothing is extracted. When you need one, run a worker with
    `--once` by hand (`python -m swasthyoid.workers.deliver --once`) against the same `DATABASE_URL`, or use a paid worker.
    Run the seed once from your own machine with `APP_ENV=development` and the Neon `DATABASE_URL`.
+
+## Demo backend on Hugging Face (sarwarcss/swasthyoid-api, 2026-11-18)
+
+Running, synthetic data only. `deploy/hf-space/` is a Gradio Space on ZeroGPU hardware (a ZeroGPU Space cannot move down
+to CPU basic without a PRO subscription). `app.py` starts PostgreSQL in the container (as the `postgres` user; Spaces run as
+root), seeds the synthetic accounts, starts the extract (PaddleOCR English, **test mode**), safety and deliver workers,
+and serves the API. Gradio must own port 7860 on ZeroGPU, with SSR off, and forwards `/api` and `/health` to the API on
+7870. The PaddleOCR weights are downloaded on first start and pinned by their SHA-256 manifest in an approved list built
+from exactly those files.
+
+- **Update it:** `python deploy/hf-space/push.py sarwarcss/swasthyoid-api` (needs your own `huggingface_hub` login).
+- **Sign-in codes:** in the Space's Logs tab (`DEV one-time code for ...`). There is no SMS gateway until S2.
+- **Restarts:** the database, uploads and keys start fresh; the synthetic seed runs again.
+- **Checked live:** `/health`, sign-in as the seeded patient, a synthetic English prescription uploaded, PaddleOCR read
+  it (document moved to `needs_review`, no failed attempts). Reading is English only; Bangla needs Jonaki.
+- **Vercel:** `web/vercel.json` rewrites `/api/*` to `https://sarwarcss-swasthyoid-api.hf.space`. Set
+  `VITE_API_MODE=live` in the Vercel project, or the site keeps using the mock and nothing is read.
