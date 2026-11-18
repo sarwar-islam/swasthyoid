@@ -1,4 +1,4 @@
-"""W3 notification sender: `python -m swasthyoid.workers.notify [--once]`.
+"""W3 notification sender: `python -m swasthyoid.workers.deliver [--once]`.
 
 Delivers queued notifications (core/notification.py deliver_due: claim -> send -> record, retry with backoff, in-app
 fallback plus an audit entry after the last attempt). Configuration: DATABASE_URL; NOTIFY_POLL_SECONDS in loop mode;
@@ -21,7 +21,7 @@ CHANNELS = ("in_app", "sms_console")
 
 
 def _say(code, **fields):
-    sys.stderr.write(f"notify-runner: code={code}{''.join(f' {k}={v}' for k, v in fields.items())}\n")
+    sys.stderr.write(f"deliver-runner: code={code}{''.join(f' {k}={v}' for k, v in fields.items())}\n")
 
 
 def channels(name, conn):
@@ -31,7 +31,7 @@ def channels(name, conn):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="python -m swasthyoid.workers.notify")
+    parser = argparse.ArgumentParser(prog="python -m swasthyoid.workers.deliver")
     parser.add_argument("--once", action="store_true", help="try every due notification once, then exit")
     args = parser.parse_args(argv)
     name = os.environ.get("NOTIFY_CHANNEL", "in_app")

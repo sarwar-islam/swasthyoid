@@ -3,7 +3,7 @@ import contextlib
 from uuid import uuid4
 
 from swasthyoid.core import notification as c3
-from swasthyoid.workers import notify
+from swasthyoid.workers import deliver as notify
 
 
 def test_unknown_or_unbuilt_channels_are_configuration_errors(monkeypatch, capsys):

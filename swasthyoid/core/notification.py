@@ -11,7 +11,7 @@ and SMS gateways are not chosen yet; tests pass fakes.
 PLACEHOLDER: message text. Rows carry template_id and payload only. Bangla wording
 needs the lawyer (consent notices) and the clinical reviewer (vitals, emergency).
 PLACEHOLDER: quiet hours (Asia/Dhaka) are not implemented; the FRD gives no hours.
-W3: workers/notify.py runs deliver_due in a loop. Each attempt is claim -> send -> record: the claim commits the
+W3: workers/deliver.py runs deliver_due in a loop. Each attempt is claim -> send -> record: the claim commits the
 attempt number and pushes the row out of reach for CLAIM_LEASE, the gateway is called with no lock held, and the result is
 recorded only if this worker's claim still stands. The attempt key (notification id : attempt) goes to the gateway so it
 can drop a repeat; a worker that dies after sending leaves the row due again once the lease ends (at-least-once).
