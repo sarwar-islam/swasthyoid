@@ -2973,3 +2973,37 @@ shadows; the old scattered `.land-nav` rules were removed and replaced by one bl
 Bangla and English with axe). Build passes (JS 633 kB, CSS 44 kB). No lint is configured in the project. Browser pane,
 axe-core WCAG 2.1 AA with contrast, light and dark: 375, 430, 768, 1280 and 1440 px, 0 violations, no horizontal scroll,
 no header overlap, no clipped text, every link and button at least 44 px tall.
+
+## UX-3a/b/c, W3, W4 (2026-11-18)
+
+Owner-approved plan, run in one pass. Synthetic data only; no clinical rule, threshold or vocabulary added.
+
+- **UX-3a code splitting:** the doctor, verifier and console pages, the caregiver's document view and the mock load on
+  demand; the landing page, sign-in and the patient app stay in the first file. First-load JS 633 kB to 499 kB
+  (gzip 180 to 144 kB, with the sessions screen added); the live build carries no mock at all.
+- **UX-3b pre-render:** the build renders `/` (Bangla, light) into `dist/index.html` with Vite's SSR build and
+  `react-dom/server` (no new dependency). The client still renders from scratch. A small inline script drops the
+  pre-rendered page before paint on any other path, or when the visitor chose English or dark; the CSP pins it by hash.
+- **UX-3c active sessions:** `GET /auth/sessions`, `POST /auth/sessions/{id}/revoke`. A session is one sign-in (its id
+  survives token rotation). The device is stored and shown only as a family label ("Chrome · Android"), never the
+  user-agent. Revoke: own sessions only (another account's is 404), not this device (409: use Sign out), idempotent, every
+  call audited (`auth.session_revoke`, reason `already_ended` on a repeat). UI on the patient More page and a new
+  "My account" page in each staff portal, both with a confirmation dialog.
+- **W3 notification worker:** `python -m swasthyoid.workers.deliver [--once]`. `core/notification.py` now claims a row
+  (attempt number committed, row hidden for a five-minute lease), calls the gateway with no lock held, and records only
+  if its claim still stands. One delivery row per (notification, channel, attempt); the gateway gets the attempt key
+  `notification id:attempt`. Channels `in_app` and `sms_console` (template id and the phone's last three digits only);
+  `sms_gateway` is a PLACEHOLDER until S2. A worker that dies after claiming loses nothing (the lease ends and another
+  worker takes the row); delivery stays at-least-once.
+- **W4 deployment:** `deploy/` (compose with postgres, api, web, nginx and the three workers; nginx CSP, HSTS and rate
+  limits; backup and restore scripts; a Vercel template) and an API-level `RATE_LIMIT_PER_MINUTE` backstop (off unless
+  set; per process). The existing synthetic seed is the demo seed (compose profile `demo`). Not run on a real host:
+  Docker was not available here. Skipped as agreed: P8, P9, the SMS gateway (S2), hosting choice and data location (S3),
+  key management and KMS, monitoring.
+
+**Verification.** Backend full suite 1708 passed, 20 skipped; its one failure (the core-only lint rejected a worker file
+named `notify.py`) was fixed by renaming it `workers/deliver.py`, after which the lint, worker and C3 tests pass (25).
+Web 261 passed twice; type check passes; build passes. Browser pane, axe-core WCAG 2.1 AA: the sessions section and its
+dialog in Bangla and English at 375 px and desktop, light and dark, 0 violations, no horizontal scroll; the built bundle
+shows the pre-rendered landing at `/` and the sign-in page at `/patient/login`. Docker was not available, so the compose
+stack and nginx config were not run.

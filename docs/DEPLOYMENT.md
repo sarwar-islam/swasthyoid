@@ -85,3 +85,63 @@ connection string or exception message is ever written.
 - A database backup holds only sealed data and the retained hashes; the key must be stored and backed up separately.
 - Rows written before D2 are plain and cannot be rewritten (the table is append-only). Synthetic data only.
 - The worker and the API both hold the key; whoever holds it can read the text.
+
+# W4: the whole stack (2026-11-18)
+
+Everything below uses **synthetic data only**. Nothing here has been run against a real host, because Docker was not
+available where it was written. The compose file, nginx config and scripts are checked by review and by
+`swasthyoid/tests/test_deploy_files.py` (the CSP hash matches the pre-render script; the example env holds no secret).
+S3 (hosting and data location) is still open, so this is for a demo or staging, not for real patients.
+
+## Docker Compose (one machine)
+
+```
+cp deploy/.env.example deploy/.env      # fill every value; never commit it
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+```
+
+| Service | What it runs | Notes |
+|---|---|---|
+| `postgres` | PostgreSQL 16 | data in the `pgdata` volume |
+| `api` | uvicorn, `--proxy-headers` | applies the schema at startup; `RATE_LIMIT_PER_MINUTE` per client address |
+| `worker-extract` | `python -m swasthyoid.workers.extract` | idles until an OCR adapter is approved (D18) |
+| `worker-safety` | `python -m swasthyoid.workers.safety` | no catalog: every check is `blocked: catalog_unavailable` (fail closed) |
+| `worker-notify` | `python -m swasthyoid.workers.deliver` | `NOTIFY_CHANNEL` = `in_app` or `sms_console`; `sms_gateway` exits 2 until S2 |
+| `web` | the built web app (live API mode, landing pre-rendered) | static files only |
+| `nginx` | edge proxy on port 80 | `/api` to api, the rest to web; CSP, HSTS, nosniff, no-referrer; 10 r/s per address on `/api`, 10 a minute on sign-in codes |
+
+Workers restart on failure up to five times; exit 2 is a configuration error and fails the same way each time.
+**TLS:** terminate it in front of nginx (a load balancer, or a `listen 443 ssl` block with your certificates). HSTS only
+takes effect over HTTPS. The CSP pins the one inline script by its hash: if `web/scripts/prerender.mjs` changes that
+script, update the hash in `deploy/nginx.conf` and `deploy/vercel.json` (the test fails until you do).
+
+**Synthetic demo data:** set `APP_ENV=development` in `deploy/.env`, then
+`docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile demo run --rm seed`. It fills an empty
+database only. With `DEV_LOG_CODES=1` the API writes sign-in codes to its own log (there is no SMS gateway until S2):
+acceptable for a synthetic demo, **never with real people**.
+
+## Backup and restore
+
+- `deploy/backup.sh` writes `deploy/backups/swasthyoid-<UTC time>.dump` (pg_dump custom format).
+- `deploy/restore.sh <file.dump> --yes` stops the API and workers, replaces the database in one transaction, starts them.
+- The keys are **not** in the dump. Keep `PII_KEY`, `DOCUMENT_KEY`, `EXTRACTION_KEY`, `HMAC_KEY` and `JWT_SECRET` in a
+  separate place; a dump without its keys cannot be read. Back up the `documents` volume at the same time.
+- A restore rehearsal is still to be done and written down (W4 exit condition).
+
+## Free tier: Vercel (web) + Render (API) + Neon (database)
+
+Check each provider's current free-tier terms before relying on them; they change.
+
+1. **Neon:** create a project and database; copy its connection string (keep `sslmode=require`). Free compute suspends
+   when idle, so the first request after a pause is slow.
+2. **Render:** new Web Service from this repository, Docker, `deploy/Dockerfile.api`. Environment: `DATABASE_URL` (Neon),
+   the five keys, `APP_ENV`, `RATE_LIMIT_PER_MINUTE`, `DOCUMENT_STORE=/tmp/documents`. Health check path `/health`.
+   Free services sleep when idle and have no persistent disk: **uploaded documents are lost on every restart**, so this
+   demonstrates the screens, not storage.
+3. **Vercel:** import the repository with root `web`, build command `npm run build`, output `dist`, environment
+   `VITE_API_MODE=live`. Copy `deploy/vercel.json` to `web/vercel.json` and set your Render address. `/api` is rewritten
+   to Render, so the browser sees one origin and the refresh cookie (`SameSite=Strict`, path `/api/v1/auth`) works.
+4. **Workers:** free plans have no always-on background workers. Without them notifications still appear in the in-app
+   inbox (B3), but prescription checks stay queued and nothing is extracted. When you need one, run a worker with
+   `--once` by hand (`python -m swasthyoid.workers.deliver --once`) against the same `DATABASE_URL`, or use a paid worker.
+   Run the seed once from your own machine with `APP_ENV=development` and the Neon `DATABASE_URL`.

@@ -1,6 +1,6 @@
 # Bangla UI copy for review
 
-Generated from `web/src/i18n/strings.ts` (836 strings). Do not edit the strings here: reviewers mark the
+Generated from `web/src/i18n/strings.ts` (845 strings). Do not edit the strings here: reviewers mark the
 **Review** column (OK, or the suggested Bangla), and the changes are made in `strings.ts`, then this file is generated again.
 
 - **Native-language review:** every row. Plain, polite Bangla (আপনি form) for patients with low literacy; no ASCII digits
@@ -13,7 +13,7 @@ Generated from `web/src/i18n/strings.ts` (836 strings). Do not edit the strings 
 
 ## Groups
 
-[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (46) · [`cap`](#cap) (8) · [`aud`](#aud) (6) · [`more`](#more) (22) · [`nav`](#nav) (18) · [`common`](#common) (9) · [`cmd`](#cmd) (8) · [`login`](#login) (25) · [`logout`](#logout) (4) · [`hs`](#hs) (11) · [`err`](#err) (62) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
+[`app`](#app) (2) · [`a11y`](#a11y) (2) · [`lang`](#lang) (2) · [`theme`](#theme) (4) · [`emergency`](#emergency) (6) · [`portal`](#portal) (10) · [`land`](#land) (46) · [`cap`](#cap) (8) · [`aud`](#aud) (6) · [`more`](#more) (22) · [`sessions`](#sessions) (8) · [`nav`](#nav) (19) · [`common`](#common) (9) · [`cmd`](#cmd) (8) · [`login`](#login) (25) · [`logout`](#logout) (4) · [`hs`](#hs) (11) · [`err`](#err) (62) · [`home`](#home) (12) · [`doc`](#doc) (4) · [`status`](#status) (6) · [`capture`](#capture) (14) · [`q`](#q) (5) · [`docpage`](#docpage) (8) · [`verify`](#verify) (17) · [`f`](#f) (24) · [`tl`](#tl) (23) · [`prov`](#prov) (2) · [`consent`](#consent) (23) · [`cat`](#cat) (6) · [`cloud`](#cloud) (2) · [`history`](#history) (5) · [`me`](#me) (6) · [`records`](#records) (3) · [`reviewer`](#reviewer) (1) · [`vitals`](#vitals) (34) · [`triage`](#triage) (7) · [`firstAid`](#firstAid) (1) · [`rem`](#rem) (22) · [`profile`](#profile) (19) · [`dstatus`](#dstatus) (7) · [`req`](#req) (15) · [`open`](#open) (3) · [`bar`](#bar) (4) · [`ws`](#ws) (7) · [`sum`](#sum) (17) · [`chk`](#chk) (19) · [`srch`](#srch) (4) · [`al`](#al) (17) · [`cred`](#cred) (11) · [`bg`](#bg) (11) · [`dview`](#dview) (1) · [`care`](#care) (22) · [`vf`](#vf) (15) · [`rule`](#rule) (40) · [`bgr`](#bgr) (16) · [`cr`](#cr) (18) · [`catalog`](#catalog) (16) · [`audit`](#audit) (23) · [`staff`](#staff) (13) · [`role`](#role) (6) · [`met`](#met) (17) · [`qr`](#qr) (8) · [`pqr`](#pqr) (12) · [`inbox`](#inbox) (12) · [`th`](#th) (13)
 
 ## app
 
@@ -173,10 +173,24 @@ Generated from `web/src/i18n/strings.ts` (836 strings). Do not edit the strings 
 | `more.care.desc` | অনুমতি নিয়ে অন্য রোগীর নথি ও টাইমলাইন | Another patient's documents and timeline, with their permission |  |
 | `more.inbox.desc` | সম্মতির অনুরোধ, পরিচর্যাকারী ও নিরাপত্তা বিজ্ঞপ্তি | Consent requests, caregivers and security notices |  |
 
+## sessions
+
+| Key | Bangla | English (source meaning) | Review |
+|---|---|---|---|
+| `sessions.title` | কোথায় লগইন আছে | Where you're signed in |  |
+| `sessions.desc` | যেসব ডিভাইসে আপনার অ্যাকাউন্ট খোলা আছে। চেনেন না এমন কিছু দেখলে সেটি বন্ধ করুন। এই ডিভাইস বন্ধ করতে লগআউট চাপুন। | Devices where your account is open. End any you don't recognise. To end this device, use Sign out. |  |
+| `sessions.this` | এই ডিভাইস | This device |  |
+| `sessions.unknown` | অজানা ডিভাইস | Unknown device |  |
+| `sessions.lastActive` | শেষ ব্যবহার: {when} | Last active: {when} |  |
+| `sessions.end` | এই সেশন বন্ধ করুন | End this session |  |
+| `sessions.confirm` | এই ডিভাইস থেকে লগআউট করবেন? | Sign out that device? |  |
+| `sessions.ended` | সেশন বন্ধ হয়েছে। ওই ডিভাইসে আবার কোড দিয়ে ঢুকতে হবে। | Session ended. That device needs a code to sign in again. |  |
+
 ## nav
 
 | Key | Bangla | English (source meaning) | Review |
 |---|---|---|---|
+| `nav.account` | আমার অ্যাকাউন্ট | My account |  |
 | `nav.home` | হোম | Home |  |
 | `nav.timeline` | টাইমলাইন | Timeline |  |
 | `nav.capture` | নথি তুলুন | Capture |  |
